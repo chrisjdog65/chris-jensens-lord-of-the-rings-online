@@ -28,3 +28,8 @@
 - `G.PostFX.init(renderer, scene, camera)` should be called AFTER Sky/Veg exist (init applies `G.state.quality`). Main must call `G.PostFX.resize(w,h)` on window resize (it calls `renderer.setSize(w,h,false)` itself). `render(scene?, camera?)`.
 - `setQuality('auto'|'ultra'|'high'|'medium'|'low')` returns applied name, emits `qualityChanged(q)`. Params: `bloom, exposure, vignette, saturation, contrast, bloomThreshold, bloomRadius, grain, sharpen, tint, aberration, tonemap`. `stats {ms,...}`, `enabled`, `failed`, `warmup()`.
 - Character-panel / char-create previews must use their OWN small WebGLRenderer (PostFX does not render previews).
+
+## 11_sky.js
+- Assumes `G.Terrain.setSkyColor(THREE.Color)` and `G.Terrain.setSun(dirVector3, THREE.Color, intensity)`; `G.Audio.setAmbientRain(level 0..1)`; `G.Buildings.isInside(pos)`; `G.Player.camera` (dome follows it).
+- Extras: `G.Sky.setShadowQuality(size)` (0 disables), `getSkyColor(out)`, `getSunDir(out)`, `sunDir`, `moonDir`, `sunElevation`, `moonPhase`, `dayIndex`, `weather`, `cloudiness`, `rainLevel`, `snowLevel`, `lightning()`, `rollWeather()`, `autoWeather` (settable), `dome`.
+- Sunrise 05:00 / sunset 19:00. Emits `dayPhase`, `weatherChanged`. Precipitation fades inside buildings.

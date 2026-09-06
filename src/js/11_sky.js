@@ -48,9 +48,9 @@
   const WEATHER = {
     clear:  { cloud: 0.34, grey: 0.00, darken: 0.00, cloudDark: 0.00, rain: 0.0, snow: 0.0, sunMul: 1.00, wind: 1.0, fogFar: FOG_FAR, hazeMul: 1.0, storm: 0.0 },
     cloudy: { cloud: 0.68, grey: 0.35, darken: 0.10, cloudDark: 0.12, rain: 0.0, snow: 0.0, sunMul: 0.62, wind: 1.7, fogFar: 760,     hazeMul: 1.1, storm: 0.0 },
-    rain:   { cloud: 0.92, grey: 0.75, darken: 0.27, cloudDark: 0.45, rain: 1.0, snow: 0.0, sunMul: 0.38, wind: 2.3, fogFar: 500,     hazeMul: 1.25, storm: 0.0 },
+    rain:   { cloud: 0.95, grey: 0.75, darken: 0.30, cloudDark: 0.45, rain: 1.0, snow: 0.0, sunMul: 0.38, wind: 2.3, fogFar: 500,     hazeMul: 1.25, storm: 0.0 },
     snow:   { cloud: 0.90, grey: 0.72, darken: 0.18, cloudDark: 0.22, rain: 0.0, snow: 1.0, sunMul: 0.50, wind: 1.2, fogFar: 460,     hazeMul: 1.45, storm: 0.0 },
-    storm:  { cloud: 1.00, grey: 1.00, darken: 0.50, cloudDark: 0.72, rain: 1.6, snow: 0.0, sunMul: 0.22, wind: 3.6, fogFar: 380,     hazeMul: 1.25, storm: 1.0 },
+    storm:  { cloud: 1.00, grey: 1.00, darken: 0.58, cloudDark: 0.74, rain: 1.6, snow: 0.0, sunMul: 0.22, wind: 3.6, fogFar: 380,     hazeMul: 1.25, storm: 1.0 },
   };
   const WPARAMS = Object.keys(WEATHER.clear);
   const DEFAULT_WEIGHTS = { clear: 0.55, cloudy: 0.25, rain: 0.15, snow: 0.0, storm: 0.05 };
@@ -271,7 +271,7 @@
         vec2 warp = vec2(fbm3(cuv * 0.9 + 3.1), fbm3(cuv * 0.9 + 7.3)) - 0.5;
         vec2 cw = cuv + warp * 0.45;
         float n = fbm5(cw);
-        float cover = mix(0.72, 0.28, uCloud);
+        float cover = mix(0.72, 0.20, uCloud);
         float edge = smoothstep(cover, cover + 0.14, n);
         float thick = smoothstep(cover + 0.03, cover + 0.34, n);
         vec2 toSun = normalize(uSunDir.xz + vec2(0.0005, 0.0003));
@@ -286,7 +286,7 @@
 
       // ---- glow that survives thin clouds, lightning
       col += uSunColor * (pow(muP, 120.0) * 0.35 + pow(muP, 400.0) * 0.55) * uSunVis * (1.0 - cl * 0.85);
-      col += uFlash * vec3(0.72, 0.78, 1.0) * (0.35 + cl * 1.4);
+      col += uFlash * vec3(0.72, 0.78, 1.0) * (0.22 + cl * 0.8);
 
       gl_FragColor = vec4(col, 1.0);
       #include <tonemapping_fragment>

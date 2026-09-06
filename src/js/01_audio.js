@@ -1398,3 +1398,120 @@
       T('lute', concat(seq('_/48'), strum(ch.filter(function (c) { return c.t >= 48; }).map(function (c) { return { t: c.t - 48, n: c.n, d: c.d, v: c.v }; }), [0, 3], 2, 0.35, 1)), { vol: 0.35, pan: 0.35, send: 0.4 }),
     ] };
   });
+
+  // ---- COMBAT: driving percussion, E minor riff, 140 bpm ----
+  theme('combat', function () {
+    const R1 = 'E2/.5 E2/.5 G2/.5 E2/.5 Bb2/.5 A2/.5 G2/.5 E2/.5 | E2/.5 E2/.5 G2/.5 E2/.5 D3/.5 C3/.5 B2/.5 G2/.5';
+    const R2 = 'E2/.5 E2/.5 G2/.5 E2/.5 Bb2/.5 A2/.5 G2/.5 E2/.5 | C3/.5 C3/.5 B2/.5 B2/.5 A2/.5 A2/.5 G2/.5 F#2/.5';
+    const R3 = 'E2/.5 E2/.5 G2/.5 A2/.5 Bb2/.5 B2/.5 D3/.5 E3/.5 | E3 D3 B2 G2';
+    const riffA = seq(R1 + ' | ' + R2 + ' | ' + R1 + ' | ' + R2, { vel: 0.85 });
+    const riff = concat(riffA, transpose(seq(R1 + ' | ' + R2, { vel: 0.9 }), 5), seq(R1 + ' | ' + R3, { vel: 0.95 }));
+    const ch = chords('Em/16 Em/8 C/4 D/4 Am/16 Em/8 C/2 D/2 Em/4', { oct: 3, vel: 0.5 });
+    const stabs = seq('_/12 _/3 E4+B4/.5 E4+B4/.5 | _/12 _/2 G4+D5/.5 _/.5 E4+B4/1 | _/12 _/3 A4+E5/.5 A4+E5/.5 | _/12 E4+B4/.5 _/.5 E4+B4/.5 _/.5 E4+B4/2', { vel: 0.9 });
+    const horn = seq('_/32 E4/2 G4 A4 | B4/3 A4 | G4/2 E4 G4 | A4/4 | E5/2 D5 B4 | C5/2 B4 A4 | G4 A4 B4 D5 | E5/4', { vel: 0.8 });
+    return { tempo: 140, bpb: 4, bars: 16, loop: true, fadeIn: 0.8, tracks: [
+      T('lowstrings', riff, { vol: 0.65, gate: 0.7, send: 0.15 }),
+      T('bass', transpose(riff, -12), { vol: 0.5, gate: 0.6 }),
+      T('strings', ch, { vol: 0.3, send: 0.4 }),
+      T('brass', stabs, { vol: 0.55, pan: 0.15, send: 0.3 }),
+      T('horn', horn, { vol: 0.55, pan: -0.15, send: 0.35 }),
+      T('kick', concat(rep(drums('x..x..x.', 0.5), 8), rep(drums('x.x...x.', 0.5), 4), rep(drums('x..x..x.', 0.5), 3), drums('x.x.x.xx', 0.5)), { vol: 0.75 }),
+      T('snare', concat(rep(drums('..x...x.', 0.5), 15), drums('..x...xx', 0.5)), { vol: 0.5, pan: 0.15 }),
+      T('hat', rep(drums('xoxoxoxo', 0.5), 16), { vol: 0.3, pan: 0.3 }),
+      T('taiko', seq('C2/1 _/15 C2/1 _/15 C2/1 _/15 C2/1 _/7 C2/.5 C2/.5 _/7'), { vol: 0.6, send: 0.3 }),
+    ] };
+  });
+
+  // ---- BOSS: intense, brass hits, D minor with Neapolitan, 150 bpm ----
+  theme('boss', function () {
+    const R1 = 'D2/.5 D2/.5 D2/.5 F2/.5 D2/.5 Eb2/.5 D2/.5 C2/.5', R2 = 'D2/.5 D2/.5 D2/.5 A2/.5 Ab2/.5 G2/.5 F2/.5 Eb2/.5';
+    const riff = seq([R1, R2, R1, R2, R1, R2, R1, 'D2/.5 D2/.5 F2/.5 G2/.5 Ab2/.5 A2/.5 C3/.5 D3/.5'].join(' | ') + ' | ' + [R1, R2, R1, R2, R1, R2, R1, 'Eb2/.5 Eb2/.5 D2/.5 D2/.5 A2/.5 A2/.5 D2/1'].join(' | '), { vel: 0.9 });
+    const ch = chords('Dm/8 Eb/8 Dm/8 Bb/4 A/4 Dm/8 Gm/8 Eb/4 A/4 Dm/8', { oct: 3, vel: 0.55 });
+    const hits = seq('_/4 | _/2 D4+F4+A4/.5 _/.5 D4+F4+A4/1 | _/4 | Eb4+G4+Bb4/1 _/1 D4+F4+A4/2 | _/4 | _/2 D4+F4+A4/.5 _/.5 D4+F4+A4/1 | _/4 | C4+Eb4+G4/.5 _/.5 D4+F4+A4/.5 _/.5 A3+D4+F4/2 | ' +
+      '_/4 | _/2 F4+A4+D5/.5 _/.5 F4+A4+D5/1 | _/4 | G4+Bb4+D5/1 _/1 F4+A4+D5/2 | _/4 | Eb4+G4+Bb4/.5 _/.5 Eb4+G4+Bb4/.5 _/.5 D4+F4+A4/2 | _/4 | A3+C#4+E4/.5 _/.5 A3+C#4+E4/.5 _/.5 D4+F4+A4/2', { vel: 1 });
+    const horn = seq('_/32 A4/2 F4 D4 | Eb5/3 D5 | C5/2 A4 F4 | A4/4 | D5/2 C5 Bb4 | A4/2 G4 F4 | E4/2 F4/2 | D4/4', { vel: 0.85 });
+    return { tempo: 150, bpb: 4, bars: 16, loop: true, fadeIn: 0.6, tracks: [
+      T('lowstrings', riff, { vol: 0.65, gate: 0.7, send: 0.15 }),
+      T('bass', transpose(riff, -12), { vol: 0.5, gate: 0.6 }),
+      T('choir', ch, { vol: 0.45, send: 0.6 }),
+      T('brass', hits, { vol: 0.65, pan: 0.1, send: 0.35 }),
+      T('horn', horn, { vol: 0.55, pan: -0.2, send: 0.4 }),
+      T('taiko', rep(drums('X.x.X.x.', 0.5), 16), { vol: 0.8, send: 0.3 }),
+      T('kick', rep(drums('x.x.x.x.', 0.5), 16), { vol: 0.55 }),
+      T('snare', concat(rep(drums('..X...X.', 0.5), 15), drums('..X.XXXX', 0.5)), { vol: 0.55, pan: 0.15 }),
+      T('cymbal', seq('C4/1@.8 _/31 C4/1@.8 _/31'), { vol: 0.4, send: 0.5 }),
+      T('bells', seq('_/30 Ab5/1@.5 D6/1@.5 _/30 Eb6/1@.5 D6/1@.5'), { vol: 0.35, pan: 0.4, send: 0.7 }),
+    ] };
+  });
+
+  // ---- VICTORY: 8-bar fanfare (no loop) ----
+  theme('victory', function () {
+    const fan = 'G4/.5 G4/.5 G4/.5 C5/2.5 | E5/.5 D5/.5 C5/.5 G4/2.5 | A4/.5 B4/.5 C5/.5 D5/1.5 E5 | G5/4 | E5/.5 F5/.5 G5/.5 E5/1.5 C5 | D5/.5 E5/.5 F5/.5 D5/1.5 B4 | C5/2 G4/2 | C5/4';
+    const ch = chords('C/4 C/4 F/2 G/2 C/4 Am/4 F/2 G/2 C/2 G/2 C/4', { oct: 3, vel: 0.7 });
+    return { tempo: 120, bpb: 4, bars: 8, loop: false, fadeIn: 0.05, tracks: [
+      T('horn', seq(fan, { vel: 0.95 }), { vol: 0.75, pan: 0.1, send: 0.45 }),
+      T('brass', seq('_/12 C5+E5+G5/4@.8 _/8 E4+G4+C5/2@.7 G4+B4+D5/2@.7 C5+E5+G5/4@1'), { vol: 0.5, pan: -0.15, send: 0.4 }),
+      T('strings', ch, { vol: 0.45, send: 0.5 }),
+      T('strings', seq(fan, { vel: 0.5, tr: 12 }), { vol: 0.3, pan: 0.3, send: 0.5 }),
+      T('lowstrings', roots(ch, -1, { vel: 0.7 }), { vol: 0.5, send: 0.3 }),
+      T('timpani', seq('C2/1@.9 _/1 G2/.5@.6 G2/.5@.6 C2/1@.9 _/1 G2/.5@.6 G2/.5@.6 F2/1@.8 _/1 G2/1@.8 _/1 C2/1@1 _/3 C2/1@.9 _/1 G2/.5@.6 G2/.5@.6 A2/1@.8 _/1 A2/.5@.6 A2/.5@.6 F2/1@.8 _/1 G2/1@.8 _/1 C2/.5@.6 C2/.5@.7 C2/.5@.8 C2/.5@.9 C2/2@1'), { vol: 0.6, send: 0.4 }),
+      T('snare', concat(rep(drums('x.x.x.x.', 0.5), 7), drums('xxxxXXXX', 0.5)), { vol: 0.4, pan: 0.2 }),
+      T('cymbal', seq('C4/1@.8 _/11 C4/1@.9 _/15 C4/1@1 _/3'), { vol: 0.45, send: 0.5 }),
+    ] };
+  });
+
+  // ---- DEATH: short sad lament (no loop) ----
+  theme('death', function () {
+    const ch = chords('Dm/4 Dm/4 Bb/4 Gm/4 Dm/4 A/4 Dm/4 Dm/4', { oct: 3, vel: 0.5 });
+    return { tempo: 60, bpb: 4, bars: 8, loop: false, fadeIn: 0.5, tracks: [
+      T('flute', seq('A4/2 F4 E4 | D4/3 _ | F4/2 G4 A4 | A4/2 G4/2 | F4/2 E4 D4 | C4/2 D4 E4 | D4/4 | D4/4', { vel: 0.6 }), { vol: 0.6, pan: 0.1, send: 0.7 }),
+      T('strings', ch, { vol: 0.45, send: 0.7 }),
+      T('lowstrings', roots(ch, -1, { vel: 0.5 }), { vol: 0.4, send: 0.5 }),
+      T('choir', seq('_/16 D3+F3+A3/8@.4 D3+F3+A3/8@.35'), { vol: 0.35, send: 0.8 }),
+      T('bells', seq('_/28 D5/2@.3 _/2'), { vol: 0.3, pan: -0.3, send: 0.9 }),
+    ] };
+  });
+
+  // ---- SAILING: rolling 3/4 accordion waltz, C major ----
+  theme('sailing', function () {
+    const ch = chords('C/3 C/3 F/3 C/3 Am/3 F/3 G/3 C/3 C/3 Am/3 G/3 G/3 C/3 F/3 G/3 C/3', { oct: 3, vel: 0.6 });
+    const mel = seq('E4 G4 C5 | E5/2 D5 | C5 D5 E5 | G4/3 | A4 C5 E5 | D5/2 C5 | B4 A4 B4 | C5/3 | E5 G5 E5 | C5/2 E5 | D5 F5 D5 | B4/3 | C5 E5 G5 | A5/2 G5 | F5 E5 D5 | C5/3', { vel: 0.8 });
+    return { tempo: 120, bpb: 3, bars: 16, loop: true, tracks: [
+      T('accordion', mel, { vol: 0.7, pan: 0.1, send: 0.35 }),
+      T('accordion', strum(ch, [1, 2], 0.8, 0.5, 0), { vol: 0.4, pan: -0.25, send: 0.3 }),
+      T('pizz', roots(ch, -1, { vel: 0.8 }), { vol: 0.55, send: 0.2 }),
+      T('flute', seq('_/24 E5/3 C5/3 D5/3 G5/3 E5/3 A5/3 G5/3 E5/3', { vel: 0.45 }), { vol: 0.4, pan: 0.35, send: 0.5 }),
+      T('pad', ch, { vol: 0.28, send: 0.6 }),
+      T('tamb', rep(drums('x..', 1), 16), { vol: 0.25, pan: 0.4 }),
+    ] };
+  });
+
+  // ---- TAVERN: jaunty lute jig in 6/8, D major ----
+  theme('tavern', function () {
+    const ch = chords('D/6 G/6 A/6 D/6 D/6 G/6 A/6 D/6 D/6 G/6 A/6 D/6 G/6 D/6 A/6 D/6', { oct: 3, vel: 0.6 });
+    const jig = 'D4 F#4 A4 D5 A4 F#4 | G4 B4 D5 G5 D5 B4 | A4 C#5 E5 A5 E5 C#5 | D5/2 A4 F#4/2 D4 | D4 F#4 A4 D5 A4 F#4 | G4 B4 D5 G5 D5 B4 | E5 D5 C#5 B4 A4 G4 | F#4/3 D4/3 | ' +
+      'A5 F#5 D5 A5 F#5 D5 | B5 G5 D5 B5 G5 D5 | A5 E5 C#5 A5 E5 C#5 | D5/2 E5 F#5/2 D5 | G5 F#5 E5 D5 C#5 B4 | A4 B4 C#5 D5 E5 F#5 | E5 C#5 A4 G4 F#4 E4 | D4/6';
+    return { tempo: 280, bpb: 6, bars: 16, loop: true, tracks: [
+      T('lute', seq(jig, { vel: 0.9 }), { vol: 0.75, pan: -0.1, send: 0.25 }),
+      T('flute', concat(seq('_/48'), seq(jig.split(' | ').slice(8).join(' | '), { vel: 0.55 })), { vol: 0.4, pan: 0.3, send: 0.35 }),
+      T('lute', strum(ch, [0, 3], 2, 0.4, 0), { vol: 0.35, pan: 0.35, send: 0.25 }),
+      T('pizz', pick(ch, [0, 3], [0, 2], -1, 2.5, 0.8), { vol: 0.55 }),
+      T('tamb', rep(drums('x..x..', 1), 16), { vol: 0.3, pan: 0.45 }),
+      T('handdrum', rep(drums('x.ox.o', 1), 16), { vol: 0.45, pan: -0.3 }),
+    ] };
+  });
+
+  // ================================================================================================
+  // Event hooks & exports
+  // ================================================================================================
+  A.names = Object.keys(SFX);
+  A.instruments = Object.keys(INST);
+  A.hasTheme = function (id) { return !!THEMES[id]; };
+  if (typeof G.on === 'function') {
+    G.on('weatherChanged', function (kind) { A.setAmbientRain(kind === 'rain' || kind === 'storm'); });
+    G.on('dayPhase', function (phase) { if (amb.biome) A.ambient(amb.biome, phase); });
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', function () { if (ctx && document.visibilityState === 'visible' && ctx.state === 'suspended') ctx.resume().catch(function () {}); });
+  }
+})();
