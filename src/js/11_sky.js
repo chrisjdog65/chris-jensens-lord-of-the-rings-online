@@ -46,11 +46,11 @@
 
   // per-kind targets (every field is cross-faded over WEATHER_TRANSITION seconds)
   const WEATHER = {
-    clear:  { cloud: 0.36, grey: 0.00, darken: 0.00, rain: 0.0, snow: 0.0, sunMul: 1.00, wind: 1.0, fogFar: FOG_FAR, hazeMul: 1.0, storm: 0.0 },
-    cloudy: { cloud: 0.74, grey: 0.35, darken: 0.10, rain: 0.0, snow: 0.0, sunMul: 0.62, wind: 1.7, fogFar: 760,     hazeMul: 1.1, storm: 0.0 },
-    rain:   { cloud: 0.93, grey: 0.75, darken: 0.27, rain: 1.0, snow: 0.0, sunMul: 0.38, wind: 2.3, fogFar: 500,     hazeMul: 1.25, storm: 0.0 },
-    snow:   { cloud: 0.90, grey: 0.72, darken: 0.18, rain: 0.0, snow: 1.0, sunMul: 0.50, wind: 1.2, fogFar: 460,     hazeMul: 1.45, storm: 0.0 },
-    storm:  { cloud: 1.00, grey: 1.00, darken: 0.50, rain: 1.6, snow: 0.0, sunMul: 0.22, wind: 3.6, fogFar: 380,     hazeMul: 1.25, storm: 1.0 },
+    clear:  { cloud: 0.34, grey: 0.00, darken: 0.00, cloudDark: 0.00, rain: 0.0, snow: 0.0, sunMul: 1.00, wind: 1.0, fogFar: FOG_FAR, hazeMul: 1.0, storm: 0.0 },
+    cloudy: { cloud: 0.68, grey: 0.35, darken: 0.10, cloudDark: 0.12, rain: 0.0, snow: 0.0, sunMul: 0.62, wind: 1.7, fogFar: 760,     hazeMul: 1.1, storm: 0.0 },
+    rain:   { cloud: 0.92, grey: 0.75, darken: 0.27, cloudDark: 0.45, rain: 1.0, snow: 0.0, sunMul: 0.38, wind: 2.3, fogFar: 500,     hazeMul: 1.25, storm: 0.0 },
+    snow:   { cloud: 0.90, grey: 0.72, darken: 0.18, cloudDark: 0.22, rain: 0.0, snow: 1.0, sunMul: 0.50, wind: 1.2, fogFar: 460,     hazeMul: 1.45, storm: 0.0 },
+    storm:  { cloud: 1.00, grey: 1.00, darken: 0.50, cloudDark: 0.72, rain: 1.6, snow: 0.0, sunMul: 0.22, wind: 3.6, fogFar: 380,     hazeMul: 1.25, storm: 1.0 },
   };
   const WPARAMS = Object.keys(WEATHER.clear);
   const DEFAULT_WEIGHTS = { clear: 0.55, cloudy: 0.25, rain: 0.15, snow: 0.0, storm: 0.05 };
@@ -164,7 +164,7 @@
       vec4 wp = modelMatrix * vec4(position, 1.0);
       vWorldDir = wp.xyz - cameraPosition;
       vec4 cp = projectionMatrix * viewMatrix * wp;
-      cp.z = cp.w;                       // pin the dome to the far plane
+      cp.z = cp.w * 0.999999;            // pin the dome just inside the far plane
       gl_Position = cp;
     }`;
 
@@ -250,13 +250,14 @@
         float rr = dot(q, q);
         float inDisc = 1.0 - smoothstep(0.86, 1.0, rr);
         float nz = sqrt(max(0.0, 1.0 - min(rr, 1.0)));
-        vec3 nW = mr * q.x + mup * q.y + uMoonDir * nz;
+        vec3 nW = mr * q.x + mup * q.y - uMoonDir * nz;   // visible hemisphere faces the viewer
         float litM = smoothstep(-0.06, 0.22, dot(nW, uSunDir));
         float mar = 0.80 + 0.20 * vnoise(q * 2.6 + 11.0);
         vec3 moonCol = uMoonColor * mar * (0.035 + 0.965 * litM);
         col = mix(col, moonCol, inDisc * uMoonVis);
       }
-      col += uMoonColor * pow(max(mm, 0.0), 260.0) * 0.32 * uMoonVis * uMoonBright;
+      float mmP = max(mm, 0.0);
+      col += uMoonColor * (pow(mmP, 1600.0) * 0.45 + pow(mmP, 220.0) * 0.07) * uMoonVis * uMoonBright;
 
       // ---- sun disc
       float disc = smoothstep(0.99955, 0.99985, mu);
@@ -270,13 +271,13 @@
         vec2 warp = vec2(fbm3(cuv * 0.9 + 3.1), fbm3(cuv * 0.9 + 7.3)) - 0.5;
         vec2 cw = cuv + warp * 0.45;
         float n = fbm5(cw);
-        float cover = mix(0.70, 0.40, uCloud);
+        float cover = mix(0.72, 0.28, uCloud);
         float edge = smoothstep(cover, cover + 0.14, n);
-        float thick = smoothstep(cover + 0.02, cover + 0.42, n);
+        float thick = smoothstep(cover + 0.03, cover + 0.34, n);
         vec2 toSun = normalize(uSunDir.xz + vec2(0.0005, 0.0003));
         float n2 = fbm5(cw + toSun * 0.07);
         float lit = clamp(0.5 + (n - n2) * 6.0, 0.0, 1.0);
-        vec3 ccol = mix(uCloudLit, uCloudShade, thick);
+        vec3 ccol = mix(uCloudLit, uCloudShade, thick * 0.92);
         ccol = mix(ccol, uCloudLit, lit * (1.0 - thick) * 0.7);
         ccol += uSunColor * pow(muP, 40.0) * 0.5 * (1.0 - thick) * uSunVis;
         cl = edge * smoothstep(0.0, 0.11, y);
@@ -319,6 +320,20 @@
       float edge = 1.0 - smoothstep(box * 0.32, box * 0.5, length(rel));
       vFade = smoothstep(0.4, 2.2, dist) * edge;
     }`;
+  const BOLT_VERT = `
+    attribute float aEdge;
+    varying float vE;
+    void main() { vE = aEdge; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+  const BOLT_FRAG = `
+    precision mediump float;
+    uniform vec3 uColor;
+    uniform float uOpacity;
+    varying float vE;
+    void main() {
+      float t = 1.0 - abs(vE);
+      gl_FragColor = vec4(uColor * (0.8 + 0.7 * t), pow(t, 1.6) * uOpacity);
+      #include <colorspace_fragment>
+    }`;
   const PRECIP_FRAG = `
     precision mediump float;
     uniform sampler2D uTex;
@@ -334,7 +349,11 @@
   let _scene = null, _renderer = null, _inited = false;
   let dome = null, domeMat = null, U = null;          // U = dome uniforms
   let sun = null, moon = null, hemi = null, ambient = null, fog = null;
-  let rain = null, rainMat = null, snow = null, snowMat = null, bolt = null, boltPos = null, boltMat = null;
+  let rain = null, rainMat = null, snow = null, snowMat = null;
+  let bolt = null, boltGlow = null, boltPos = null, boltGlowPos = null, boltMat = null, boltGlowMat = null;
+  const BOLT_STRIPS = 3, BOLT_PTS = 20;               // main channel + 2 branches, 20 points each
+  const _bp = new Float32Array(BOLT_STRIPS * BOLT_PTS * 3);   // bolt centre-line points (scratch)
+  const _camPos = new THREE.Vector3();
   let _t = 0;                                         // private clock (seconds of gameplay)
   let _dayIndex = 0, _lastHour = -1;
   let _phase = 'day', _phaseSet = false;
@@ -388,10 +407,11 @@
     };
     domeMat = new THREE.ShaderMaterial({
       uniforms: U, vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
-      side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false, lights: false,
+      side: THREE.BackSide, depthWrite: false, depthTest: true, fog: false, lights: false,
     });
     dome = new THREE.Mesh(new THREE.SphereGeometry(DOME_RADIUS, 48, 24), domeMat);
-    dome.name = 'skyDome'; dome.renderOrder = -1000; dome.frustumCulled = false;
+    // drawn after the other opaques (depth test passes only where nothing was drawn) so only visible sky pixels pay for the shader
+    dome.name = 'skyDome'; dome.renderOrder = 1000; dome.frustumCulled = false;
     dome.matrixAutoUpdate = true; dome.castShadow = false; dome.receiveShadow = false;
     scene.add(dome);
 
@@ -468,16 +488,31 @@
     rainMat = rain.material; snowMat = snow.material;
     scene.add(rain); scene.add(snow);
 
-    // --- lightning bolt
-    const boltGeo = new THREE.BufferGeometry();
-    boltPos = new Float32Array(2 * 40 * 3);
-    boltGeo.setAttribute('position', new THREE.BufferAttribute(boltPos, 3));
-    boltGeo.setDrawRange(0, 0);
-    boltGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
-    boltMat = new THREE.LineBasicMaterial({ color: 0xdfe8ff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-    bolt = new THREE.LineSegments(boltGeo, boltMat);
-    bolt.frustumCulled = false; bolt.visible = false; bolt.renderOrder = 890; bolt.matrixAutoUpdate = false;
-    scene.add(bolt);
+    // --- lightning bolt: two camera-facing ribbons (bright core + wide soft glow) sharing the same jagged centre line
+    function makeRibbon(color, opacity) {
+      const nv = BOLT_STRIPS * BOLT_PTS * 2;
+      const geo = new THREE.BufferGeometry();
+      const pos = new Float32Array(nv * 3);
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const edge = new Float32Array(nv); for (let i = 0; i < nv; i++) edge[i] = (i & 1) ? 1 : -1;
+      geo.setAttribute('aEdge', new THREE.BufferAttribute(edge, 1));
+      const idx = [];
+      for (let st = 0; st < BOLT_STRIPS; st++) for (let i = 0; i < BOLT_PTS - 1; i++) { const b = (st * BOLT_PTS + i) * 2; idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); }
+      geo.setIndex(idx);
+      geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+      const mat = new THREE.ShaderMaterial({
+        uniforms: { uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity } },
+        vertexShader: BOLT_VERT, fragmentShader: BOLT_FRAG,
+        transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false, lights: false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.frustumCulled = false; mesh.visible = false; mesh.renderOrder = 890; mesh.matrixAutoUpdate = false;
+      return { mesh, pos, mat };
+    }
+    const core = makeRibbon(0xe6eeff, 1.0), glow = makeRibbon(0x7a96ff, 0.35);
+    bolt = core.mesh; boltPos = core.pos; boltMat = core.mat; bolt.name = 'lightning';
+    boltGlow = glow.mesh; boltGlowPos = glow.pos; boltGlowMat = glow.mat; boltGlow.name = 'lightningGlow';
+    scene.add(bolt); scene.add(boltGlow);
 
     // --- initial state
     _weather = _targetWeather = (G.state && WEATHER[G.state.weather]) ? G.state.weather : 'clear';
@@ -559,30 +594,49 @@
   function lightning() {
     _flash = 1.0; _flash2At = _t + 0.11 + rand() * 0.08;
     _thunderAt = _t + 1 + rand() * 2;
-    // bolt geometry: jagged line from the cloud base to the ground, 140-360 m away
+    // centre line: jagged main channel from the cloud base to the ground, 140-360 m away, plus two branches
     const ang = rand() * TWO_PI, distB = 140 + rand() * 220;
     const bx = _lastPos.x + Math.cos(ang) * distB, bz = _lastPos.z + Math.sin(ang) * distB;
     let gy = 0;
     if (G.Terrain && typeof G.Terrain.height === 'function') { const h = G.Terrain.height(bx, bz); if (typeof h === 'number' && h === h) gy = Math.max(h, (G.C && G.C.SEA_LEVEL) || 0); }
-    const top = gy + 170 + rand() * 60, segs = 16;
-    let n = 0, x = bx, y = top, z = bz;
-    const step = (top - gy) / segs;
-    let px = x, py = y, pz = z;
-    for (let i = 1; i <= segs && n < 78; i++) {
-      x = bx + (rand() - 0.5) * 14 * (i / segs + 0.3); z = bz + (rand() - 0.5) * 14 * (i / segs + 0.3); y = top - step * i;
-      if (i === segs) { x = px + (rand() - 0.5) * 4; z = pz + (rand() - 0.5) * 4; y = gy; }
-      boltPos[n * 3] = px; boltPos[n * 3 + 1] = py; boltPos[n * 3 + 2] = pz; n++;
-      boltPos[n * 3] = x; boltPos[n * 3 + 1] = y; boltPos[n * 3 + 2] = z; n++;
-      if (i === 5 || i === 9) { // side branch
-        const ex = x + (rand() - 0.5) * 40, ez = z + (rand() - 0.5) * 40, ey = y - 25 - rand() * 30;
-        boltPos[n * 3] = x; boltPos[n * 3 + 1] = y; boltPos[n * 3 + 2] = z; n++;
-        boltPos[n * 3] = ex; boltPos[n * 3 + 1] = ey; boltPos[n * 3 + 2] = ez; n++;
-      }
-      px = x; py = y; pz = z;
+    const top = gy + 170 + rand() * 60, main = BOLT_PTS - 1, step = (top - gy) / main;
+    for (let i = 0; i <= main; i++) {
+      const f = i / main, jag = 16 * (0.25 + f);
+      const o = i * 3;
+      _bp[o] = i === 0 ? bx : bx + (rand() - 0.5) * jag; _bp[o + 1] = i === main ? gy : top - step * i; _bp[o + 2] = i === 0 ? bz : bz + (rand() - 0.5) * jag;
     }
-    bolt.geometry.setDrawRange(0, n);
+    for (let b = 1; b < BOLT_STRIPS; b++) {
+      const from = b === 1 ? 6 : 11, base = b * BOLT_PTS * 3, fo = from * 3;
+      const dx = (rand() - 0.5) * 2, dz = (rand() - 0.5) * 2, len = 6 + rand() * 4;
+      let x = _bp[fo], y = _bp[fo + 1], z = _bp[fo + 2];
+      for (let i = 0; i < BOLT_PTS; i++) {
+        const o = base + i * 3;
+        if (i > 0 && i < 8) { x += dx * len * 0.6 + (rand() - 0.5) * 5; z += dz * len * 0.6 + (rand() - 0.5) * 5; y -= len * (0.6 + rand() * 0.6); }
+        _bp[o] = x; _bp[o + 1] = y; _bp[o + 2] = z;   // points past the branch tip collapse (degenerate triangles)
+      }
+    }
+    // extrude both ribbons perpendicular to the view direction
+    for (let st = 0; st < BOLT_STRIPS; st++) {
+      const base = st * BOLT_PTS;
+      const w0 = st === 0 ? 1.0 : 0.6, g0 = st === 0 ? 7.0 : 4.0;
+      for (let i = 0; i < BOLT_PTS; i++) {
+        const o = (base + i) * 3, o2 = (base + Math.min(i + 1, BOLT_PTS - 1)) * 3, o1 = (base + Math.max(i - 1, 0)) * 3;
+        _v1.set(_bp[o2] - _bp[o1], _bp[o2 + 1] - _bp[o1 + 1], _bp[o2 + 2] - _bp[o1 + 2]);
+        if (_v1.lengthSq() < 1e-6) _v1.set(0, -1, 0);
+        _v2.set(_bp[o] - _camPos.x, _bp[o + 1] - _camPos.y, _bp[o + 2] - _camPos.z);
+        _v3.crossVectors(_v1, _v2); if (_v3.lengthSq() < 1e-6) _v3.set(1, 0, 0); _v3.normalize();
+        const taper = st === 0 ? 1.0 - 0.5 * (i / (BOLT_PTS - 1)) : 1.0 - 0.9 * (i / 8);
+        const w = w0 * Math.max(0.15, taper), g = g0 * Math.max(0.2, taper);
+        const v = (base + i) * 2 * 3;
+        boltPos[v] = _bp[o] - _v3.x * w; boltPos[v + 1] = _bp[o + 1] - _v3.y * w; boltPos[v + 2] = _bp[o + 2] - _v3.z * w;
+        boltPos[v + 3] = _bp[o] + _v3.x * w; boltPos[v + 4] = _bp[o + 1] + _v3.y * w; boltPos[v + 5] = _bp[o + 2] + _v3.z * w;
+        boltGlowPos[v] = _bp[o] - _v3.x * g; boltGlowPos[v + 1] = _bp[o + 1] - _v3.y * g; boltGlowPos[v + 2] = _bp[o + 2] - _v3.z * g;
+        boltGlowPos[v + 3] = _bp[o] + _v3.x * g; boltGlowPos[v + 4] = _bp[o + 1] + _v3.y * g; boltGlowPos[v + 5] = _bp[o + 2] + _v3.z * g;
+      }
+    }
     bolt.geometry.attributes.position.needsUpdate = true;
-    bolt.visible = true; _boltUntil = _t + 0.14 + rand() * 0.1;
+    boltGlow.geometry.attributes.position.needsUpdate = true;
+    bolt.visible = boltGlow.visible = true; _boltUntil = _t + 0.14 + rand() * 0.1;
     _thunderVol = clamp(1.15 - distB / 500, 0.35, 1);
   }
 
@@ -619,6 +673,12 @@
     const night = 1 - smooth(-0.12, 0.12, e);
     const dawnGlow = 1 - smooth(0, 0.18, Math.abs(e));
 
+    // dome (and particle box) follow the camera, or the player when no camera exists yet
+    const cam = G.Player && G.Player.camera;
+    const cpos = (cam && cam.position) ? cam.position : pos;
+    _camPos.copy(cpos);
+    dome.position.copy(cpos);
+
     // ---- weather transition + automatic weather + lightning
     if (_wt < 1 && dt > 0) {
       _wt = Math.min(1, _wt + dt / WEATHER_TRANSITION);
@@ -632,7 +692,10 @@
     if (storminess > 0.5 && _t >= _nextBolt) { lightning(); _nextBolt = _t + 4 + rand() * 11; }
     if (_flash2At > 0 && _t >= _flash2At) { _flash = Math.max(_flash, 0.6); _flash2At = -1; }
     if (_flash > 0) { _flash *= Math.exp(-dt * 13); if (_flash < 0.003) _flash = 0; }
-    if (bolt.visible && _t >= _boltUntil) bolt.visible = false;
+    if (bolt.visible) {
+      if (_t >= _boltUntil) bolt.visible = boltGlow.visible = false;
+      else { boltMat.uniforms.uOpacity.value = clamp(_flash * 1.6, 0.3, 1); boltGlowMat.uniforms.uOpacity.value = 0.35 * clamp(_flash * 1.6, 0.3, 1); }
+    }
     if (_thunderAt > 0 && _t >= _thunderAt) {
       _thunderAt = -1;
       if (G.Audio && typeof G.Audio.sfx === 'function') G.Audio.sfx('thunder', { vol: _thunderVol * (0.7 + rand() * 0.3), pitch: 0.85 + rand() * 0.3 });
@@ -644,8 +707,8 @@
     weatherTint(_pal.zen, _zen, grey, dark, 0.55, 0.9, 0);
     weatherTint(_pal.hor, _hor, grey, dark, 0.45, 0.8, 0);
     weatherTint(_pal.haze, _haze, grey, dark, 0.7, 0.8, 0);
-    weatherTint(_pal.lit, _lit, grey, dark, 0.8, 0.55, grey * 0.35);
-    weatherTint(_pal.shade, _shade, grey, dark, 0.8, 0.75, grey * 0.45);
+    weatherTint(_pal.lit, _lit, grey, dark, 0.8, 0.55, _wc.cloudDark);
+    weatherTint(_pal.shade, _shade, grey, dark, 0.8, 0.75, Math.min(0.95, _wc.cloudDark * 1.1));
     _ground.copy(_hor).multiplyScalar(0.5);
     ramp(SUN_LIGHT_RAMP, e, _sunLight);
     ramp(SUN_DISC_RAMP, e, _sunDisc);
@@ -673,11 +736,6 @@
     _v1.set(0, -SIN_T, COS_T);                          // sun's rotation axis → the stars wheel around it
     _m4.makeRotationAxis(_v1, -th * 0.98 + 0.4);
     U.uStarMat.value.setFromMatrix4(_m4);
-
-    // dome follows the camera (or the player when no camera exists yet)
-    const cam = G.Player && G.Player.camera;
-    const cpos = (cam && cam.position) ? cam.position : pos;
-    dome.position.copy(cpos);
 
     // ---- lights
     const sunI = 3.0 * Math.pow(clamp((e + 0.05) / 0.4, 0, 1), 0.7) * _wc.sunMul;

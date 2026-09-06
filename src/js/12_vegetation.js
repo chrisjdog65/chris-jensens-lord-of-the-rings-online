@@ -229,9 +229,11 @@
       P.push(-ww, y, z, ww, y, z); N.push(0, 0, 1, 0, 0, 1); U.push(0, t, 1, t);
     }
     for (let s = 0; s < segs; s++) { const a = s * 2; I.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-    const nv = P.length / 3;
-    for (let i = 0; i < nv; i++) { P.push(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]); N.push(0, 0, -1); U.push(U[i * 2], U[i * 2 + 1]); }
-    for (let s = 0; s < segs; s++) { const a = nv + s * 2; I.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    if (!opts.single) { // back face (for opaque materials); alpha-tested materials use side:DoubleSide instead
+      const nv = P.length / 3;
+      for (let i = 0; i < nv; i++) { P.push(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]); N.push(0, 0, -1); U.push(U[i * 2], U[i * 2 + 1]); }
+      for (let s = 0; s < segs; s++) { const a = nv + s * 2; I.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(P), 3));
     g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(N), 3));
@@ -521,4 +523,425 @@
     GEOMS.stump = buildStump(); GEOMS.log = buildLog(); GEOMS.reed = buildReed();
     for (const k in GEOMS) GEOMS[k].tris = GEOMS[k].lods.map(triCount);
     DETAIL_GEOMS.grass = buildGrass(); DETAIL_GEOMS.flower = buildFlower(); DETAIL_GEOMS.fern = buildFern(); DETAIL_GEOMS.mushroom = buildMushroom();
+  }
+
+  /* ------------------------------------------------------------------------------------------------
+   * Materials & wind shader injection
+   * aVeg  (per vertex, vec2): x = sway weight, y = canopy flag (tint + snow apply where 1)
+   * aInst (per instance, vec4): rgb = canopy tint multiplier, w = snow amount
+   * ---------------------------------------------------------------------------------------------- */
+  const uniforms = { uTime: { value: 0 }, uWind: { value: 1 } };
+  const WIND_PERIOD = Math.PI * 4 * 25;   // all wind frequencies are multiples of 0.5 → seamless wrap
+  function injectWind(shader) {
+    shader.uniforms.uTime = uniforms.uTime;
+    shader.uniforms.uWind = uniforms.uWind;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', [
+        'attribute vec2 aVeg;', 'attribute vec4 aInst;', 'uniform float uTime;', 'uniform float uWind;',
+        '#include <common>'].join('\n'))
+      .replace('#include <color_vertex>', [
+        '#include <color_vertex>',
+        '#ifdef USE_COLOR',
+        '  vColor.rgb *= mix(vec3(1.0), aInst.rgb, aVeg.y);',
+        '  vColor.rgb = mix(vColor.rgb, vec3(0.93, 0.95, 1.0), aInst.w * clamp((normal.y - 0.1) * 1.5, 0.0, 1.0) * aVeg.y);',
+        '#endif'].join('\n'))
+      .replace('#include <begin_vertex>', [
+        '#include <begin_vertex>',
+        '#ifdef USE_INSTANCING',
+        '{',
+        '  float sw = aVeg.x;',
+        '  if (sw > 0.001) {',
+        '    vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);',
+        '    float ph = wp.x * 0.1 + wp.z * 0.06;',
+        '    float t = uTime;',
+        '    float g = sin(t * 1.0 + ph) * 0.5 + sin(t * 2.5 + ph * 1.9 + 1.7) * 0.3 + sin(t * 4.0 + ph * 3.1 + 0.6) * 0.2;',
+        '    float h = sin(t * 1.5 + ph * 1.3 + 2.1) * 0.6 + sin(t * 3.5 + ph * 2.7) * 0.4;',
+        '    float amp = uWind * sw * 0.22;',
+        '    vec3 wo = vec3(0.94, 0.0, 0.34) * (g * amp + uWind * uWind * sw * 0.05) + vec3(-0.34, 0.0, 0.94) * (h * amp * 0.45);',
+        '    mat3 im = mat3(instanceMatrix);',
+        '    vec3 oo = vec3(dot(im[0], wo), dot(im[1], wo), dot(im[2], wo)) / max(dot(im[0], im[0]), 1e-6);',
+        '    transformed += oo;',
+        '    transformed.y -= length(oo) * 0.35 * sw;',
+        '  }',
+        '}',
+        '#endif'].join('\n'));
+  }
+  const MATS = {};
+  function makeMaterial(opts) {
+    const m = new THREE.MeshStandardMaterial(Object.assign({ vertexColors: true, roughness: 0.92, metalness: 0.0 }, opts));
+    m.onBeforeCompile = injectWind;
+    m.customProgramCacheKey = () => 'veg_wind_' + (opts.map ? 'a' : 'o') + (opts.flatShading ? 'f' : 's');
+    return m;
+  }
+  function paintGrassTexture(ctx, w, h) {
+    ctx.clearRect(0, 0, w, h);
+    const rng = makeRng(777);
+    for (let i = 0; i < 11; i++) {
+      const x0 = w * (0.08 + 0.84 * (i / 10)) + (rng() - 0.5) * w * 0.06;
+      const bw = w * (0.045 + rng() * 0.035), bh = h * (0.55 + rng() * 0.45), lean = (rng() - 0.5) * w * 0.35;
+      const grad = ctx.createLinearGradient(0, h, 0, h - bh);
+      const v = 0.42 + rng() * 0.12;
+      grad.addColorStop(0, `rgb(${Math.round(255 * v * 0.55)},${Math.round(255 * v * 0.62)},${Math.round(255 * v * 0.35)})`);
+      grad.addColorStop(0.6, `rgb(${Math.round(255 * (v + 0.25))},${Math.round(255 * (v + 0.3))},${Math.round(255 * (v + 0.05))})`);
+      grad.addColorStop(1, `rgb(${Math.round(255 * 0.98)},${Math.round(255 * 0.99)},${Math.round(255 * 0.72)})`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(x0 - bw, h);
+      ctx.quadraticCurveTo(x0 - bw * 0.4 + lean * 0.5, h - bh * 0.55, x0 + lean, h - bh);
+      ctx.quadraticCurveTo(x0 + bw * 0.4 + lean * 0.5, h - bh * 0.55, x0 + bw, h);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  function paintFernTexture(ctx, w, h) {
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgb(150,170,90)'; ctx.lineWidth = w * 0.035; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(w * 0.5, h); ctx.lineTo(w * 0.5, h * 0.04); ctx.stroke();
+    const n = 13;
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1), y = h * (0.97 - t * 0.9), len = w * 0.46 * Math.sin(Math.PI * (0.15 + 0.85 * (1 - t)) * 0.75 + 0.2) * (1 - t * 0.55);
+      const lw = h * 0.05 * (1 - t * 0.5);
+      const v = 0.55 + t * 0.4;
+      ctx.fillStyle = `rgb(${Math.round(255 * v * 0.85)},${Math.round(255 * v)},${Math.round(255 * v * 0.5)})`;
+      for (const s of [-1, 1]) {
+        ctx.beginPath(); ctx.moveTo(w * 0.5, y);
+        ctx.quadraticCurveTo(w * 0.5 + s * len * 0.5, y - lw * 1.6, w * 0.5 + s * len, y - lw * 0.6);
+        ctx.quadraticCurveTo(w * 0.5 + s * len * 0.5, y + lw * 0.9, w * 0.5, y + lw * 0.6);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+  }
+  function makeTexture(w, h, fn) {
+    let tex;
+    if (G.canvasTexture) tex = G.canvasTexture(w, h, fn, { repeat: [1, 1], wrap: false, nearest: false });
+    if (!tex) {
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h; fn(cv.getContext('2d'), w, h);
+      tex = new THREE.CanvasTexture(cv);
+    }
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.minFilter = THREE.LinearMipmapLinearFilter; tex.magFilter = THREE.LinearFilter;
+    if ('colorSpace' in tex) tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4; tex.needsUpdate = true;
+    return tex;
+  }
+  function buildMaterials() {
+    MATS.tree = makeMaterial({ side: THREE.FrontSide });
+    MATS.rock = makeMaterial({ flatShading: true, roughness: 0.95 });
+    MATS.grass = makeMaterial({ map: makeTexture(128, 128, paintGrassTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 });
+    MATS.fern = makeMaterial({ map: makeTexture(128, 128, paintFernTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 });
+  }
+
+  /* ------------------------------------------------------------------------------------------------
+   * Instanced mesh registry
+   * meshes[type][lod] = { mesh, cap, cursor, mats(Float32Array view), inst(Float32Array view), attr }
+   * ---------------------------------------------------------------------------------------------- */
+  const MESHES = {};
+  const RING_MESHES = {};
+  let group = null;
+  let densityMult = 1;
+
+  function makeInstanced(geom, mat, cap, shadow, name) {
+    const mesh = new THREE.InstancedMesh(geom, mat, cap);
+    mesh.count = 0;
+    mesh.frustumCulled = false;         // meshes always surround the player; culling would never reject them
+    mesh.castShadow = !!shadow; mesh.receiveShadow = true;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    const inst = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4);
+    inst.setUsage(THREE.DynamicDrawUsage);
+    for (let i = 0; i < cap; i++) { inst.array[i * 4] = 1; inst.array[i * 4 + 1] = 1; inst.array[i * 4 + 2] = 1; }
+    // geometry is shared per type; per-mesh instanced attribute must live on a per-mesh geometry clone (cheap: shares buffers)
+    const g = geom.clone ? cloneShared(geom) : geom;
+    g.setAttribute('aInst', inst);
+    mesh.geometry = g;
+    mesh.name = name;
+    mesh.matrixAutoUpdate = false;
+    return { mesh, cap, cursor: 0, mats: mesh.instanceMatrix.array, inst: inst.array, attr: inst, tris: triCount(geom) };
+  }
+  function cloneShared(geom) { // new BufferGeometry sharing the attribute objects (no vertex data copy)
+    const g = new THREE.BufferGeometry();
+    for (const k in geom.attributes) g.setAttribute(k, geom.attributes[k]);
+    if (geom.index) g.setIndex(geom.index);
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1e6);
+    return g;
+  }
+  function buildMeshes(scene) {
+    group = new THREE.Group(); group.name = 'vegetation'; group.matrixAutoUpdate = false;
+    for (const type in TYPES) {
+      const spec = TYPES[type], gd = GEOMS[type]; if (!gd) continue;
+      MESHES[type] = [];
+      const mat = spec.kind === 'rock' ? MATS.rock : MATS.tree;
+      for (let l = 0; l < gd.lods.length; l++) {
+        const capBase = spec.cap[l] || spec.cap[0];
+        const cap = Math.max(64, Math.round(capBase * clamp(densityMult, 0.25, 1.5)));
+        const rec = makeInstanced(gd.lods[l], mat, cap, spec.shadow && l === 0, 'veg_' + type + '_L' + l);
+        MESHES[type].push(rec); group.add(rec.mesh);
+      }
+    }
+    scene.add(group);
+  }
+
+  /* ------------------------------------------------------------------------------------------------
+   * World lookups (zones, towns) & biome placement profiles
+   * ---------------------------------------------------------------------------------------------- */
+  const DEFAULT_ZONE = { id: 'wild', biome: 'wild', treeDensity: 0.18, treeTypes: ['oak', 'pine', 'birch'], grassColor: 0x6f9a3a, groundColor: 0x5c7d34 };
+  const DEFAULT_DENSITY = { shire: 0.16, breeland: 0.25, forest: 0.9, downs: 0.12, barren: 0.06, lake: 0.22, elven: 0.35, mountain: 0.3, dark: 0.1, arctic: 0.12, island: 0.3, wild: 0.18 };
+  // per-cell mean counts (scaled by density multiplier); type weights; ring densities 0..1; grass height/tint
+  const PROFILES = {
+    shire:    { types: { oak: 5, birch: 2, willow: 1 }, bush: 9, shrub: 0, rock: 1.5, boulder: 0, stump: 0.4, log: 0.2, hedge: true, orchard: true, flower: 1.0, fern: 0.15, mushroom: 0.25, grassH: 1.0 },
+    breeland: { types: { oak: 4, birch: 2, pine: 1 }, bush: 7, shrub: 1, rock: 2.5, boulder: 0.2, stump: 1, log: 0.6, hedge: true, flower: 0.6, fern: 0.3, mushroom: 0.4, grassH: 1.0 },
+    forest:   { types: { oak: 4, pine: 3, birch: 2 }, bush: 10, shrub: 1, rock: 2.5, boulder: 0.3, stump: 2, log: 2, flower: 0.15, fern: 1.0, mushroom: 1.0, grassH: 0.9, grassTint: [0.9, 1, 0.85] },
+    downs:    { types: { oak: 2, birch: 1, dead: 1 }, bush: 2, shrub: 7, rock: 6, boulder: 1.0, stump: 0.3, log: 0.2, flower: 0.5, fern: 0.05, mushroom: 0.1, grassH: 0.85 },
+    barren:   { types: { dead: 5, pine: 1 }, bush: 0, shrub: 9, rock: 8, boulder: 1.5, stump: 0.3, log: 0.3, flower: 0.08, fern: 0, mushroom: 0.1, grassH: 0.6, grassTint: [1.15, 1.0, 0.6], darkTint: [1, 0.95, 0.85] },
+    lake:     { types: { willow: 3, birch: 2, oak: 2 }, bush: 5, shrub: 1, rock: 2, boulder: 0.3, stump: 0.3, log: 0.4, flower: 0.8, fern: 0.4, mushroom: 0.3, grassH: 1.0 },
+    elven:    { types: { mallorn: 3, birch: 3, oak: 1 }, bush: 4, shrub: 0, rock: 1.5, boulder: 0.2, stump: 0, log: 0.2, flower: 1.2, fern: 0.5, mushroom: 0.4, grassH: 1.0 },
+    mountain: { types: { pine: 6, snowpine: 1, dead: 0.5 }, bush: 0.5, shrub: 4, rock: 12, boulder: 3, stump: 0.3, log: 0.3, flower: 0.2, fern: 0.1, mushroom: 0.1, grassH: 0.75, snow: true },
+    dark:     { types: { dead: 5, pine: 2 }, bush: 0, shrub: 6, rock: 9, boulder: 2, stump: 0.5, log: 0.5, flower: 0, fern: 0.1, mushroom: 0.5, grassH: 0.6, grassTint: [0.8, 0.85, 0.7], darkTint: [0.55, 0.6, 0.55], paleMushroom: true },
+    arctic:   { types: { snowpine: 6, dead: 1 }, treeMul: 0.6, bush: 0, shrub: 2, rock: 6, boulder: 2, stump: 0.1, log: 0.2, flower: 0, fern: 0, mushroom: 0, grassH: 0.6, grassTint: [1.0, 1.0, 0.8], snow: true, snowAll: true },
+    island:   { types: { pine: 2, oak: 2, birch: 2, willow: 1 }, bush: 6, shrub: 2, rock: 6, boulder: 1, stump: 0.3, log: 0.5, flower: 0.6, fern: 0.3, mushroom: 0.2, grassH: 0.95 },
+    wild:     { types: { oak: 3, pine: 2, birch: 2 }, bush: 4, shrub: 2, rock: 3, boulder: 0.5, stump: 0.5, log: 0.5, flower: 0.4, fern: 0.3, mushroom: 0.3, grassH: 1.0 },
+  };
+  const FLOWER_COLS = [0xfff4f0, 0xffd83a, 0xe8437a, 0x6a6cf0, 0xff8c2a].map(hexRGB);
+  const MUSHROOM_COLS = [0xc93a2a, 0x8c5a2b, 0xd9b26a].map(hexRGB);
+  const PALE_MUSHROOM = hexRGB(0xd8d2c0);
+
+  const WORLD = { zones: null, byId: null, towns: null };
+  function resolveWorld() {
+    if (WORLD.zones) return;
+    const w = (G.Data && G.Data.world) || {};
+    WORLD.zones = Array.isArray(w.zones) ? w.zones : [];
+    WORLD.byId = {}; for (const z of WORLD.zones) WORLD.byId[z.id] = z;
+    WORLD.towns = (Array.isArray(w.towns) ? w.towns : []).map(t => ({ id: t.id, x: t.pos ? t.pos.x : 0, z: t.pos ? t.pos.z : 0, r: t.radius || 60, zone: t.zone, style: t.style }));
+  }
+  function zoneAtPos(x, z) {
+    resolveWorld();
+    const T = G.Terrain;
+    if (T && T.zoneAt) { const id = T.zoneAt(x, z); const zn = id && WORLD.byId[id]; if (zn) return zn; }
+    let best = null, bd = Infinity;
+    for (const zn of WORLD.zones) {
+      const c = zn.center || { x: 0, z: 0 }; const d = Math.hypot(x - c.x, z - c.z) / (zn.radius || 300);
+      if (d < 1 && d < bd) { bd = d; best = zn; }
+    }
+    return best || DEFAULT_ZONE;
+  }
+  function profileFor(zone) {
+    const b = (zone && zone.biome) || 'wild';
+    return PROFILES[b] || PROFILES[(b.split('/')[0])] || PROFILES.wild;
+  }
+  function zoneTreeDensity(zone) {
+    if (zone && typeof zone.treeDensity === 'number') return zone.treeDensity;
+    return DEFAULT_DENSITY[(zone && zone.biome) || 'wild'] || 0.18;
+  }
+  // towns whose (radius + margin) reaches the cell — usually 0..2 of them
+  function townsNear(xc, zc, margin) {
+    resolveWorld();
+    const out = [];
+    for (const t of WORLD.towns) if (Math.hypot(t.x - xc, t.z - zc) < t.r + margin) out.push(t);
+    return out;
+  }
+  // 0 = blocked (town core), 1 = free, 0.15 = decorative outskirts (radius*0.8..1.0)
+  function townFactor(x, z, towns) {
+    for (let i = 0; i < towns.length; i++) {
+      const t = towns[i]; const d = Math.hypot(x - t.x, z - t.z);
+      if (d < t.r * 0.8) return 0;
+      if (d < t.r) return 0.15;
+    }
+    return 1;
+  }
+
+  /* ------------------------------------------------------------------------------------------------
+   * Cell generation — deterministic content of one 64 m cell
+   * cell.groups[type] = { n, nFar, mats: Float32Array(n*16), inst: Float32Array(n*4) } (far-kept items first)
+   * ---------------------------------------------------------------------------------------------- */
+  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
+  const _rgb = [0, 0, 0];
+  function emit(cell, type, x, y, z, yaw, sx, sy, sz, tr, tg, tb, snow, tiltX, tiltZ, keepFar) {
+    let grp = cell.tmp[type]; if (!grp) grp = cell.tmp[type] = { near: [], far: [] };
+    _e.set(tiltX || 0, yaw || 0, tiltZ || 0, 'YXZ'); _q.setFromEuler(_e); _p.set(x, y, z); _s.set(sx, sy, sz);
+    _m.compose(_p, _q, _s);
+    const a = keepFar ? grp.far : grp.near, el = _m.elements;
+    for (let i = 0; i < 16; i++) a.push(el[i]);
+    a.push(tr, tg, tb, snow);
+  }
+  function packCell(cell) {
+    for (const type in cell.tmp) {
+      const g = cell.tmp[type]; const nFar = g.far.length / 20, n = nFar + g.near.length / 20;
+      const mats = new Float32Array(n * 16), inst = new Float32Array(n * 4);
+      let k = 0;
+      const take = (arr) => { for (let i = 0; i < arr.length; i += 20) { for (let j = 0; j < 16; j++) mats[k * 16 + j] = arr[i + j]; for (let j = 0; j < 4; j++) inst[k * 4 + j] = arr[i + 16 + j]; k++; } };
+      take(g.far); take(g.near);
+      cell.groups[type] = { n, nFar, mats, inst };
+      cell.n += n;
+    }
+    cell.tmp = null;
+  }
+  function nearWater(T, x, z, d) {
+    return T.height(x + d, z) < SEA || T.height(x - d, z) < SEA || T.height(x, z + d) < SEA || T.height(x, z - d) < SEA;
+  }
+  // place check: returns 0 = no, 1 = ok, 2 = too steep (rock instead)
+  function placeOK(T, x, z, towns, allowOutskirts, rng) {
+    const y = T.height(x, z);
+    if (y < SEA + 0.25) return 0;
+    if (T.onRoad && T.onRoad(x, z) > 0.2) return 0;
+    const tf = townFactor(x, z, towns);
+    if (tf === 0) return 0;
+    if (tf < 1 && (!allowOutskirts || rng() > tf)) return 0;
+    if (T.slope && T.slope(x, z) > 0.6) return 2;
+    return 1;
+  }
+  function pickType(weights, r) {
+    let tot = 0; for (let i = 0; i < weights.length; i++) tot += weights[i][1];
+    let v = r * tot;
+    for (let i = 0; i < weights.length; i++) { v -= weights[i][1]; if (v <= 0) return weights[i][0]; }
+    return weights[weights.length - 1][0];
+  }
+  function treeWeights(zone, prof) {
+    const list = (zone && Array.isArray(zone.treeTypes) && zone.treeTypes.length) ? zone.treeTypes.filter(t => TYPES[t]) : Object.keys(prof.types);
+    const out = [];
+    for (const t of list) out.push([t, prof.types[t] || 0.6]);
+    return out.length ? out : [['oak', 1]];
+  }
+  function addRock(cell, T, x, z, rng, prof, snowy, scaleMul) {
+    const y = T.height(x, z);
+    const type = ['rock1', 'rock2', 'rock3'][Math.floor(rng() * 3)];
+    const s = (0.45 + rng() * 1.1) * (scaleMul || 1);
+    const g = 0.85 + rng() * 0.3, warm = (rng() - 0.5) * 0.08;
+    emit(cell, type, x, y - 0.12 * s, z, rng() * Math.PI * 2, s * (0.8 + rng() * 0.5), s, s * (0.8 + rng() * 0.5), g + warm, g, g - warm, snowy ? 1 : 0, (rng() - 0.5) * 0.3, (rng() - 0.5) * 0.3, true);
+  }
+  function snowAt(T, prof, x, z) {
+    if (prof.snowAll) return 1;
+    if (!prof.snow) return 0;
+    return (T.groundType && T.groundType(x, z) === 'snow') ? 1 : 0;
+  }
+  function genCell(cx, cz) {
+    const T = G.Terrain;
+    const x0 = cx * CELL, z0 = cz * CELL, xc = x0 + CELL / 2, zc = z0 + CELL / 2;
+    const key = cx + ',' + cz;
+    const cell = { key, cx, cz, x0, z0, groups: {}, tmp: {}, tx: [], tz: [], tr: [], th: [], n: 0, phys: false, zone: null, prof: null };
+    if (!T || !T.height) { cell.tmp = null; return cell; }
+    const zone = zoneAtPos(xc, zc), prof = profileFor(zone);
+    cell.zone = zone; cell.prof = prof;
+    const rng = makeRng(cellSeed(cx, cz, 1));
+    const towns = townsNear(xc, zc, CELL);
+    const dark = prof.darkTint || null;
+    const spawnTree = (type, x, z, y, s, keepFar, tintMul) => {
+      const spec = TYPES[type];
+      const jr = 0.88 + rng() * 0.22, jg = 0.9 + rng() * 0.2, jb = 0.82 + rng() * 0.22;
+      let tr = jr, tg = jg, tb = jb;
+      if (dark) { tr *= dark[0]; tg *= dark[1]; tb *= dark[2]; }
+      if (tintMul) { tr *= tintMul[0]; tg *= tintMul[1]; tb *= tintMul[2]; }
+      const snow = snowAt(T, prof, x, z);
+      const sy = s * (0.92 + rng() * 0.16);
+      emit(cell, type, x, y - 0.12 * s, z, rng() * Math.PI * 2, s, sy, s, tr, tg, tb, snow, (rng() - 0.5) * 0.06, (rng() - 0.5) * 0.06, keepFar);
+      cell.tx.push(x); cell.tz.push(z); cell.tr.push(spec.r * s); cell.th.push(spec.h * sy);
+    };
+
+    // ---- trees -------------------------------------------------------------------------------
+    const clump = 0.5 + 0.8 * clamp(fbm(xc * 0.0045 + 7.3, zc * 0.0045 - 3.1, 3) * 0.5 + 0.5, 0, 1);
+    const nTrees = Math.round(MAX_TREES_CELL * zoneTreeDensity(zone) * (prof.treeMul || 1) * clump * densityMult);
+    const weights = treeWeights(zone, prof);
+    for (let i = 0; i < nTrees; i++) {
+      const x = x0 + rng() * CELL, z = z0 + rng() * CELL;
+      const ok = placeOK(T, x, z, towns, true, rng);
+      if (ok === 0) continue;
+      if (ok === 2) { if (rng() < 0.5) addRock(cell, T, x, z, rng, prof, snowAt(T, prof, x, z), 1); continue; }
+      let type = pickType(weights, rng());
+      const gt = T.groundType ? T.groundType(x, z) : 'grass';
+      if (gt === 'snow') { if (prof.snowAll) type = 'snowpine'; else continue; }   // pines stop at the snow line
+      if (gt === 'sand' && rng() < 0.8) continue;
+      if (type === 'willow' && !nearWater(T, x, z, 9)) type = (rng() < 0.5 && weights.some(w => w[0] === 'birch')) ? 'birch' : 'oak';
+      if (type === 'mallorn' && rng() < 0.5) type = 'birch';                        // mallorn are rare giants
+      const s = 0.8 + rng() * 0.6;
+      spawnTree(type, x, z, T.height(x, z), type === 'mallorn' ? s * 0.9 : s, rng() < FAR_KEEP);
+    }
+    // ---- hedgerows along roads (shire / bree-land) ---------------------------------------------
+    if (prof.hedge && T.onRoad) {
+      const step = 3;
+      for (let gx = 0; gx < CELL; gx += step) for (let gz = 0; gz < CELL; gz += step) {
+        const x = x0 + gx + rng() * step, z = z0 + gz + rng() * step;
+        const r = T.onRoad(x, z);
+        if (r < 0.01 || r > 0.35) continue;
+        if (hash2(Math.floor(x / 24) * 1.3, Math.floor(z / 24) * 0.7) > 0.6) continue;      // gaps between hedge sections
+        // push the bush outward, away from the road centre, along -gradient(onRoad)
+        const gxr = T.onRoad(x + 1, z) - T.onRoad(x - 1, z), gzr = T.onRoad(x, z + 1) - T.onRoad(x, z - 1);
+        const gl = Math.hypot(gxr, gzr); if (gl < 1e-4) continue;
+        const hx = x - (gxr / gl) * 2.6, hz = z - (gzr / gl) * 2.6;
+        if (T.height(hx, hz) < SEA + 0.2 || townFactor(hx, hz, towns) === 0) continue;
+        if (T.onRoad(hx, hz) > 0.05) continue;
+        const s = 0.9 + rng() * 0.4;
+        emit(cell, 'bush', hx, T.height(hx, hz) - 0.1, hz, rng() * Math.PI * 2, s * 1.15, s * 0.85, s * 1.15, 0.9 + rng() * 0.2, 0.92 + rng() * 0.16, 0.85 + rng() * 0.2, 0, 0, 0, true);
+      }
+    }
+    // ---- orchards outside shire towns -----------------------------------------------------------
+    if (prof.orchard) {
+      for (const t of townsNear(xc, zc, CELL * 2)) {
+        for (let k = 0; k < 2; k++) {
+          const ang = hash2(t.x * 0.01 + k * 3.7, t.z * 0.01 - k) * Math.PI * 2;
+          const ox = t.x + Math.cos(ang) * t.r * 1.3, oz = t.z + Math.sin(ang) * t.r * 1.3;
+          if (Math.abs(ox - xc) > CELL + 24 || Math.abs(oz - zc) > CELL + 24) continue;
+          const ca = Math.cos(ang), sa = Math.sin(ang);
+          for (let u = -18; u <= 18; u += 6) for (let v = -12; v <= 12; v += 6) {
+            const x = ox + u * ca - v * sa, z = oz + u * sa + v * ca;
+            if (x < x0 || x >= x0 + CELL || z < z0 || z >= z0 + CELL) continue;
+            if (placeOK(T, x, z, towns, false, rng) !== 1) continue;
+            spawnTree('oak', x, z, T.height(x, z), 0.55 + rng() * 0.12, true, [1.05, 1.0, 0.8]);
+          }
+        }
+      }
+    }
+    // ---- bushes / shrubs / rocks / boulders / stumps / logs -------------------------------------
+    const count = (mean) => Math.round(mean * densityMult * (0.5 + rng()));
+    const nb = count(prof.bush), ns = count(prof.shrub);
+    for (let i = 0; i < nb + ns; i++) {
+      const x = x0 + rng() * CELL, z = z0 + rng() * CELL;
+      if (placeOK(T, x, z, towns, false, rng) !== 1) continue;
+      const gt = T.groundType ? T.groundType(x, z) : 'grass';
+      if (gt === 'snow' || gt === 'sand') continue;
+      const s = 0.7 + rng() * 0.7; const type = i < nb ? 'bush' : 'shrub';
+      let tr = 0.88 + rng() * 0.24, tg = 0.9 + rng() * 0.2, tb = 0.85 + rng() * 0.2;
+      if (dark) { tr *= dark[0]; tg *= dark[1]; tb *= dark[2]; }
+      emit(cell, type, x, T.height(x, z) - 0.08 * s, z, rng() * Math.PI * 2, s, s * (0.85 + rng() * 0.3), s, tr, tg, tb, snowAt(T, prof, x, z), 0, 0, true);
+    }
+    const mountainous = clamp((zone && zone.mountain) || 0, 0, 1);
+    const nr = count(prof.rock * (1 + mountainous * 1.5));
+    for (let i = 0; i < nr; i++) {
+      const x = x0 + rng() * CELL, z = z0 + rng() * CELL;
+      if (T.height(x, z) < SEA + 0.1 || (T.onRoad && T.onRoad(x, z) > 0.15) || townFactor(x, z, towns) < 1) continue;
+      const sl = T.slope ? T.slope(x, z) : 0;
+      if (rng() > 0.2 + sl * 1.4 + mountainous * 0.4) continue;
+      addRock(cell, T, x, z, rng, prof, snowAt(T, prof, x, z), 1 + sl * 0.6);
+    }
+    const nbo = count(prof.boulder * (1 + mountainous));
+    for (let i = 0; i < nbo; i++) {
+      const x = x0 + rng() * CELL, z = z0 + rng() * CELL;
+      if (T.height(x, z) < SEA + 0.1 || (T.onRoad && T.onRoad(x, z) > 0.1) || townFactor(x, z, towns) < 1) continue;
+      const s = 1.7 + rng() * 1.8, g = 0.8 + rng() * 0.3, y = T.height(x, z);
+      emit(cell, 'boulder', x, y - 0.35 * s, z, rng() * Math.PI * 2, s * (0.85 + rng() * 0.3), s, s * (0.85 + rng() * 0.3), g, g, g + (rng() - 0.5) * 0.06, snowAt(T, prof, x, z), (rng() - 0.5) * 0.25, (rng() - 0.5) * 0.25, true);
+      cell.tx.push(x); cell.tz.push(z); cell.tr.push(TYPES.boulder.r * s * 0.6 + 0.2); cell.th.push(TYPES.boulder.h * s * 0.6);
+    }
+    const nst = count(prof.stump), nlg = count(prof.log);
+    for (let i = 0; i < nst + nlg; i++) {
+      const x = x0 + rng() * CELL, z = z0 + rng() * CELL;
+      if (placeOK(T, x, z, towns, false, rng) !== 1) continue;
+      const s = 0.8 + rng() * 0.6, y = T.height(x, z);
+      if (i < nst) emit(cell, 'stump', x, y - 0.05, z, rng() * Math.PI * 2, s, s, s, 1, 1, 1, snowAt(T, prof, x, z), 0, 0, true);
+      else emit(cell, 'log', x, y - 0.05, z, rng() * Math.PI * 2, s, s, s, 1, 1, 1, snowAt(T, prof, x, z), (rng() - 0.5) * 0.15, (rng() - 0.5) * 0.2, true);
+    }
+    // ---- reeds on shorelines --------------------------------------------------------------------
+    {
+      let hmin = Infinity, hmax = -Infinity;
+      for (let i = 0; i <= 2; i++) for (let j = 0; j <= 2; j++) { const h = T.height(x0 + i * CELL / 2, z0 + j * CELL / 2); if (h < hmin) hmin = h; if (h > hmax) hmax = h; }
+      if (hmin < SEA - 0.3 && hmax > SEA + 0.3 && !prof.snowAll) {
+        const step = 2.5;
+        for (let gx = 0; gx < CELL; gx += step) for (let gz = 0; gz < CELL; gz += step) {
+          const x = x0 + gx + rng() * step, z = z0 + gz + rng() * step;
+          const h = T.height(x, z);
+          if (h < SEA - 0.5 || h > SEA + 0.5) continue;
+          if (rng() < 0.45 || (T.onRoad && T.onRoad(x, z) > 0.1)) continue;
+          if (townFactor(x, z, towns) === 0) continue;
+          const s = 0.7 + rng() * 0.5;
+          emit(cell, 'reed', x, Math.max(h, SEA - 0.3) - 0.05, z, rng() * Math.PI * 2, s, s * (0.8 + rng() * 0.5), s, 0.9 + rng() * 0.2, 0.95 + rng() * 0.1, 0.85 + rng() * 0.2, 0, 0, 0, true);
+        }
+      }
+    }
+    packCell(cell);
+    return cell;
   }

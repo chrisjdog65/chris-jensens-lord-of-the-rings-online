@@ -1176,3 +1176,225 @@
   A.duck = function (on) { A.ducked = !!on; if (!ctx) return; duckGain.gain.setTargetAtTime(on ? 0.3 : 1, nowT(), 0.35); };
   A.themes = [];
   function theme(id, fn) { THEMES[id] = fn; A.themes.push(id); }
+
+  // ================================================================================================
+  // THEMES — composed, multi-track, looping (except victory/death). Beat unit = quarter (4/4, 3/4) or
+  // eighth (6/8 themes, bpb 6). Helpers: roots() bass from chords, pick() rhythmic chord tones, strum().
+  // ================================================================================================
+  function roots(ch, oct, o) { const r = ch.map(function (c) { return { t: c.t, n: [c.n[0] + 12 * (oct || 0)], d: c.d, v: o && o.vel || c.v }; }); r.len = ch.len; return r; }
+  function pick(ch, offs, idxs, oct, dur, vel) {
+    const out = [];
+    for (const c of ch) for (let k = 0; k < offs.length; k++) { if (offs[k] >= c.d) continue; const idx = idxs[k % idxs.length]; const n = c.n[idx % c.n.length] + 12 * Math.floor(idx / c.n.length) + 12 * (oct || 0); out.push({ t: c.t + offs[k], n: [n], d: dur || 1, v: vel == null ? 0.8 : vel }); }
+    out.len = ch.len; return out;
+  }
+  function strum(ch, offs, dur, vel, oct) {
+    const out = [];
+    for (const c of ch) for (const off of offs) { if (off >= c.d) continue; out.push({ t: c.t + off, n: c.n.map(function (n) { return n + 12 * (oct || 0); }), d: dur || 1, v: vel == null ? 0.7 : vel }); }
+    out.len = ch.len; return out;
+  }
+  function rep(evs, times) { const parts = []; for (let i = 0; i < times; i++) parts.push(evs); return concat.apply(null, parts); }
+  function T(inst, ev, o) { o = o || {}; return { inst: inst, ev: ev, vol: o.vol, pan: o.pan, send: o.send, gate: o.gate, tr: o.tr, vel: o.vel }; }
+
+  // ---- MENU: the main theme. D major, slow build: pad+harp → strings melody → horn & drums → full ----
+  theme('menu', function () {
+    const A8 = 'D/4 Bm/4 G/4 A/4 D/4 Bm/4 G/4 A/4', B8 = 'Bm/4 G/4 D/4 A/4 Bm/4 G/4 Em/4 A/4';
+    const ch = chords(A8 + ' ' + A8 + ' ' + B8 + ' ' + A8, { oct: 3, vel: 0.7 });
+    const M1 = 'D4/1.5 E4/.5 F#4 A4 | B4/2 A4 F#4 | G4/1.5 A4/.5 B4 D5 | A4/3 _ | D4/1.5 E4/.5 F#4 A4 | B4/1.5 C#5/.5 D5/2 | E5 D5 B4 A4 | F#4/3 _';
+    const M2 = 'F#5/1.5 E5/.5 D5 B4 | A4/2 B4 D5 | E5/1.5 F#5/.5 E5 D5 | B4/3 _ | G4 A4 B4 D5 | E5/1.5 F#5/.5 E5 D5 | A4/1.5 B4/.5 A4 F#4 | A4/2 G4 A4';
+    const mel = concat(seq('_/32'), seq(M1, { vel: 0.6 }), seq(M2, { vel: 0.75 }), seq(M1, { vel: 0.95, tr: 12 }));
+    const horn = concat(seq('_/64'), seq(M2, { vel: 0.7, tr: -12 }), seq(M1, { vel: 1.0 }));
+    const harp = arp(ch, [0, 1, 2, 3, 2, 1, 3, 2], 0.5, { vel: 0.5 });
+    const drums = concat(seq('_/64'), rep(drums('X...x..o', 0.5), 16));
+    const cym = seq('_/96 C4/1@.7 _/31');
+    return { tempo: 76, bpb: 4, bars: 32, loop: true, tracks: [
+      T('pad', ch, { vol: 0.5, send: 0.5 }),
+      T('harp', harp, { vol: 0.45, pan: -0.3, send: 0.35 }),
+      T('strings', concat(seq('_/32'), ch.filter(function (c) { return c.t >= 32; }).map(function (c) { return { t: c.t - 32, n: c.n.map(function (n) { return n + 12; }), d: c.d, v: 0.6 }; })), { vol: 0.35, pan: 0.2, send: 0.5 }),
+      T('strings', mel, { vol: 0.75, send: 0.45 }),
+      T('horn', horn, { vol: 0.7, pan: 0.15, send: 0.4 }),
+      T('lowstrings', roots(ch, -1, { vel: 0.7 }), { vol: 0.55, send: 0.3 }),
+      T('taiko', drums, { vol: 0.5, send: 0.35 }),
+      T('cymbal', cym, { vol: 0.35, send: 0.5 }),
+    ] };
+  });
+
+  // ---- SHIRE: pastoral 6/8, G major, flute & lute ----
+  theme('shire', function () {
+    const ch = chords('G/6 C/6 G/6 D/6 G/6 C/6 D/6 G/6 Em/6 C/6 G/6 D/6 G/6 C/6 D/6 G/6', { oct: 3, vel: 0.6 });
+    const mel = seq('D4 G4 A4 B4/2 A4 | G4 A4 B4 D5/3 | E5 D5 B4 A4/2 G4 | A4/3 F#4/3 | D4 G4 A4 B4/2 A4 | G4 A4 B4 D5/2 E5 | F#5 E5 D5 A4/2 C5 | B4/3 G4/3 | ' +
+      'B4 G4 B4 E5/2 D5 | C5 E5 G5 E5/2 C5 | B4 D5 G5 D5/2 B4 | A4/3 F#4/2 A4 | G4 B4 D5 G5/2 F#5 | E5 C5 E5 G5/3 | F#5 D5 A4 C5/2 A4 | G4/6', { vel: 0.8 });
+    const lute = arp(ch, [0, 2, 1, 3, 2, 1], 1, { vel: 0.6, gate: 1.5 });
+    const bass = pick(ch, [0, 3], [0, 2], -1, 2.5, 0.7);
+    const harm = concat(seq('_/48'), seq('G4 E4 G4 C5/2 B4 | A4 C5 E5 C5/2 A4 | G4 B4 D5 B4/2 G4 | F#4/3 D4/2 F#4 | D5 G4 B4 D5/2 D5 | C5 A4 C5 E5/3 | D5 A4 F#4 A4/2 F#4 | G4/6', { vel: 0.45 }));
+    return { tempo: 264, bpb: 6, bars: 16, loop: true, tracks: [
+      T('flute', mel, { vol: 0.7, pan: 0.1, send: 0.35 }),
+      T('lute', lute, { vol: 0.5, pan: -0.35, send: 0.25 }),
+      T('flute', harm, { vol: 0.4, pan: 0.35, send: 0.4 }),
+      T('pizz', bass, { vol: 0.55, send: 0.2 }),
+      T('pad', ch, { vol: 0.28, send: 0.5 }),
+      T('shaker', rep(drums('x.ox.o', 1), 16), { vol: 0.3, pan: 0.4 }),
+    ] };
+  });
+
+  // ---- BREELAND: warm folk, D major, lute melody, flute counter, hand drum ----
+  theme('breeland', function () {
+    const ch = chords('D/4 G/4 D/4 A/4 D/4 G/4 A/4 D/4 Bm/4 G/4 D/4 A/4 G/4 D/4 A/4 D/4', { oct: 3, vel: 0.6 });
+    const mel = seq('D4/.5 E4/.5 F#4 A4 F#4 | G4 B4 A4/2 | F#4/.5 G4/.5 A4 D5 A4 | E4/3 _ | D4/.5 E4/.5 F#4 A4 B4 | D5 B4 A4/2 | C#5 B4 A4 E4 | D4/4 | ' +
+      'F#5 D5 B4/2 | G4 B4 D5/2 | A4/.5 B4/.5 D5 F#5 D5 | E5/.5 D5/.5 C#5/3 | B4 D5 G5 D5 | F#5/.5 E5/.5 D5/3 | E5 C#5 A4 B4 | D5/4', { vel: 0.85 });
+    const counter = seq('_/32 F#5/2 D5/2 | G5/2 B4/2 | F#5/4 | E5/4 | G5/2 B5/2 | F#5/4 | E5/2 C#5/2 | D5/4', { vel: 0.5 });
+    const strumEv = strum(ch, [1.5, 3.5], 0.5, 0.45, 1);
+    return { tempo: 96, bpb: 4, bars: 16, loop: true, tracks: [
+      T('lute', mel, { vol: 0.75, pan: -0.15, send: 0.3 }),
+      T('flute', counter, { vol: 0.45, pan: 0.3, send: 0.45 }),
+      T('lute', strumEv, { vol: 0.35, pan: 0.35, send: 0.25 }),
+      T('pizz', pick(ch, [0, 2], [0, 2], -1, 1.5, 0.75), { vol: 0.55 }),
+      T('strings', ch, { vol: 0.25, send: 0.5 }),
+      T('handdrum', rep(drums('x.o.x.oo', 0.5), 16), { vol: 0.4, pan: 0.1 }),
+    ] };
+  });
+
+  // ---- FOREST: mysterious E minor pads, harp, sparse flute, distant bells ----
+  theme('forest', function () {
+    const ch = chords('Em/4 Cmaj7/4 Am/4 Bm/4 Em/4 G/4 Am/4 B7/4 Em/4 Cmaj7/4 D/4 Bm/4 Em/4 Am/4 Cmaj7/4 Em/4', { oct: 3, vel: 0.6 });
+    const harp = arp(ch, [0, 1, 2, 3, 4, 3, 2, 1], 0.5, { vel: 0.5, gate: 1.5 });
+    const fl = seq('_/2 B4 E5 | G5/2 F#5 E5 | _ E5 D5 C5 | B4/4 | _/4 | _/2 G4 A4 | B4/2 C5 B4 | A4/3 _ | _/2 E5 G5 | B5/2 A5 G5 | F#5/2 E5 D5 | F#5/4 | _/4 | E5 D5 C5 B4 | G4/2 A4 B4 | E4/4', { vel: 0.55 });
+    const bells = seq('_/14 E6/2@.4 _/14 B5/2@.35 _/14 G6/2@.35 _/14 E6/2@.4');
+    return { tempo: 66, bpb: 4, bars: 16, loop: true, tracks: [
+      T('pad', ch, { vol: 0.55, send: 0.6 }),
+      T('harp', harp, { vol: 0.5, pan: -0.25, send: 0.5 }),
+      T('flute', fl, { vol: 0.55, pan: 0.2, send: 0.6 }),
+      T('lowstrings', roots(ch, -1, { vel: 0.5 }), { vol: 0.4, send: 0.4 }),
+      T('bells', bells, { vol: 0.4, pan: 0.4, send: 0.7 }),
+    ] };
+  });
+
+  // ---- BARREN: sparse lonely horn over a drone, wind ----
+  theme('barren', function () {
+    const horn = seq('_/4 | D4/3 F4 | A4/4 | G4/2 F4/2 | E4/6 | _/2 | D4/2 F4/2 | A4/2 C5/2 | D5/6 | _/2 | C5/2 A4/2 | G4/2 F4 E4 | D4/8 | _/8', { vel: 0.6 });
+    const low = chords('Dm/8 Dm/8 Bb/8 Gm/4 A/4 Dm/8 F/8 Bb/8 A/8', { oct: 2, vel: 0.4 });
+    return { tempo: 60, bpb: 4, bars: 16, loop: true, tracks: [
+      T('drone', seq('D2/64@.7'), { vol: 0.5, send: 0.4 }),
+      T('windpad', seq('D3/64@.8'), { vol: 0.35, send: 0.5 }),
+      T('horn', horn, { vol: 0.6, pan: 0.15, send: 0.7 }),
+      T('lowstrings', low, { vol: 0.35, send: 0.5 }),
+      T('bells', seq('_/30 A5/2@.3 _/30 D5/2@.3'), { vol: 0.3, pan: -0.4, send: 0.8 }),
+    ] };
+  });
+
+  // ---- DOWNS: solemn strings in 3/4, A minor ----
+  theme('downs', function () {
+    const ch = chords('Am/3 F/3 C/3 G/3 Am/3 F/3 Dm/3 E/3 Am/3 C/3 F/3 G/3 Am/3 Dm/3 E/3 Am/3', { oct: 3, vel: 0.65 });
+    const mel = seq('E5/2 C5 | D5/2 A4 | C5/2 E5 | D5/3 | E5/2 C5 | A4/2 C5 | D5/2 F5 | E5/3 | A5/2 G5 | E5/2 C5 | F5/2 E5 | D5/2 B4 | C5/2 A4 | F5/2 D5 | B4/2 G#4 | A4/3', { vel: 0.75 });
+    return { tempo: 72, bpb: 3, bars: 16, loop: true, tracks: [
+      T('strings', mel, { vol: 0.7, pan: 0.1, send: 0.55 }),
+      T('strings', ch, { vol: 0.45, pan: -0.2, send: 0.55 }),
+      T('lowstrings', roots(ch, -1, { vel: 0.6 }), { vol: 0.5, send: 0.4 }),
+      T('choir', ch.filter(function (c) { return c.t >= 24; }), { vol: 0.3, send: 0.7 }),
+      T('timpani', seq('_/24 A2/1@.5 _/11 D2/1@.45 _/5 E2/1@.55 _/5'), { vol: 0.5, send: 0.5 }),
+    ] };
+  });
+
+  // ---- LAKE: tranquil harp arpeggios, C major sevenths ----
+  theme('lake', function () {
+    const ch = chords('Cmaj7/4 Am7/4 Fmaj7/4 G/4 Em7/4 Am7/4 Dm7/4 G/4 Cmaj7/4 Em7/4 Fmaj7/4 G/4 Am7/4 Fmaj7/4 Dm7/4 G/4', { oct: 3, vel: 0.55 });
+    const harp = arp(ch, [0, 1, 2, 3, 4, 3, 2, 1], 0.5, { vel: 0.55, gate: 2 });
+    const fl = seq('_/4 | E5/2 G5/2 | A5/3 G5 | E5/2 D5/2 | C5/4 | _/2 E5 G5 | B5/2 A5 G5 | E5/3 D5 | E5/4 | G5/2 E5/2 | C5/2 D5/2 | E5/4 | C5/2 A4/2 | F5/2 E5/2 | D5/3 B4 | C5/4', { vel: 0.5 });
+    return { tempo: 80, bpb: 4, bars: 16, loop: true, tracks: [
+      T('harp', harp, { vol: 0.6, pan: -0.2, send: 0.5 }),
+      T('pad', ch, { vol: 0.4, send: 0.6 }),
+      T('flute', fl, { vol: 0.45, pan: 0.25, send: 0.6 }),
+      T('pizz', roots(ch, -1, { vel: 0.55 }), { vol: 0.45, send: 0.3 }),
+      T('bells', seq('_/30 G6/2@.3 _/30 E6/2@.3'), { vol: 0.3, pan: 0.4, send: 0.8 }),
+    ] };
+  });
+
+  // ---- ELVEN: ethereal choir pads with high bells and slow harp, E major ----
+  theme('elven', function () {
+    const ch = chords('E/4 C#m/4 A/4 B/4 E/4 G#m/4 A/4 Bsus4/4 C#m/4 A/4 E/4 B/4 A/4 E/4 Bsus4/4 E/4', { oct: 3, vel: 0.6 });
+    const bells = seq('_/2 B5 G#5 | _/4 | E5/2 F#5 G#5 | B5/4 | _/4 | G#5/2 B5 C#6 | E6/4 | D#6/2 B5/2 | C#6/2 E6 D#6 | B5/4 | _/4 | G#5 F#5 E5 F#5 | E5/4 | _/4 | F#5/2 G#5/2 | E5/4', { vel: 0.55 });
+    const harp = arp(ch, [0, 2, 1, 3], 1, { vel: 0.4, gate: 3 });
+    const fl = seq('_/32 E5/4 | G#5/2 F#5/2 | E5/4 | _/4 | C#5/2 E5/2 | F#5/4 | G#5/2 F#5/2 | E5/4', { vel: 0.4 });
+    return { tempo: 58, bpb: 4, bars: 16, loop: true, tracks: [
+      T('choir', ch, { vol: 0.6, send: 0.75 }),
+      T('bells', bells, { vol: 0.45, pan: 0.3, send: 0.8 }),
+      T('harp', harp, { vol: 0.4, pan: -0.35, send: 0.6 }),
+      T('flute', fl, { vol: 0.35, pan: 0.1, send: 0.7 }),
+      T('lowstrings', roots(ch, -1, { vel: 0.45 }), { vol: 0.35, send: 0.5 }),
+    ] };
+  });
+
+  // ---- DWARVEN: low brass & drums, C minor pentatonic riff, anvils ----
+  theme('dwarven', function () {
+    const riff = 'C4/.5 C4/.5 Eb4 F4 G4 | Bb4/1.5 G4/.5 F4/2 | Eb4/.5 Eb4/.5 F4 G4 Bb4 | C5/2 G4/2 | C4/.5 C4/.5 Eb4 F4 G4 | Bb4/1.5 C5/.5 Bb4/2 | G4/.5 F4/.5 Eb4 F4 G4 | C4/4 | ' +
+      'G4 G4 Bb4 C5 | Eb5/2 C5/2 | Bb4 G4 F4 G4 | Eb4/4 | F4/.5 F4/.5 G4 Bb4 C5 | Eb5/1.5 C5/.5 Bb4/2 | G4 F4 Eb4 F4 | C4/4';
+    const ch = chords('C5/4 C5/4 Eb5/4 Bb5/4 C5/4 C5/4 Ab5/4 G5/4 C5/4 Eb5/4 Bb5/4 Ab5/4 F5/4 Eb5/4 G5/4 C5/4', { oct: 2, vel: 0.6 });
+    const horn = seq(riff, { vel: 0.85 });
+    return { tempo: 100, bpb: 4, bars: 16, loop: true, tracks: [
+      T('horn', horn, { vol: 0.7, pan: 0.1, send: 0.35 }),
+      T('brass', concat(seq('_/32'), seq(riff.split(' | ').slice(8).join(' | '), { vel: 0.6, tr: -12 })), { vol: 0.45, pan: -0.2, send: 0.3 }),
+      T('lowstrings', seq(riff, { vel: 0.7, tr: -24 }), { vol: 0.55, gate: 0.8, send: 0.2 }),
+      T('lowstrings', ch, { vol: 0.3, send: 0.4 }),
+      T('taiko', rep(drums('X...x.x.', 0.5), 16), { vol: 0.75, send: 0.35 }),
+      T('kick', rep(drums('x...x...', 0.5), 16), { vol: 0.5 }),
+      T('snare', rep(drums('..x...x.', 0.5), 16), { vol: 0.35, pan: 0.2 }),
+      T('anvil', seq('_/14 G5/.5@.8 G5/.5@.6 _/1 _/14 G5/.5@.8 G5/.5@.6 _/1 _/14 C6/.5@.8 C6/.5@.6 _/1 _/13 G5/.5@.9 G5/.5@.7 G5/.5@.6 G5/.5@.8 _/1'), { vol: 0.5, pan: 0.45, send: 0.5 }),
+    ] };
+  });
+
+  // ---- MOUNTAIN: wide cold pads, long horn tones, wind ----
+  theme('mountain', function () {
+    const ch = chords('Bm/8 G/8 D/8 A/8 Bm/8 Em/8 G/4 A/4 Bm/8', { oct: 3, vel: 0.6 });
+    const horn = seq('_/8 | B4/6 D5/2 | F#5/8 | E5/4 D5/4 | B4/8 | _/4 F#4/4 | G4/4 A4/4 | B4/8', { vel: 0.65 });
+    return { tempo: 56, bpb: 4, bars: 16, loop: true, tracks: [
+      T('pad', ch, { vol: 0.6, send: 0.7 }),
+      T('pad', ch.map(function (c) { return { t: c.t, n: c.n.map(function (n) { return n + 12; }), d: c.d, v: 0.4 }; }), { vol: 0.35, pan: 0.3, send: 0.8 }),
+      T('horn', horn, { vol: 0.6, pan: -0.15, send: 0.7 }),
+      T('windpad', seq('B3/64@.9'), { vol: 0.35, send: 0.6 }),
+      T('lowstrings', roots(ch, -1, { vel: 0.55 }), { vol: 0.45, send: 0.5 }),
+      T('bells', seq('_/6 F#6/2@.35 _/22 D6/2@.3 _/30 B5/2@.35'), { vol: 0.35, pan: 0.4, send: 0.8 }),
+      T('taiko', seq('_/24 B1/1@.45 _/7 _/24 B1/1@.5 _/3 B1/1@.35 _/3'), { vol: 0.45, send: 0.6 }),
+    ] };
+  });
+
+  // ---- DARK: dissonant drones, low pulses, semitone clusters ----
+  theme('dark', function () {
+    return { tempo: 50, bpb: 4, bars: 16, loop: true, tracks: [
+      T('drone', seq('C#2/64@.8'), { vol: 0.6, send: 0.5 }),
+      T('drone', seq('_/12 G2/12@.5 _/8 C2/16@.5 _/8 D2/8@.5'), { vol: 0.4, pan: 0.3, send: 0.6 }),
+      T('kick', rep(drums('X.......o.......', 0.25), 16), { vol: 0.7, send: 0.4 }),
+      T('taiko', seq('_/30 C2/1@.6 _/1 _/30 C2/1@.6 C2/1@.4'), { vol: 0.5, send: 0.5 }),
+      T('strings', seq('C#4+D4/8@.5 _/8 G4+G#4/8@.45 _/8 C#4+D4+G4/8@.5 _/8 F4+F#4/8@.45 _/8'), { vol: 0.35, pan: -0.25, send: 0.75 }),
+      T('choir', seq('C#3+G3/16@.45 _/16 C#3+G#3/16@.45 _/16'), { vol: 0.4, send: 0.8 }),
+      T('bells', seq('_/14 F#5/2@.4 _/30 C6/2@.35 _/14 G5/2@.4'), { vol: 0.35, pan: 0.4, send: 0.85 }),
+      T('windpad', seq('C#3/64@.6'), { vol: 0.25, send: 0.5 }),
+    ] };
+  });
+
+  // ---- ARCTIC: glassy bells, thin pads, wind ----
+  theme('arctic', function () {
+    const ch = chords('Am/8 Fmaj7/8 Dm/8 Em/8 Am/8 C/8 Fmaj7/8 Em/8', { oct: 3, vel: 0.5 });
+    const glass = seq('E5/2 A5/2 | C6/3 B5 | E5/2 G5/2 | A5/4 | _/4 | D6/2 C6/2 | B5/2 E5/2 | A5/4 | _/2 E6/2 | D6/2 B5/2 | C6/3 A5 | E5/4 | _/4 | F5/2 E5/2 | D5/2 B4/2 | A4/4', { vel: 0.6 });
+    return { tempo: 62, bpb: 4, bars: 16, loop: true, tracks: [
+      T('glass', glass, { vol: 0.6, pan: 0.2, send: 0.8 }),
+      T('pad', ch, { vol: 0.4, send: 0.7 }),
+      T('windpad', seq('A3/64@.9'), { vol: 0.4, send: 0.5 }),
+      T('harp', arp(ch, [0, 2, 1, 3], 1, { vel: 0.35, gate: 2.5 }), { vol: 0.35, pan: -0.35, send: 0.7 }),
+      T('lowstrings', roots(ch, -1, { vel: 0.4 }), { vol: 0.3, send: 0.5 }),
+      T('glass', seq('_/28 E7/1@.25 _/3 _/28 A6/1@.25 _/3'), { vol: 0.3, pan: -0.4, send: 0.9 }),
+    ] };
+  });
+
+  // ---- ISLAND: gentle lilting 6/8, F major, rolling harp ----
+  theme('island', function () {
+    const ch = chords('F/6 Bb/6 F/6 C/6 Dm/6 Bb/6 C/6 F/6 F/6 Am/6 Bb/6 C/6 Dm/6 Bb/6 C7/6 F/6', { oct: 3, vel: 0.55 });
+    const mel = seq('A4/2 C5 F5/3 | D5/2 C5 A4/3 | C5 D5 C5 A4/2 G4 | G4/6 | F4/2 A4 D5/3 | C5/2 D5 F5/3 | E5 D5 C5 G4/3 | F4/6 | ' +
+      'A4 C5 F5 A5/3 | G5/2 E5 C5/3 | D5 F5 D5 C5/2 Bb4 | G4/6 | A4/2 D5 F5/3 | D5/2 C5 Bb4/3 | G4 A4 Bb4 C5/3 | F4/6', { vel: 0.6 });
+    return { tempo: 192, bpb: 6, bars: 16, loop: true, tracks: [
+      T('harp', arp(ch, [0, 1, 2, 3, 2, 1], 1, { vel: 0.5, gate: 2 }), { vol: 0.55, pan: -0.25, send: 0.5 }),
+      T('flute', mel, { vol: 0.55, pan: 0.2, send: 0.5 }),
+      T('pad', ch, { vol: 0.35, send: 0.6 }),
+      T('pizz', pick(ch, [0, 3], [0, 2], -1, 2.5, 0.6), { vol: 0.45, send: 0.3 }),
+      T('shaker', rep(drums('x..o..', 1), 16), { vol: 0.25, pan: 0.4 }),
+      T('lute', concat(seq('_/48'), strum(ch.filter(function (c) { return c.t >= 48; }).map(function (c) { return { t: c.t - 48, n: c.n, d: c.d, v: c.v }; }), [0, 3], 2, 0.35, 1)), { vol: 0.35, pan: 0.35, send: 0.4 }),
+    ] };
+  });

@@ -334,6 +334,10 @@
 
   // ---------------------------------------------------------------- moveEntity
   const _nv = new THREE.Vector3();
+  function clampWorld(pos) {
+    if (pos.x < -WORLD_LIMIT) pos.x = -WORLD_LIMIT; else if (pos.x > WORLD_LIMIT) pos.x = WORLD_LIMIT;
+    if (pos.z < -WORLD_LIMIT) pos.z = -WORLD_LIMIT; else if (pos.z > WORLD_LIMIT) pos.z = WORLD_LIMIT;
+  }
   function moveEntity(ent, desired, dt, opts) {
     if (!ent || !ent.pos) return;
     if (!ent.vel) ent.vel = new THREE.Vector3();
@@ -346,6 +350,7 @@
     const inner = r * 0.5;
     ent.justLanded = 0; ent.justSplashed = 0;
     if (!isFinite(pos.x) || !isFinite(pos.y) || !isFinite(pos.z)) { pos.x = 0; pos.z = 0; pos.y = terrainH(0, 0); }
+    if (!isFinite(vel.x) || !isFinite(vel.y) || !isFinite(vel.z)) vel.set(0, 0, 0);
 
     let vx = desired ? (desired.x || 0) : 0;
     let vz = desired ? (desired.z || 0) : 0;
@@ -371,6 +376,7 @@
     let inWater = false, swimming = false, moving = (vx !== 0 || vz !== 0);
     if (!fly && !onFloor0 && depth > 0 && pos.y < SEA + 0.02) {
       inWater = true;
+      // deep enough, feet down at the swim line, and not hopping out (a caller-set upward velocity)
       if (depth >= SWIM_DEPTH && pos.y <= swimLevel + 0.2 && vy <= 0.01) {
         swimming = true;
         if (!ent.swimming && vy < -2) ent.justSplashed = -vy;
@@ -380,43 +386,52 @@
       const k = 1 - Math.exp(-5 * dt);              // sluggish response in water
       vx = vel.x + (vx - vel.x) * k;
       vz = vel.z + (vz - vel.z) * k;
-      vy = (swimLevel - pos.y) * 6;                 // settle onto the swim line, gravity off
-      if (vy < -3) vy = -3; else if (vy > 3) vy = 3;
+      vy = 0;                                       // gravity off; the body settles onto the swim line below
       moving = true;
     } else if (inWater) {
       vx *= SHALLOW_SPEED; vz *= SHALLOW_SPEED;
     }
     if (fly) vy = (desired && typeof desired.y === 'number') ? desired.y : 0;
-    else if (!swimming) { vy += GRAV * dt; if (vy < TERMINAL_VEL) vy = TERMINAL_VEL; }
     vel.x = vx; vel.z = vz; vel.y = vy;
 
     // sub-step so no single move exceeds ~0.9 radius (prevents tunnelling through thin walls)
-    const speed = Math.sqrt(vx * vx + vz * vz + vy * vy);
+    const vyEst = (fly || swimming) ? vy : Math.max(Math.abs(vy), Math.abs(vy + GRAV * dt));
+    const speed = Math.sqrt(vx * vx + vz * vz + vyEst * vyEst);
     let steps = Math.ceil(speed * dt / (r * 0.9));
     if (steps < 1) steps = 1; else if (steps > MAX_SUBSTEPS) steps = MAX_SUBSTEPS;
     const sdt = dt / steps;
-    let onGround = !!ent.onGround, sliding = false, landed = 0, groundCol = null, slideCheck = moving || !!ent.sliding;
+    let onGround = !!ent.onGround, sliding = false, landed = 0, groundCol = null;
+    const slideCheck = moving || !!ent.sliding;
 
     for (let s = 0; s < steps; s++) {
       const feet0 = pos.y;
       pos.x += vel.x * sdt; pos.z += vel.z * sdt;
-      if (pos.x < -WORLD_LIMIT) pos.x = -WORLD_LIMIT; else if (pos.x > WORLD_LIMIT) pos.x = WORLD_LIMIT;
-      if (pos.z < -WORLD_LIMIT) pos.z = -WORLD_LIMIT; else if (pos.z > WORLD_LIMIT) pos.z = WORLD_LIMIT;
+      clampWorld(pos);
       gather(pos.x - r - 1, pos.z - r - 1, pos.x + r + 1, pos.z + r + 1);
       if (!noclip) resolveHorizontal(pos, r, feet0, feet0 + h, nearCount);
 
-      pos.y += vel.y * sdt;
-      const th = terrainH(pos.x, pos.z);
-      if (noclip) { ground = th; gCollider = null; }
-      else ground = groundFrom(pos.x, pos.z, feet0, nearCount, inner, th);
-      groundCol = gCollider;
+      if (fly) { pos.y += vel.y * sdt; onGround = false; continue; }
 
-      if (fly) { onGround = false; continue; }
+      const th = terrainH(pos.x, pos.z);
       if (swimming) {
+        pos.y += (swimLevel - pos.y) * Math.min(1, 6 * sdt);   // exponential settle onto the swim line
+        ground = noclip ? th : groundFrom(pos.x, pos.z, feet0, nearCount, inner, th);
         if (pos.y < ground) pos.y = ground;
         onGround = false;
         continue;
       }
+
+      // gravity, trapezoid integration (exact for constant acceleration → correct jump height at any dt)
+      const vy0 = vel.y;
+      let vy1 = vy0 + GRAV * sdt;
+      if (vy1 < TERMINAL_VEL) vy1 = TERMINAL_VEL;
+      vel.y = vy1;
+      pos.y += (vy0 + vy1) * 0.5 * sdt;
+
+      if (noclip) { ground = th; gCollider = null; }
+      else ground = groundFrom(pos.x, pos.z, feet0, nearCount, inner, th);
+      groundCol = gCollider;
+
       if (pos.y <= ground) {
         if (!onGround && vel.y < -2) landed = -vel.y;
         const rise = ground - feet0;
@@ -443,8 +458,7 @@
           const up = vel.x * nx + vel.z * nz;                 // strip any uphill component of the walk
           if (up < 0) { vel.x -= up * nx; vel.z -= up * nz; }
           pos.x += nx * SLIDE_SPEED * sdt; pos.z += nz * SLIDE_SPEED * sdt;
-          if (pos.x < -WORLD_LIMIT) pos.x = -WORLD_LIMIT; else if (pos.x > WORLD_LIMIT) pos.x = WORLD_LIMIT;
-          if (pos.z < -WORLD_LIMIT) pos.z = -WORLD_LIMIT; else if (pos.z > WORLD_LIMIT) pos.z = WORLD_LIMIT;
+          clampWorld(pos);
           pos.y = terrainH(pos.x, pos.z);
           sliding = true;
         }

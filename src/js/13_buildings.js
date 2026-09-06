@@ -597,8 +597,8 @@
       const capHex = o.capHex === undefined ? 0x8a6a36 : o.capHex;
       b.cyl('roof', o.roofMat || 'thatch', 0.2, 0.2, len + 0.1, 8, 0, o.peak - 0.02, 0, capHex, ridgeX ? { rz: HPI } : { rx: HPI });
     }
-    if (o.chimney) {
-      const ch = o.chimney, cs = sideMap(ch.side, W, D, ch.u);
+    for (const ch of (o.chimneys || (o.chimney ? [o.chimney] : []))) {
+      const cs = sideMap(ch.side, W, D, ch.u);
       const out = { f: [0, -1], b: [0, 1], l: [-1, 0], r: [1, 0] }[ch.side];
       const cx = cs.x + out[0] * 0.3, cz = cs.z + out[1] * 0.3, top = (o.peak || H) + 0.9;
       b.box('ext', 'stone', 1.0, top + 1, 1.0, cx, top / 2 - 0.5, cz, o.chimneyHex || 0x8b8377, { jit: 0.08 });
