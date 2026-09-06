@@ -871,7 +871,7 @@
       const gt = T.groundType ? T.groundType(x, z) : 'grass';
       if (gt === 'snow') { if (prof.snowAll) type = 'snowpine'; else continue; }   // pines stop at the snow line
       if (gt === 'sand' && rng() < 0.8) continue;
-      if (type === 'willow' && !nearWater(T, x, z, 9)) type = (rng() < 0.5 && weights.some(w => w[0] === 'birch')) ? 'birch' : 'oak';
+      if (type === 'willow' && !nearWater(T, x, z, 12)) type = (rng() < 0.5 && weights.some(w => w[0] === 'birch')) ? 'birch' : 'oak';
       if (type === 'mallorn' && rng() < 0.5) type = 'birch';                        // mallorn are rare giants
       const s = 0.8 + rng() * 0.6;
       spawnTree(type, x, z, T.height(x, z), type === 'mallorn' ? s * 0.9 : s, rng() < FAR_KEEP);
@@ -1199,10 +1199,19 @@
     // ground colour sampled at the patch quarter points and bilinearly blended per blade (groundColor is not cheap)
     groundRGB(T, x0 + P * 0.25, z0 + P * 0.25, zone, _gc4[0]); groundRGB(T, x0 + P * 0.75, z0 + P * 0.25, zone, _gc4[1]);
     groundRGB(T, x0 + P * 0.25, z0 + P * 0.75, zone, _gc4[2]); groundRGB(T, x0 + P * 0.75, z0 + P * 0.75, zone, _gc4[3]);
+    // patch-level classification: if the 5 probe points are all plain grass, skip the per-blade ground queries
+    let allGrass = 0, anyGrass = false;
+    for (let i = 0; i < 5; i++) {
+      const sx = x0 + P * (i === 4 ? 0.5 : (i & 1 ? 0.8 : 0.2)), sz = z0 + P * (i === 4 ? 0.5 : (i & 2 ? 0.8 : 0.2));
+      if (grassOK(T, sx, sz)) { allGrass++; anyGrass = true; }
+    }
+    if (!anyGrass) return;
+    const perBlade = allGrass < 5;
     for (let k = 0; k < n; k++) {
       const x = x0 + rng() * P, z = z0 + rng() * P;
-      if (!grassOK(T, x, z)) continue;
+      if (perBlade && !grassOK(T, x, z)) continue;
       const y = T.height(x, z);
+      if (!perBlade && y < SEA + 0.15) continue;
       const u = clamp((x - x0) / P, 0, 1), v = clamp((z - z0) / P, 0, 1);
       for (let c = 0; c < 3; c++) _gc[c] = lerp(lerp(_gc4[0][c], _gc4[1][c], u), lerp(_gc4[2][c], _gc4[3][c], u), v);
       const j = 0.85 + rng() * 0.3;
@@ -1311,7 +1320,7 @@
     else if (dirty && (forceRebuild || tAcc - lastRebuildTime > 0.35)) { startRebuild(px, pz); stepRebuild(localMissing ? 1e9 : 160); }
 
     uniforms.uPlayer.value.set(px, playerPos.y || 0, pz);
-    for (let i = 0; i < RINGS.length; i++) updateRing(RINGS[i], px, pz, localMissing ? (i === 0 ? 10 : 3) : (i === 0 ? 1.0 : 0.35));
+    for (let i = 0; i < RINGS.length; i++) updateRing(RINGS[i], px, pz, localMissing ? (i === 0 ? 10 : 3) : (i === 0 ? 1.2 : 0.35));
   }
   function setDensity(mult) {
     mult = +mult; if (!(mult === mult)) return;
