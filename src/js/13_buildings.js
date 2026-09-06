@@ -911,7 +911,7 @@
     b.box(g, 'stone', len, 0.1, 0.5, 0, 0.45, 0, hex, { jit: 0.02 });
     for (const s of [-1, 1]) b.box(g, 'stone', 0.22, 0.4, 0.42, s * (len / 2 - 0.25), 0.2, 0, hex, { jit: 0.02 });
   }
-  function log(b, g, len, r, hex, o) { b.cyl(g, 'wood', r, r * 1.05, len, 9, 0, r, 0, hex || 0x5e4128, Object.assign({ rz: HPI, jit: 0.06 }, o || {})); }
+  function woodLog(b, g, len, r, hex, o) { b.cyl(g, 'wood', r, r * 1.05, len, 9, 0, r, 0, hex || 0x5e4128, Object.assign({ rz: HPI, jit: 0.06 }, o || {})); }
 
   /* ------------------------------------------------------------------------------------------------ */
   /* RECIPES                                                                                             */
@@ -1735,7 +1735,7 @@
       for (let i = 0; i < 4; i++) { const a = i * HPI + 0.4; b.cyl('ext', 'wood', 0.08, 0.1, 1.0, 7, Math.sin(a) * 0.25, 0.28, Math.cos(a) * 0.25, 0x4a3320, { rz: 0.45, ry: a + HPI, jit: 0.08 }); }
       b.sph('ext', 'ember', 0.32, 0, 0.12, 0, 0xff7a20, { sy: 0.4, jit: 0.25 });
       b.light(0, 0.9, 0, { kind: 'fire', color: 0xffa040, intensity: 36, dist: 12 }); b.hearth(0, 0.3, 0, 1.1);
-      for (let i = 0; i < 3; i++) { const a = 0.5 + i * 2.1; b.at(Math.sin(a) * 1.8, Math.cos(a) * 1.8, a); log(b, 'ext', 1.5, 0.2, 0x5e4128); b.end(); b.spot(Math.sin(a) * 1.35, Math.cos(a) * 1.35, a + PI, 'sit'); }
+      for (let i = 0; i < 3; i++) { const a = 0.5 + i * 2.1; b.at(Math.sin(a) * 1.8, Math.cos(a) * 1.8, a); woodLog(b, 'ext', 1.5, 0.2, 0x5e4128); b.end(); b.spot(Math.sin(a) * 1.35, Math.cos(a) * 1.35, a + PI, 'sit'); }
       if (v === 1) { for (let i = 0; i < 3; i++) { const a = i * TAU / 3; b.cyl('ext', 'wood', 0.03, 0.035, 1.8, 5, Math.sin(a) * 0.45, 0.85, Math.cos(a) * 0.45, 0x4a3320, { rz: Math.cos(a) * 0.5, rx: -Math.sin(a) * 0.5 }); } b.cyl('ext', 'metal', 0.012, 0.012, 0.5, 4, 0, 1.4, 0, 0x2a2a2e); b.lathe('ext', 'metal', [[0.05, 0], [0.19, 0.04], [0.21, 0.24], [0.17, 0.3]], 10, 0, 0.9, 0, 0x2b2b2f); }
       if (v === 2) { b.at(1.5, -1.3, 0.3); F.crate(b, 'ext', 0.6); b.end(); b.at(-1.4, -1.5, 0); F.sack(b, 'ext'); b.end(); }
       b.cylCol(0, 0, 0.6, 0.5);
