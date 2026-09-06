@@ -121,7 +121,7 @@
 #tooltip .tt-warn { color: var(--red); }
 
 /* ---- notices ---- */
-#notices { position: absolute; left: 50%; top: 124px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; width: 640px; max-width: 90vw; }
+#notices { position: absolute; left: 50%; top: 140px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; width: 640px; max-width: 90vw; }
 #notices .notice { position: static; transform: none; font-size: 17px; letter-spacing: .04em; padding: 2px 10px; animation: noticeIn .25s ease-out; display: flex; align-items: center; gap: 8px; text-shadow: 0 2px 6px #000, 0 0 12px rgba(0,0,0,.6); transition: opacity .4s ease, transform .4s ease; }
 #notices .notice .n-ico { font-size: 15px; opacity: .9; }
 #notices .notice.out { opacity: 0; transform: translateY(-8px); }
@@ -179,7 +179,7 @@
 #targetFrame.friendly .tf-name { color: #bfe8b8; }
 
 /* ---- buffs ---- */
-#buffs { left: 12px; top: 90px; display: flex; flex-wrap: wrap; gap: 4px; width: 300px; }
+#buffs { position: absolute; left: 12px; top: 100px; display: flex; flex-wrap: wrap; gap: 4px; width: 300px; }
 #buffs:empty { display: none; }
 .buff { position: relative; width: 30px; height: 30px; border: 1px solid #4a7a3a; border-radius: 4px; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; font-size: 17px; line-height: 1; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.6); text-shadow: 0 1px 2px #000; }
 .buff.debuff { border-color: #a33; } .buff.dot { border-color: #a33; } .buff.stun, .buff.root, .buff.slow { border-color: #c48bff; } .buff.hot { border-color: #5fbf5a; }
@@ -212,17 +212,17 @@
 #interactPrompt { left: 50%; bottom: 156px; transform: translateX(-50%); padding: 5px 12px; font-size: 14px; display: flex; align-items: center; gap: 8px; white-space: nowrap; background: rgba(8,6,3,.7); animation: fadeIn .2s ease-out; }
 #interactPrompt .keycap { font-size: 12px; line-height: 18px; min-width: 22px; }
 #interactPrompt .ip-verb { color: var(--parch); } #interactPrompt .ip-name { color: var(--gold-bright); font-family: var(--font-head); font-size: 13px; }
-#xpbar { left: 0; right: 0; bottom: 0; height: 8px; background: rgba(0,0,0,.75); border-top: 1px solid rgba(111,83,34,.8); cursor: help; }
+#xpbar { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; background: rgba(0,0,0,.75); border-top: 1px solid rgba(111,83,34,.8); cursor: help; }
 #xpbar .xp-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(180deg, #d5b3ff, #6f45c9); box-shadow: 0 0 8px rgba(185,140,255,.7); transition: width .25s ease-out; }
 #xpbar .xp-ticks { position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(10% - 1px), rgba(0,0,0,.55) calc(10% - 1px), rgba(0,0,0,.55) 10%); pointer-events: none; }
 #xpbar .xp-rest { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(120,90,200,.25); }
 
 /* ---- compass ---- */
-#compass { left: 50%; top: 10px; transform: translateX(-50%); width: min(360px, calc(100vw - 1000px)); min-width: 260px; height: 32px; }
+#compass { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(360px, calc(100vw - 1000px)); min-width: 260px; height: 32px; }
 #compass canvas { width: 100%; height: 100%; display: block; }
 
 /* ---- auto-quest strip ---- */
-#autoquestStrip { left: 50%; top: 88px; transform: translateX(-50%); width: min(620px, calc(100vw - 690px)); min-width: 420px; display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: linear-gradient(90deg, rgba(60,44,18,.85), rgba(12,9,5,.85)); border-color: var(--gold-dim); }
+#autoquestStrip { left: 50%; top: 100px; transform: translateX(-50%); width: min(620px, calc(100vw - 690px)); min-width: 420px; display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: linear-gradient(90deg, rgba(60,44,18,.85), rgba(12,9,5,.85)); border-color: var(--gold-dim); }
 #autoquestStrip .aq-label { font-family: var(--font-head); font-size: 12px; letter-spacing: .08em; color: var(--gold-bright); white-space: nowrap; }
 #autoquestStrip .aq-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 #autoquestStrip .aq-text b { color: var(--gold-bright); font-weight: 600; }
@@ -249,7 +249,7 @@
 .mm-sub span { white-space: nowrap; }
 
 /* ---- quest tracker ---- */
-#questTracker { right: 12px; top: 286px; width: 252px; max-height: min(46vh, calc(100vh - 470px)); display: flex; flex-direction: column; text-shadow: 0 1px 2px #000, 0 0 4px #000; }
+#questTracker { position: absolute; right: 12px; top: 286px; width: 252px; max-height: min(46vh, calc(100vh - 470px)); display: flex; flex-direction: column; text-shadow: 0 1px 2px #000, 0 0 4px #000; }
 .qt-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 3px; border-bottom: 1px solid rgba(212,175,90,.4); font-family: var(--font-head); font-size: 12px; letter-spacing: .1em; color: var(--gold); text-transform: uppercase; cursor: pointer; }
 .qt-head .qt-toggle { font-size: 11px; color: var(--parch-dim); }
 .qt-list { overflow-y: auto; min-height: 0; padding: 4px 2px 2px 4px; }
@@ -271,7 +271,7 @@
 .qt-more { font-size: 11px; color: var(--parch-dim); padding-left: 4px; }
 
 /* ---- chat ---- */
-#chat { left: 12px; bottom: 14px; width: 360px; height: 206px; display: flex; flex-direction: column; background: rgba(8,6,3,.5); border: 1px solid rgba(111,83,34,.75); border-radius: 6px; backdrop-filter: blur(3px); transition: opacity .25s; }
+#chat { position: absolute; left: 12px; bottom: 14px; width: 360px; height: 206px; display: flex; flex-direction: column; background: rgba(8,6,3,.5); border: 1px solid rgba(111,83,34,.75); border-radius: 6px; backdrop-filter: blur(3px); transition: opacity .25s; }
 #chat:not(:hover):not(.focused) { opacity: .82; }
 #chat.collapsed { height: auto; }
 #chat.collapsed .chat-log, #chat.collapsed .chat-input { display: none; }

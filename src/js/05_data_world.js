@@ -209,7 +209,7 @@
   B('inn', -28, 24, null, { name: 'The Bird and Baby' });
   B('man_house', 26, 26, null, { name: 'The Mathom-house' });
   B('shop', 0, -32, null, { name: 'Delving Goods' });
-  B('shop', 28, -22, null, { name: 'Bracegirdle Armoury' });
+  B('shop', 12, -52, null, { name: 'Bracegirdle Armoury' });
   B('hobbit_hole', 0, 36, null);
   B('hobbit_hole', -36, -4, null);
   B('hobbit_hole', -56, -32, null);
@@ -265,7 +265,7 @@
   B('shop', -8, 44, null, { name: "The Fletcher's Bower" });
   B('stable', 50, 30, null, { name: 'Stables of Celondim' });
   B('shrine', -20, -52, null, { name: 'Shrine of Elbereth' });
-  B('elf_house', 54, -36, null);
+  B('elf_house', 60, -14, null);
   P('statue', 0, -8, 0); P('lamp', -16, 4, 0); P('lamp', 16, 6, 0); P('market_stall', -14, 18, 0); P('market_stall', 12, 18, 0);
   P('sign', 10, -22, 0, { text: 'Celondim — Duillond NE · the Quay W' }); P('crate', -50, 8, 0); P('banner', -10, -30, 0); P('banner', 10, -30, 0); P('lamp', -60, 2, 0);
 
@@ -283,7 +283,7 @@
   P('sign', -16, -10, 0, { text: "Duillond — Thorin's Hall N · Celondim SW · the Quay W" }); P('banner', 20, -18, 0);
 
   // ---- Bree-land -----------------------------------------------------------------------------------------------------------
-  town({ id: 'bree', name: 'Bree', zone: 'breeland', pos: { x: -250, z: -20 }, radius: 130, style: 'man', hasStable: true, hasDock: false, hasInn: true,
+  town({ id: 'bree', name: 'Bree', zone: 'breeland', pos: { x: -250, z: -20 }, radius: 160, style: 'man', hasStable: true, hasDock: false, hasInn: true,
     rallyPoint: { x: -256, z: -30 }, walled: true, desc: 'The chief town of Bree-land, walled and gated, where the Greenway meets the Great East Road at the door of the Prancing Pony.' });
   B('inn', -60, -24, 180, { name: 'The Prancing Pony' });                       // 0
   B('shop', -24, 22, 0, { name: 'Bree Armoury' });                              // 1
@@ -366,6 +366,19 @@
   B('hobbit_hole', 40, 50, null);
   P('well', 0, 14, 0); P('lamp', -8, -12, 0); P('lamp', 14, 18, 0); P('sign', -6, 6, 0, { text: 'Staddle — Bree NW · the Midgewater path E' });
   P('fence', 18, -22, 0, { len: 10 }); P('hay', -24, 26, 0); P('crate', 28, 18, 0); P('cart', -46, 30, 0);
+
+  // ---- Chetwood & Midgewater (25th town: the spec's town list names 24) ---------------------------------------------
+  town({ id: 'chetwoodcamp', name: "Chetwood Hunters' Camp", zone: 'souththicket', pos: { x: 20, z: 340 }, radius: 45, style: 'camp', hasStable: false, hasDock: false, hasInn: false,
+    rallyPoint: { x: 26, z: 348 }, desc: 'A palisaded camp of Bree-land hunters and a lone Ranger on the Midgewater path, the only friendly fire between Staddle and the Forsaken Inn.' });
+  B('man_house_2', 0, 20, 0, { name: "Hunters' Lodge" });
+  B('tent', -24, -4, null);
+  B('tent', 26, -6, null);
+  B('tent', -30, 30, null);
+  B('tent', 30, 34, null);
+  B('ruin_wall', 0, -24, 0, { len: 16 });
+  B('tower', -8, -40, null, { name: 'Chetwood Watch' });
+  P('campfire', 0, -4, 0); P('crate', 14, 14, 0); P('barrel', -14, 14, 0); P('fence', -40, 10, 90, { len: 12 }); P('banner', -6, 6, 0);
+  P('sign', 10, -16, 0, { text: "Chetwood Hunters' Camp — Staddle W · the Forsaken Inn E" }); P('hay', 38, 26, 0);
 
   // ---- Old Forest ----------------------------------------------------------------------------------------------------------
   town({ id: 'tomshouse', name: "Tom Bombadil's House", zone: 'oldforest', pos: { x: -520, z: 560 }, radius: 40, style: 'man', hasStable: false, hasDock: false, hasInn: false,
@@ -693,7 +706,7 @@
     ['Every Bounder starts by learning to throw a stone. Then a knife. Then a party.', 'Come to me when you have coin and courage, and I will teach you the tricks of your trade.']);
   N('nob', 'Nob Bracegirdle', 'Stable-master', 'hobbit', 'male', ['stablemaster'], 5, -42, -8,
     ['Ponies to Michel Delving, Bree and beyond — swift as you like, for a few coppers.', 'Don\'t feed the grey one. He bites when he\'s happy.']);
-  N('robin', 'Robin Smallburrow', 'Shirriff', 'hobbit', 'male', ['guard'], 8, -70, 4,
+  N('robin', 'Robin Smallburrow', 'Shirriff', 'hobbit', 'male', ['guard'], 8, -70, 14,
     ['Nothing to see here. Move along. Well — one thing to see, but it ran off.', 'Keep to the roads after dark. The wolves aren\'t polite this year.']);
   N('fastred', 'Fastred Bolger', 'Bounder', 'hobbit', 'male', ['guard'], 8, 36, -40,
     ['Bounder Bolger, at your service. I count anyone who comes over the Hill, and I count them twice.', 'Strangers on the East Road again. Big folk with bad manners.']);
@@ -720,7 +733,7 @@
     ['~ There is an inn, a merry old inn, beneath an old grey hill ~', 'Requests taken. Payment in ale accepted and, indeed, preferred.'], { inside: 1 });
   N('general', 'Olo Bracegirdle', 'Shopkeeper', 'hobbit', 'male', ['vendor:general'], 6, -8, -24,
     ['Everything a hobbit needs and a fair bit a hobbit doesn\'t.', 'We stock lantern-oil by the barrel. Ask me why. Go on.']);
-  N('armour', 'Hilda Bracegirdle', 'Armourer', 'hobbit', 'female', ['vendor:armour'], 8, 20, -16,
+  N('armour', 'Hilda Bracegirdle', 'Armourer', 'hobbit', 'female', ['vendor:armour'], 8, 6, -44,
     ['Bracegirdle mail: fitted for the shorter warrior. Big folk sizes on request.', 'A dented helm is a story. An un-dented one is a plan.']);
   N('weapons', 'Ponto Hayward', 'Cutler', 'hobbit', 'male', ['vendor:weapons'], 8, -4, 26,
     ['Knives, hatchets, walking-sticks with a bit of iron in them. Bounder-approved.', 'The blade doesn\'t make the hero. But it helps.']);
@@ -974,6 +987,25 @@
     ['Weed\'s in, pigs are fat, and the roof leaks. Two out of three.', 'If you see a sow with a blue ribbon, she\'s ours.']);
   N('chalk', 'Chalk', 'Fiddler', 'hobbit', 'male', ['bard', 'flavor'], 6, 2, -16,
     ['~ Hey dol! merry dol! ring a dong dillo ~ — I got that one off a fellow in a blue coat.', 'A song for the road? It\'s a long one; so is the road.']);
+
+  // ---- Chetwood Hunters' Camp ------------------------------------------------------------------------------------------------
+  at('chetwoodcamp');
+  N('huntmaster', 'Bramwell Ashdown', 'Huntmaster', 'man', 'male', ['questgiver'], 18, -8, -12,
+    ['The Chetwood used to be good hunting. Now the Blackwolds hunt us, and the spiders hunt everything.', 'Halgar the Blackwold has a camp in the marsh. Burn it and Bree-land sleeps easier.', 'Every pelt you bring me feeds the camp. Every brigand you drop feeds the crows.'], { hub: true });
+  N('saeradan', 'Saeradan', 'Ranger of the Chetwood', 'dunedain', 'male', ['questgiver'], 22, 14, -32,
+    ['The Blackwolds take orders from someone in the Lone-lands. I want the letters they carry.', 'Tread lightly in the marsh. The neekerbreekers sing louder when something big is moving.']);
+  N('nell', 'Nell Tanner', 'Marsh-guide', 'man', 'female', ['questgiver'], 16, 12, 4,
+    ['I know every dry path through the Midgewater. Most of them are under a foot of water.', 'Bog-slugs have eaten the marker-stakes again. Someone has to replace them, and someone is you.']);
+  N('amos', 'Amos Tuck', 'Pedlar', 'man', 'male', ['vendor:general', 'vendor:food'], 15, -16, 26,
+    ['Salt-pork, rope, torches and midge-salve. You will want the salve.', 'Bree prices plus the cost of getting it here alive.']);
+  N('hugo', 'Hugo Blackthorn', 'Trapper', 'man', 'male', ['trainer'], 24, 36, 14,
+    ['Every class can learn something from a trapper: patience, and where to put the sharp bit.', 'Coin for lessons. I have snares to buy.']);
+  N('dodd', 'Sentry Dodd', 'Camp Sentry', 'man', 'male', ['guard'], 20, -30, -24,
+    ['Staddle is west, the Inn is east, and the marsh is everywhere else.', 'If you hear a horn at night, that\'s me. If you hear two, run.']);
+  N('meg', 'Old Meg', 'Herbalist', 'man', 'female', ['flavor'], 14, -4, 40,
+    ['Kingsfoil grows in the marsh if you know the smell. Most folk only know the smell of the marsh.', 'A poultice for a copper. A cure for two. A miracle, I leave to the elves.']);
+  N('pip', 'Whistler Pip', 'Hobbit Fiddler', 'hobbit', 'male', ['bard', 'flavor'], 12, 22, 26,
+    ['~ Neeker-breeker, neeker-breeker, all the marshy night ~ — it\'s the only tune out here.', 'Came out to trade pipe-weed with the hunters. Stayed because the ale is free if you play.']);
 
   // ---- Tom Bombadil's House --------------------------------------------------------------------------------------------------
   at('tomshouse');
@@ -1467,7 +1499,6 @@
   MT('angmar_acolyte', 'Acolyte of Carn Dûm', 'sorcerer', 'angmar', 57, 62, 'A robed sorcerer-in-training hurling shadow from behind the orc-lines.', { abilities: ['sorcerer_shadow_bolt'] });
   MT('angmar_uruk', 'Uruk of Carn Dûm', 'uruk', 'angmar', 58, 63, 'Uruks of the citadel guard, armoured head to foot.');
   MT('angmar_wight', 'Gaunt-wight', 'wight', 'angmar', 60, 65, 'A wight raised by the gaunt-lords, cold and hungry.', { color: 0x6a7a80 });
-  MT('angmar_troll', 'Troll of Angmar', 'troll', 'angmar', 61, 65, 'Trolls in iron plate that do not fear the sun.', { color: 0x4a4a48 });
   MT('angmar_uruk_captain', 'Uruk Captain', 'uruk', 'angmar', 63, 65, 'A captain of the Carn Dûm garrison, veteran of a hundred raids.', { elite: true });
 
   // ---- Forochel (60–70)
@@ -1568,7 +1599,7 @@
   S('eredluin', 'mountain_lynx', -1130, -780, 30, 4);
   S('eredluin', 'cave_crawler', -1230, -1200, 30, 5);
   S('eredluin', 'black_bear_eredluin', -1465, -600, 25, 3);
-  S('eredluin', 'bluemountain_goblin', -1300, -1250, 30, 5, 'Northern pass');
+  S('eredluin', 'bluemountain_goblin', -1310, -1235, 30, 5, 'Northern pass');
   // Bree-land
   S('breeland', 'bree_boar', -420, -120, 35, 6);
   S('breeland', 'breeland_wolf', -380, -300, 40, 5);
@@ -1589,7 +1620,7 @@
   S('souththicket', 'chetwood_brigand', 80, 540, 35, 6, 'Blackwold camp');
   S('souththicket', 'marsh_slug', 300, 380, 30, 5);
   S('souththicket', 'chetwood_archer', 270, 360, 25, 3, 'Archers\' blind');
-  S('souththicket', 'chetwood_brigand', -30, 360, 35, 5);
+  S('souththicket', 'chetwood_brigand', -60, 420, 35, 5);
   S('souththicket', 'chetwood_wolf', 220, 600, 30, 5);
   S('souththicket', 'midgewater_spider', 330, 480, 30, 5);
   S('souththicket', 'marsh_crawler', 100, 240, 30, 5);
@@ -1600,7 +1631,7 @@
   S('oldforest', 'forest_bear', -500, 720, 35, 4);
   S('oldforest', 'barrow_bat', -300, 760, 35, 5);
   S('oldforest', 'wight_barrow', -370, 830, 40, 6, 'Barrow of Cardolan');
-  S('oldforest', 'barrow_crawler', -260, 880, 35, 5);
+  S('oldforest', 'barrow_crawler', -290, 860, 35, 5);
   S('oldforest', 'wight_guardian', -330, 900, 25, 3, 'The Great Barrow');
   S('oldforest', 'wight_barrow', -440, 880, 35, 5);
   S('oldforest', 'old_forest_wolf', -300, 560, 35, 5);
@@ -1680,9 +1711,9 @@
   S('angmar', 'angmar_acolyte', 1180, -1420, 35, 5, 'Approach to Carn Dûm');
   S('angmar', 'angmar_wight', 1080, -1520, 35, 5);
   S('angmar', 'angmar_bat', 1200, -1180, 35, 5, 'Barad Gúlaran');
-  S('angmar', 'angmar_troll', 1300, -1300, 35, 4);
+  S('angmar', 'angmar_uruk', 1300, -1300, 35, 4, 'Eastern war-camp');
   S('angmar', 'angmar_uruk_captain', 1200, -1540, 25, 3, 'Outer gate of Carn Dûm');
-  S('angmar', 'angmar_orc', 1120, -1320, 35, 6);
+  S('angmar', 'angmar_orc', 1160, -1340, 35, 6);
   S('angmar', 'angmar_warg', 700, -1350, 35, 5);
   S('angmar', 'angmar_wight', 1320, -1420, 30, 5);
   S('angmar', 'angmar_uruk', 1160, -1000, 30, 5);
@@ -1740,7 +1771,7 @@
   FS('fs_bywater_pool', 'The Bywater Pool', 'shire', -966, -92, 14, [['trout', 5], ['perch', 4], ['carp', 3], ['pike', 1]]);
   FS('fs_hobbiton_water', 'The Water at Hobbiton', 'shire', -1000, -165, 12, [['trout', 5], ['perch', 3], ['carp', 2]]);
   FS('fs_brandywine_bridge', 'The Brandywine under the Bridge', 'shire', -620, -70, 12, [['salmon', 3], ['pike', 3], ['eel', 2], ['trout', 2]]);
-  FS('fs_brandywine_south', 'Brandywine Reach', 'shire', -610, -300, 12, [['trout', 3], ['salmon', 2], ['carp', 2], ['eel', 2]]);
+  FS('fs_brandywine_south', 'Brandywine Reach', 'shire', -626, -170, 12, [['trout', 3], ['salmon', 2], ['carp', 2], ['eel', 2]]);
   FS('fs_brandywine_marches', 'The Brandywine at the Bree-land Marches', 'breeland', -598, -150, 12, [['pike', 3], ['perch', 3], ['trout', 2], ['eel', 2]]);
   FS('fs_brandywine_hedge', 'The Brandywine at the Hedge', 'oldforest', -562, 380, 12, [['pike', 3], ['salmon', 2], ['perch', 2], ['eel', 2]]);
   FS('fs_withywindle', 'The Withywindle', 'oldforest', -540, 700, 12, [['eel', 3], ['pike', 3], ['perch', 2], ['carp', 2]]);
@@ -1772,8 +1803,8 @@
   GN('shire', 'chest', 'treasure_cache', -1180, -330, 8, 1, "Old Tobold's cache"); GN('shire', 'ore', 'ore_copper', -1350, -150, 16, 4, 'Delving quarry');
   GN('eredluin', 'ore', 'ore_copper', -1230, -1000, 16, 5); GN('eredluin', 'ore', 'ore_iron', -1400, -1180, 16, 5); GN('eredluin', 'relic', 'relic_dwarf_rune', -1160, -960, 14, 4, 'Rath Teraig rune-stones');
   GN('eredluin', 'wood', 'wood_pine_log', -1260, -820, 18, 5); GN('eredluin', 'herb', 'herb_wild_garlic', -1470, -640, 14, 4);
-  GN('breeland', 'herb', 'herb_kingsfoil', -330, -200, 16, 5, 'Bree-hill hedgerows'); GN('breeland', 'mushroom', 'mushroom_field', -400, 240, 16, 5); GN('breeland', 'wood', 'wood_oak_branch', -20, -330, 18, 5);
-  GN('breeland', 'chest', 'treasure_cache', 30, -90, 8, 1, 'Blackwold stash'); GN('breeland', 'ore', 'ore_copper', -470, -360, 16, 4);
+  GN('breeland', 'herb', 'herb_kingsfoil', -330, -200, 16, 5, 'Bree-hill hedgerows'); GN('breeland', 'mushroom', 'mushroom_field', -400, 240, 16, 5); GN('breeland', 'wood', 'wood_oak_branch', -60, -340, 18, 5);
+  GN('breeland', 'chest', 'treasure_cache', 30, -90, 8, 1, 'Blackwold stash'); GN('breeland', 'ore', 'ore_copper', -440, -330, 16, 4);
   GN('souththicket', 'herb', 'herb_kingsfoil', 200, 420, 16, 5); GN('souththicket', 'mushroom', 'mushroom_bog', 120, 480, 16, 5); GN('souththicket', 'wood', 'wood_ash_bough', 0, 300, 18, 5);
   GN('souththicket', 'relic', 'relic_arnor_shard', 250, 310, 12, 4, 'Chetwood lodge'); GN('souththicket', 'chest', 'treasure_cache', 60, 560, 8, 1, 'Blackwold plunder');
   GN('oldforest', 'mushroom', 'mushroom_bog', -420, 700, 16, 5); GN('oldforest', 'herb', 'herb_wild_garlic', -350, 580, 16, 5); GN('oldforest', 'wood', 'wood_oak_branch', -480, 640, 16, 5, 'Bonfire Glade');
@@ -1789,7 +1820,7 @@
   GN('misty', 'ore', 'ore_silver', 1700, -380, 16, 5); GN('misty', 'herb', 'herb_frost_lichen', 1560, -540, 16, 5); GN('misty', 'relic', 'relic_dwarf_rune', 1780, -580, 12, 4, 'Goblin-town gate');
   GN('misty', 'chest', 'treasure_cache', 1890, -460, 8, 1, 'Drake hoard'); GN('misty', 'wood', 'wood_pine_log', 1480, -300, 16, 4);
   GN('angmar', 'ore', 'ore_iron', 1050, -1400, 16, 5); GN('angmar', 'herb', 'herb_frost_lichen', 760, -1300, 16, 5); GN('angmar', 'relic', 'relic_arnor_shard', 1180, -1480, 14, 5, 'Carn Dûm');
-  GN('angmar', 'chest', 'treasure_cache', 1250, -1560, 8, 1, "Sorcerer's vault"); GN('angmar', 'mushroom', 'mushroom_bog', 1000, -1400, 16, 5, 'Malenhad');
+  GN('angmar', 'chest', 'treasure_cache', 1235, -1540, 8, 1, "Sorcerer's vault"); GN('angmar', 'mushroom', 'mushroom_bog', 1000, -1400, 16, 5, 'Malenhad');
   GN('forochel', 'herb', 'herb_frost_lichen', 640, -1900, 16, 5); GN('forochel', 'ore', 'ore_silver', 820, -1800, 16, 5); GN('forochel', 'relic', 'relic_arnor_shard', 700, -1980, 12, 4, "Wreck of the Lost King's ship");
   GN('forochel', 'chest', 'treasure_cache', 760, -1700, 8, 1, 'Bear-den cache'); GN('forochel', 'wood', 'wood_pine_log', 420, -1700, 16, 5);
   GN('tolfuin', 'relic', 'relic_elf_gem', -1920, -1430, 14, 5, 'Western ruins'); GN('tolfuin', 'herb', 'herb_kingsfoil', -1720, -1400, 16, 5); GN('tolfuin', 'wood', 'wood_ash_bough', -1860, -1360, 16, 5, 'Mallorn grove');
@@ -1871,7 +1902,7 @@
   poi('poi_esteldin_gate', 'The Hidden Gate of Esteldín', 'northdowns', 350, -680, 'landmark', 'A cleft in the hills that opens, for those who know it, on the refuge of the Rangers.');
   // Evendim
   poi('poi_annuminas', 'Annúminas', 'evendim', -540, -900, 'ruin', 'The drowned first capital of Arnor on the western shore of Nenuial, its towers standing knee-deep in the lake.');
-  PB('ruin_tower', -20, -16, null); PB('ruin_tower', 22, -14, null); PB('ruin_wall', 0, -26, 0, { len: 28 }); PB('ruin_wall', -30, 4, 90, { len: 20 }); PB('ruin_wall', 30, 4, -90, { len: 20 }); PB('shrine', 0, 0, 180, { name: 'Throne of Elendil' });
+  PB('ruin_tower', -20, -16, null); PB('ruin_tower', 22, -14, null); PB('ruin_wall', 0, -26, 0, { len: 28 }); PB('ruin_wall', -30, 4, 90, { len: 20 }); PB('ruin_wall', 30, 4, -90, { len: 20 }); PB('shrine', 0, 12, 180, { name: 'Throne of Elendil' });
   poi('poi_tyl_ruinen', 'Tyl Ruinen', 'evendim', -250, -1220, 'grave', 'A grave-isle of the kings on the north shore, where the dead of Annúminas do not rest.');
   PB('barrow', 0, 0, 180);
   poi('poi_emyn_uial_caves', 'The Caves of Emyn Uial', 'evendim', -540, -1100, 'cave', 'Deep caves in the Hills of Evendim where the hill-giants sleep.');
@@ -1894,8 +1925,8 @@
   // Angmar
   poi('poi_carn_dum', 'Carn Dûm', 'angmar', 1250, -1500, 'dungeon', 'The black citadel of the Witch-king, where the sorcerer Gûlmaethor now rules.');
   PB('tower', -26, -20, null); PB('tower', 26, -20, null); PB('wall_segment', 0, -30, 0, { len: 40 }); PB('wall_segment', -34, 4, 90, { len: 30 }); PB('wall_segment', 34, 4, -90, { len: 30 }); PB('gate', 0, 20, 180, { width: 16, name: 'Gate of Carn Dûm' });
-  poi('poi_rammas_deluon', 'Rammas Deluon', 'angmar', 730, -1020, 'landmark', 'The gate of the Watching-stones on the road into Angmar. Their eyes follow travellers.');
-  PB('ruin_tower', -12, 0, null, { name: 'Watching-stone' }); PB('ruin_tower', 12, 0, null, { name: 'Watching-stone' });
+  poi('poi_rammas_deluon', 'Rammas Deluon', 'angmar', 735, -1035, 'landmark', 'The gate of the Watching-stones on the road into Angmar. Their eyes follow travellers.');
+  PB('ruin_tower', 8.5, 8.5, null, { name: 'Watching-stone' }); PB('ruin_tower', -8.5, -8.5, null, { name: 'Watching-stone' });
   poi('poi_barad_gularan', 'Barad Gúlaran', 'angmar', 1150, -1050, 'tower', 'A tower of black sorcery on the Hoarwell where the acolytes are trained.');
   PB('ruin_tower', 0, 0, null, { name: 'Barad Gúlaran' });
   poi('poi_himbar', 'Ruins of Himbar', 'angmar', 890, -1430, 'ruin', 'A ruined hillman fort, now an uruk camp.');

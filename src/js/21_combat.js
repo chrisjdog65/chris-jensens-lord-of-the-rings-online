@@ -428,9 +428,9 @@
     return null;
   }
   function effectsChanged(dst) { recompute(dst); G.emit('effectsChanged', dst); }
-  function removeStances(dst, keepId) {
+  function removeStances(dst, keepAbility) {
     const l = dst.effects; let removed = false;
-    for (let i = l.length - 1; i >= 0; i--) { const e = l[i]; if (e && e.stance && e.id !== keepId) { l.splice(i, 1); removed = true; } }
+    for (let i = l.length - 1; i >= 0; i--) { const e = l[i]; if (e && e.stance && (e.ability || e.id) !== keepAbility) { l.splice(i, 1); removed = true; } }
     return removed;
   }
   function addEffect(dst, effect, srcEnt) {
@@ -463,7 +463,7 @@
         if (drop < 0) return null;
         list.splice(drop, 1);
       }
-      if (effect.stance) removeStances(dst, effect.id);
+      if (effect.stance) removeStances(dst, effect.ability || effect.id);
       list.push(effect);
       out = effect;
     }
@@ -1069,11 +1069,18 @@
     if (nearPlayer(dst, 120)) { const o = fxReset(); o.dir = _v3.set(dx, 0, dz); fx('dust', dp, o); }
     return true;
   }
+  function abilityArea(a) {
+    let r = 0; const effs = a.effects;
+    for (let i = 0; i < effs.length; i++) if (effs[i] && effs[i].aoe > r) r = effs[i].aoe;
+    return r;
+  }
   function collectTargets(src, primary, centre, a, e, wantHostile, buf) {
     buf.length = 0;
     if (wantHostile) {
-      if (e.aoe > 0) hostilesNear(centre, e.aoe, buf, src, num(a.cone, 0), MAX_AOE);
-      else if (primary && primary !== src && isAlive(primary) && isHostile(src, primary)) buf.push(primary);
+      const hostilePrimary = !!(primary && primary !== src && isAlive(primary) && isHostile(src, primary));
+      const r = e.aoe > 0 ? e.aoe : (hostilePrimary ? 0 : abilityArea(a));
+      if (r > 0) hostilesNear(centre, r, buf, src, num(a.cone, 0), MAX_AOE);
+      else if (hostilePrimary) buf.push(primary);
       return buf;
     }
     const et = e.target || 'self';

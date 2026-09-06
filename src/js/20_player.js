@@ -246,6 +246,8 @@
 
     // abilities & hotbar
     grantStarterAbilities(ent);
+    // warm the horse rig cache now (loading time) so the first H press never hitches
+    ensureHorse(activeMountId());
 
     // world position
     if (typeof G.addEntity === 'function') G.addEntity(ent);
@@ -329,8 +331,10 @@
     _moveVel.set(0, 0, 0);
     _prevPos.copy(player.pos);
     S.camSnap = true; S.pivotInit = false;
+    S.interactT = 0; S.stride = 0; S.blockedT = 0;              // refresh the prompt next frame
     if (G.Spatial && typeof G.Spatial.update === 'function') G.Spatial.update(player);
     placeRig();
+    computeInteractTarget();
     checkZone(true);
     return true;
   }
@@ -610,21 +614,26 @@
     if (!player.onGround) return false;
     return !!activeMountId();
   }
+  function ensureHorse(id) {
+    if (!id) return null;
+    let h = horseRigs[id];
+    if (h) return h;
+    if (!G.Chars || typeof G.Chars.buildHorse !== 'function') return null;
+    const t = mountTemplate(id);
+    const color = t && t.mount && t.mount.color != null ? t.mount.color : 0x6b4a2e;
+    try { h = G.Chars.buildHorse(color); } catch (e) { h = null; }
+    if (!h || !h.group) return null;
+    h.group.name = 'mount_' + id;
+    horseRigs[id] = h;
+    return h;
+  }
   function mount(tid) {
     if (!player || player.mounted) return false;
     if (tid && Array.isArray(player.mounts) && player.mounts.indexOf(tid) >= 0) player.activeMount = tid;
     if (!canMount()) return false;
     const id = activeMountId(); if (!id) return false;
-    if (!G.Chars || typeof G.Chars.buildHorse !== 'function') return false;
-    let h = horseRigs[id];
-    if (!h) {
-      const t = mountTemplate(id);
-      const color = t && t.mount && t.mount.color != null ? t.mount.color : 0x6b4a2e;
-      try { h = G.Chars.buildHorse(color); } catch (e) { h = null; }
-      if (!h || !h.group) return false;
-      h.group.name = 'mount_' + id;
-      horseRigs[id] = h;
-    }
+    const h = ensureHorse(id);
+    if (!h) return false;
     const sc = currentScene() || (player.mesh && player.mesh.parent);
     mountRig = h; player.mountRig = h; player.mountId = id; player.mounted = true;
     if (rig && typeof rig.setMounted === 'function') rig.setMounted(true);
@@ -1054,6 +1063,7 @@
     // blocked detection (auto-jump for the bot, stuck feel for the player)
     if (haveInput && speed > 1 && pl.onGround && actual < speed * 0.25) S.blockedT += dt; else S.blockedT = 0;
     if (A.active && S.blockedT > AUTO_BLOCK_JUMP && pl.onGround && !pl.mounted) { if (jump()) S.blockedT = 0; }
+    else if (A.active && S.blockedT > 1.5 && pl.mounted) { dismount(false); S.blockedT = AUTO_BLOCK_JUMP; }
 
     // ---- landing / splash
     if (pl.justLanded > 0) {

@@ -21,6 +21,7 @@
      typesInZone(zoneId) → [type]          — types whose zone or spawn groups lie in the zone
      nearestHostile(pos, r, filterFn?)     — nearest living monster; hostilesNear(pos, r) → reused array
      onDamaged(ent, src)                   — Combat hook: wake, (re)target by threat, pack call, flinch
+     onTaunt(ent, src)                     — Combat hook: pin the target on `src` for 4 s
      onKilled(ent)                         — entityKilled hook: corpse timer, respawn scheduling, boss bookkeeping
      countAlive(), findType(typeId), groupsForType(typeId), nearestSpawnOf(typeId, pos) → {x,z}|null
      spawnForQuest(typeId, nearPos, count) → [entities]  (AutoQuest: no live target → spawn at the nearest group or nearby)
@@ -402,8 +403,9 @@
     const radius = clamp(0.5 * size, 0.3, 2.5);
     const height = clamp(1.6 * size, 0.6, 9);
     const scale = levelScale(level, type);
-    const moraleMult = boss ? 4 : elite ? 2 : 1;
-    const dmgMult = boss ? 1.8 : elite ? 1.3 : 1;
+    // boss ×4 morale / ×1.8 dmg, elite ×2 / ×1.3 — unless the registry type already carries the flag (its numbers are pre-scaled)
+    const moraleMult = boss ? (type.boss ? 1 : 4) : elite ? (type.elite ? 1 : 2) : 1;
+    const dmgMult = boss ? (type.boss ? 1 : 1.8) : elite ? (type.elite ? 1 : 1.3) : 1;
     const baseMorale = num(type.morale, 30 + 12 * level);
     const baseDmg = num(type.dmg, 3 + level * 1.2);
     const baseArmour = num(type.armour, level * 5);
@@ -415,7 +417,7 @@
       pos: new THREE.Vector3(x, 0, z), yaw: num(opts.yaw, hash(x, z, 91) * TAU), vel: new THREE.Vector3(),
       radius: radius, height: height, onGround: true, inWater: false, swimming: false,
       stats: {}, morale: 0, power: 0, alive: true, dead: false, deathTime: 0,
-      effects: [], cooldowns: {}, target: null, threat: new Map(),
+      effects: [], cooldowns: {}, target: null, threat: {},
       mesh: null, rig: null, plate: null, anim: 'idle', animTime: 0,
       dmg: Math.max(1, Math.round(baseDmg * scale * dmgMult)), armour: Math.max(0, Math.round(baseArmour * scale)),
       speed: speed, aggroRange: Math.max(3, num(type.aggroRange, C.AGGRO_RANGE || 14)),
@@ -461,7 +463,7 @@
       lastAttack: 0, nextAttack: 0, fleeing: false, fledOnce: false, fleeT: 0, packId: null, acc: 0,
       scanT: rnd() * AGGRO_SCAN_INTERVAL, idleT: 0, strafeDir: 0, strafeT: 0, stuckT: 0, lastX: px, lastZ: pz,
       progressT: 0, bestD: Infinity, telegraphT: 0, telegraphId: null, rot: 0, blockedT: 0, rangedT: 0,
-      moving: false, alertYaw: false, sinceDamage: 1e9,
+      moving: false, alertYaw: false, sinceDamage: 1e9, tauntedUntil: 0, stuck: false,
     };
     G.addEntity(ent);
     byId[ent.id] = ent;
@@ -894,6 +896,7 @@
   function abilityReady(ent, id, t) {
     const cd = ent.cooldowns;
     if (cd && cd[id] > t) return false;
+    if (ent.gcdReady > t + 1e-4) return false;        // Combat's global cooldown field
     if (ent.gcdUntil > t) return false;
     return true;
   }
@@ -998,9 +1001,9 @@
     if (inTown(ent.pos.x, ent.pos.z) || inTown(target.pos.x, target.pos.z)) { startLeash(ent); _want.set(0, 0, 0); return; }
     const dh2 = _dist2sq(ent.pos.x, ent.pos.z, ent.home.x, ent.home.z);
     if (dh2 > ai.leash * ai.leash) { startLeash(ent); _want.set(0, 0, 0); return; }
-    // re-evaluate threat every so often
+    // re-evaluate threat every so often (a taunt pins the target for a few seconds)
     ai.scanT -= dt;
-    if (ai.scanT <= 0) { ai.scanT = SCAN_INTERVAL; const top = topThreat(ent); if (top && top !== target) { setTarget(ent, top, true); } }
+    if (ai.scanT <= 0) { ai.scanT = SCAN_INTERVAL; if (!(ai.tauntedUntil > t)) { const top = topThreat(ent); if (top && top !== target) setTarget(ent, top, true); } }
     const dx = target.pos.x - ent.pos.x, dz = target.pos.z - ent.pos.z;
     const d = Math.sqrt(dx * dx + dz * dz);
     const reach = ent.radius + (target.radius > 0 ? target.radius : 0.4) + 1.0;
@@ -1161,6 +1164,18 @@
     const fightingPlayer = p && ent.target === p && (ent.ai.state === 'chase' || ent.ai.state === 'attack');
     if (fightingPlayer) { if (bossMusicRec !== rec) startBossMusic(rec); }
     else if (bossMusicRec === rec && ent.ai.state !== 'chase' && ent.ai.state !== 'attack') restoreMusic();
+    // stun immunity: shrug off any stun/root that landed
+    const effs = ent.effects;
+    if (Array.isArray(effs) && effs.length) {
+      for (let i = effs.length - 1; i >= 0; i--) {
+        const e = effs[i];
+        if (!e || (e.kind !== 'stun' && e.kind !== 'root')) continue;
+        const Cb = G.Combat;
+        if (Cb && typeof Cb.removeEffect === 'function') { try { Cb.removeEffect(ent, e.id); } catch (err) { effs.splice(i, 1); } }
+        else effs.splice(i, 1);
+        if (G.Data && G.Data.stats && typeof G.Data.stats.compute === 'function') { try { G.Data.stats.compute(ent); } catch (err) { /* keep going */ } }
+      }
+    }
   }
   function aiStep(ent, dt, t, d2p) {
     const ai = ent.ai;
@@ -1212,7 +1227,16 @@
       // hit by something we cannot see: look around
       ai.scanT = 0; ai.timer = 0.5;
     }
-    if (ent.rig && typeof ent.rig.setAnim === 'function' && !ent.rig.oneShot && ai.state !== 'attack') ent.rig.setAnim('hit');
+    // flinch (Combat plays the hit animation itself when present)
+    if (!(G.Combat && typeof G.Combat.damage === 'function') && ent.rig && typeof ent.rig.setAnim === 'function' && !ent.rig.oneShot && ai.state !== 'attack') ent.rig.setAnim('hit');
+  }
+  function onTaunt(ent, src) {
+    if (!ent || ent.kind !== 'monster' || ent.dead || !ent.ai || !src) return;
+    if (ent.ai.state === 'leash') return;
+    if (!isFreeTarget(src) || !src.pos) return;
+    setTarget(ent, src, true);
+    ent.ai.tauntedUntil = now() + 4;
+    ent.ai.sinceDamage = 0;
   }
   function onEntityKilled(ev) {
     const v = ev && (ev.victim || ev.entity || ev);
@@ -1414,6 +1438,7 @@
   M.nearestHostile = nearestHostile;
   M.hostilesNear = hostilesNear;
   M.onDamaged = onDamaged;
+  M.onTaunt = onTaunt;
   M.onKilled = onKilled;
   M.countAlive = countAlive;
   M.findType = findType;

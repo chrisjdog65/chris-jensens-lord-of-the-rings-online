@@ -237,6 +237,16 @@
     }
     if (typeof ref === 'object') {
       if (ref.building && ref.building.interiorSpots) return ref.building;
+      if (typeof ref.index === 'number') {                       // registry convention: interior:{town, index}
+        const tn = (ref.town && townById[ref.town]) || town;
+        const placed = tn && Array.isArray(tn.buildingsPlaced) ? tn.buildingsPlaced : null;
+        if (placed) {
+          const spec = tn.buildings && tn.buildings[ref.index | 0];
+          if (spec) for (let i = 0; i < placed.length; i++) { const b = placed[i]; if (b && b.spec && (b.spec === spec || (b.spec.recipe === spec.recipe && Math.abs(b.spec.x - spec.x) < 0.01 && Math.abs(b.spec.z - spec.z) < 0.01))) return b.enterable ? b : null; }
+          const b = placed[ref.index | 0]; if (b && b.enterable) return b;
+        }
+        return near(() => true);
+      }
       const s = ref.name ? String(ref.name).toLowerCase() : null, rec = ref.recipe ? String(ref.recipe) : null;
       const hx = typeof ref.x === 'number' ? ref.x : e.home.x, hz = typeof ref.z === 'number' ? ref.z : e.home.z;
       let best = null, bd = Infinity;
@@ -257,7 +267,9 @@
       e.pos.set(spot.x + ox, spot.y, spot.z + oz); e.yaw = spot.yaw; e.spot = spot;
     } else { e.pos.set(bld.x, bld.y, bld.z); e.yaw = bld.yaw; }
     e.interior = bld; e.home.x = e.pos.x; e.home.y = e.pos.y; e.home.z = e.pos.z; e.home.yaw = e.yaw;
-    e.ai.kind = 'stationary'; e.ai.stationary = true; e.ai.curfew = false;
+    const k = e.ai.kind;
+    if (k !== 'bard' && k !== 'fisher' && k !== 'sitter') e.ai.kind = 'stationary';   // movers stand still indoors; performers keep performing
+    e.ai.stationary = true; e.ai.curfew = false; e.ai.points = null; e.ai.hasTarget = false;
     if (G.Spatial && hasFn(G.Spatial, 'update')) G.Spatial.update(e);
     if (e.rig) { e.rig.group.position.copy(e.pos); e.rig.group.rotation.y = e.yaw; }
     return true;
@@ -290,7 +302,7 @@
       stats: { maxMorale: 100 + level * 20, maxPower: 100, speed: 1 }, morale: 100 + level * 20, power: 100, effects: [], cooldowns: {}, target: null, threat: {},
       mesh: null, rig: null, anim: 'idle', animTime: 0,
       dialogue: Array.isArray(rec.dialogue) ? rec.dialogue.filter(s => typeof s === 'string' && s) : [],
-      interior: null, spot: null, wantsInterior: !!(rec.interior), child, data: rec, home: { x: px, y: 0, z: pz, yaw: +rec.yaw || 0 },
+      interior: null, spot: null, wantsInterior: !!(rec.interior) || (Array.isArray(rec.roles) && rec.roles.indexOf('innkeeper') >= 0), child, data: rec, home: { x: px, y: 0, z: pz, yaw: +rec.yaw || 0 },
       ai: { kind: 'stationary', stationary: true, curfew: false, wait: 0, idx: 0, hasTarget: false, tx: 0, tz: 0, stuck: 0, mode: 'out', nextWave: 0, nextEmote: 0, homeT: 0, door: null, points: null, faceYaw: 0, outYaw: 0 },
       questMark: null, talkingTo: null, hidden: false, _line: 0, _phase: 0, _d2: Infinity, _keep: false, _lodAcc: 0, _lodN: 0, _markState: null, _marker: null, _glow: null, _spec: null,
       interact: null,
@@ -303,11 +315,6 @@
     G.addEntity(ent);
     npcs.push(ent); byNpcId[rec.id] = ent;
     bindInterior(ent);
-    for (let i = 0; i < roles(ent).length; i++) {
-      const r = String(ent.roles[i]);
-      const wanted = wantedRecipe(ent);
-      if (!ent.interior && (r === 'innkeeper') && wanted) ent.wantsInterior = true;
-    }
     return ent;
   }
   function assignBehaviour(e) {
@@ -752,7 +759,11 @@
   function greeting(e) { if (!e) return ''; const lines = greetingLines(e); if (!lines.length) return 'Well met.'; return lines[((e._line | 0) % lines.length + lines.length) % lines.length]; }
   function nextLine(e) { if (!e) return ''; e._line = (e._line | 0) + 1; return greeting(e); }
   function routesFrom(townId) { const W = G.Data && G.Data.world; const out = []; if (!W || !Array.isArray(W.travelRoutes) || !townId) return out; for (let i = 0; i < W.travelRoutes.length; i++) { const r = W.travelRoutes[i]; if (r && r.from === townId) out.push(r); } return out; }
-  function dockFor(e) { const W = G.Data && G.Data.world; if (!W || !Array.isArray(W.docks)) return null; let best = null, bd = Infinity; for (let i = 0; i < W.docks.length; i++) { const d = W.docks[i]; if (!d) continue; if (e.town && d.town === e.town) return d; if (d.pos) { const dx = d.pos.x - e.pos.x, dz = d.pos.z - e.pos.z, dd = dx * dx + dz * dz; if (dd < bd) { bd = dd; best = d; } } } return bd < 200 * 200 ? best : null; }
+  function dockFor(e) {
+    const W = G.Data && G.Data.world; if (!W || !Array.isArray(W.docks)) return null;
+    const ref = e.data && e.data.dock;
+    if (ref) { if (W.dockById && W.dockById[ref]) return W.dockById[ref]; for (let i = 0; i < W.docks.length; i++) if (W.docks[i] && W.docks[i].id === ref) return W.docks[i]; }
+    let best = null, bd = Infinity; for (let i = 0; i < W.docks.length; i++) { const d = W.docks[i]; if (!d) continue; if (e.town && d.town === e.town) return d; if (d.pos) { const dx = d.pos.x - e.pos.x, dz = d.pos.z - e.pos.z, dd = dx * dx + dz * dz; if (dd < bd) { bd = dd; best = d; } } } return bd < 200 * 200 ? best : null; }
   function tradeLabel(kind) { return kind === 'armour' ? 'Trade — armour' : kind === 'weapons' ? 'Trade — weapons' : kind === 'food' ? 'Trade — food & drink' : kind === 'fishing' ? 'Trade — fishing supplies' : 'Trade'; }
   function dialogueOptions(e) {
     const out = [];
@@ -1055,7 +1066,9 @@
     if (channel) cancelChannel(false);
     const t = now();
     channel = { node: n, player: p, start: t, end: t + CHANNEL_TIME, x: p.pos.x, z: p.pos.z, morale: typeof p.morale === 'number' ? p.morale : 0 };
-    p.casting = { name: n.label, kind: 'channel', start: t, elapsed: 0, duration: CHANNEL_TIME, total: CHANNEL_TIME, castTime: CHANNEL_TIME, node: n, ability: null };
+    // Shape shared with G.Combat's cast bookkeeping: x/z let Combat interrupt on movement, the far-future `end` keeps
+    // Combat from ever "finishing" it (this module completes the channel), elapsed/duration feed the HUD cast bar.
+    p.casting = { id: 'gather', kind: 'channel', name: n.label, icon: n.nodeKind === 'chest' ? '💰' : n.nodeKind === 'beacon' ? '🔥' : n.nodeKind === 'ore' ? '⛏' : n.nodeKind === 'relic' ? '📜' : '🌿', start: t, end: t + 1e6, elapsed: 0, duration: CHANNEL_TIME, total: CHANNEL_TIME, castTime: CHANNEL_TIME, x: p.pos.x, z: p.pos.z, node: n, ability: null, target: null, fx: null };
     p.yaw = yawTo(p.pos.x, p.pos.z, n.pos.x, n.pos.z);
     if (p.rig && hasFn(p.rig, 'setAnim')) { try { p.rig.setAnim(GATHER_ANIM[n.nodeKind] || 'emote_bow', true); } catch (err) { /* cosmetic */ } }
     sfx('ui_click');
@@ -1074,6 +1087,7 @@
     if (!channel) return;
     const p = channel.player, cur = player();
     if (!cur || cur !== p || p.dead || p.alive === false) { cancelChannel(false); return; }
+    if (!p.casting || p.casting.kind !== 'channel') { channel = null; return; }     // Combat interrupted it (and said so)
     const dx = p.pos.x - channel.x, dz = p.pos.z - channel.z;
     if (dx * dx + dz * dz > 0.6 * 0.6 || (typeof p.morale === 'number' && p.morale < channel.morale - 1)) { cancelChannel(true); return; }
     const t = now();
