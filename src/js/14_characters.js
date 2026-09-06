@@ -134,7 +134,7 @@
     if (x || y || z) g.translate(x || 0, y || 0, z || 0);
     return g;
   }
-  const sphere = (r, ws, hs) => new THREE.SphereGeometry(r, ws || 14, hs || 10);
+  const sphere = (r, ws, hs, ps, pl, ts, tl) => new THREE.SphereGeometry(r, ws || 14, hs || 10, ps || 0, pl == null ? TAU : pl, ts || 0, tl == null ? PI : tl);
   const capsule = (r, len, cs, rs) => new THREE.CapsuleGeometry(r, len, cs || 4, rs || 12);
   const cyl = (rt, rb, h, rs) => new THREE.CylinderGeometry(rt, rb, h, rs || 12);
   const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
