@@ -872,3 +872,997 @@
       b.cyl(g, 'wood', 0.03, 0.03, w + 0.2, 6, 0, 0, 0, WOOD_D, { rz: HPI });
     },
   };
+
+  /* ------------------------------------------------------------------------------------------------ */
+  /* small shared builders used by several recipes                                                     */
+  /* ------------------------------------------------------------------------------------------------ */
+  function figure(b, g, s, hex, pose) {
+    // stylised standing figure (statue), feet at y=0, facing -z; s = scale (1 ≈ 1.9 m tall)
+    hex = hex || 0x9a968e; pose = pose || 'warrior';
+    const m = 'stone';
+    for (const sx of [-1, 1]) b.cyl(g, m, 0.11 * s, 0.13 * s, 0.9 * s, 8, sx * 0.14 * s, 0.45 * s, 0, hex, { jit: 0.03 });
+    b.box(g, m, 0.5 * s, 0.3 * s, 0.32 * s, 0, 1.0 * s, 0, hex, { jit: 0.03 });
+    b.box(g, m, 0.56 * s, 0.6 * s, 0.34 * s, 0, 1.42 * s, 0, hex, { jit: 0.03 });
+    b.box(g, m, 0.7 * s, 0.14 * s, 0.36 * s, 0, 1.72 * s, 0, hex, { jit: 0.03 });
+    b.sph(g, m, 0.17 * s, 0, 1.95 * s, 0, hex, { jit: 0.03 });
+    if (pose === 'warrior') {
+      b.cyl(g, m, 0.08 * s, 0.09 * s, 0.7 * s, 7, -0.4 * s, 1.35 * s, 0, hex, { jit: 0.03 });
+      b.cyl(g, m, 0.08 * s, 0.09 * s, 0.7 * s, 7, 0.4 * s, 1.25 * s, -0.25 * s, hex, { rx: -0.9, jit: 0.03 });
+      b.box(g, m, 0.07 * s, 1.3 * s, 0.03 * s, 0.4 * s, 1.15 * s, -0.52 * s, 0xaaa6a0, { jit: 0.02 });
+      b.box(g, m, 0.3 * s, 0.05 * s, 0.05 * s, 0.4 * s, 1.55 * s, -0.52 * s, 0xaaa6a0);
+      b.box(g, m, 0.5 * s, 0.7 * s, 0.05 * s, -0.4 * s, 1.1 * s, 0.05 * s, hex, { jit: 0.03 });
+      b.cyl(g, m, 0.19 * s, 0.2 * s, 0.14 * s, 8, 0, 2.0 * s, 0, hex, { jit: 0.03 });
+    } else if (pose === 'robed') {
+      b.cone(g, m, 0.45 * s, 1.2 * s, 10, 0, 0.6 * s, 0, hex, { jit: 0.03 });
+      b.cyl(g, m, 0.08 * s, 0.09 * s, 0.7 * s, 7, -0.38 * s, 1.35 * s, 0, hex, { jit: 0.03 });
+      b.cyl(g, m, 0.08 * s, 0.09 * s, 0.7 * s, 7, 0.42 * s, 1.4 * s, -0.1 * s, hex, { rx: -0.5, jit: 0.03 });
+      b.cyl(g, m, 0.035 * s, 0.035 * s, 2.2 * s, 6, 0.46 * s, 1.1 * s, -0.3 * s, hex, { jit: 0.02 });
+      b.sph(g, m, 0.12 * s, 0.46 * s, 2.25 * s, -0.3 * s, 0xc8ccd8, { jit: 0.02 });
+      b.sph(g, m, 0.2 * s, 0, 2.02 * s, 0.05 * s, hex, { sy: 0.8, jit: 0.03 });
+    }
+    b.box(g, m, 0.62 * s, 1.5 * s, 0.1 * s, 0, 1.05 * s, 0.22 * s, hex, { jit: 0.03 });   // cloak
+  }
+  function menhir(b, g, h, hex) {
+    hex = hex || 0x7d7873;
+    b.lathe(g, 'rock', [[0, 0], [0.6, 0], [0.62, h * 0.3], [0.5, h * 0.7], [0.32, h * 0.95], [0.15, h]], 7, 0, -0.3, 0, hex, { jit: 0.08, faceJit: true });
+  }
+  function stoneBench(b, g, len, hex) {
+    hex = hex || 0xd9dbe0;
+    b.box(g, 'stone', len, 0.1, 0.5, 0, 0.45, 0, hex, { jit: 0.02 });
+    for (const s of [-1, 1]) b.box(g, 'stone', 0.22, 0.4, 0.42, s * (len / 2 - 0.25), 0.2, 0, hex, { jit: 0.02 });
+  }
+  function log(b, g, len, r, hex, o) { b.cyl(g, 'wood', r, r * 1.05, len, 9, 0, r, 0, hex || 0x5e4128, Object.assign({ rz: HPI, jit: 0.06 }, o || {})); }
+
+  /* ------------------------------------------------------------------------------------------------ */
+  /* RECIPES                                                                                             */
+  /* ------------------------------------------------------------------------------------------------ */
+  const RECIPES = {};
+  function def(name, r) { RECIPES[name] = Object.assign({ name, variants: 3, enterable: false, static: false }, r); }
+
+  const PLASTERS = [0xe8dcc2, 0xdac8a2, 0xf1ece2];
+  const THATCHES = [0xb8944f, 0xa88848, 0xc7a55c];
+  const TILES = [0x7f4d3a, 0x5f6672, 0x8a5a44];
+
+  /* ---------------- hobbit_hole ---------------- */
+  def('hobbit_hole', {
+    variants: 4, enterable: true,
+    build(b, v) {
+      const doorHex = [0x3f7a3a, 0xc9a53a, 0x3b5c9a, 0x9a3b30][v];
+      const zf = -2.4, RX = 7.6, RY = 4.7, RZ = 6.6, MZ = 1.0, MY = -0.35;
+      // mound (front flattened into the facade plane)
+      const mg = domeGeo(1, 32, 16); mg.scale(RX, RY, RZ);
+      const mp = mg.attributes.position, mn = mg.attributes.normal, zc = zf - MZ + 0.12;
+      for (let i = 0; i < mp.count; i++) if (mp.getZ(i) < zc) { mp.setZ(i, zc); mn.setXYZ(i, 0, 0, -1); }
+      b.piece('roof', 'grass', mg, 0, MY, MZ, 0x6f9a48, { jit: 0.06, faceJit: false });
+      b.cyl('roof', 'grass', RX * 1.03, RX * 1.06, 1.2, 32, 0, -0.55, MZ, 0x6b9446, { sz: RZ / RX, jit: 0.05 });  // skirt hides slope gaps
+      // facade: half-ellipse brick wall with round door & windows
+      const k = Math.sqrt(1 - Math.pow((zf - MZ) / RZ, 2)), a = RX * k, by = RY * k;
+      const sh = new T.Shape(); sh.moveTo(-a, -1); sh.lineTo(a, -1); sh.lineTo(a, MY + 0.01); sh.absellipse(0, MY, a, by, 0, PI, false); sh.lineTo(-a, -1);
+      const dr = 0.95;
+      const hole = new T.Path(); hole.absarc(0, dr + 0.05, dr, 0, TAU, false); sh.holes.push(hole);
+      for (const sx of [-1, 1]) { const p = new T.Path(); p.absarc(sx * 3.4, 1.55, 0.5, 0, TAU, false); sh.holes.push(p); }
+      const fg = new T.ExtrudeGeometry(sh, { depth: 0.5, bevelEnabled: false, curveSegments: 14 }); fg.translate(0, 0, -0.25);
+      b.piece('ext', 'brick', fg, 0, 0, zf, 0xb87a5a, { jit: 0.03, faceJit: false });
+      b.torus('ext', 'brick', dr + 0.12, 0.14, 0, dr + 0.05, zf - 0.28, 0xa8694a, { jit: 0.08 });
+      for (const sx of [-1, 1]) {
+        b.torus('ext', 'brick', 0.6, 0.1, sx * 3.4, 1.55, zf - 0.27, 0xa8694a, { jit: 0.08 });
+        b.cyl('ext', 'glass', 0.48, 0.48, 0.06, 16, sx * 3.4, 1.55, zf, 0xffffff, { rx: HPI });
+        b.box('ext', 'wood', 0.05, 0.96, 0.1, sx * 3.4, 1.55, zf - 0.05, 0x4a3220); b.box('ext', 'wood', 0.96, 0.05, 0.1, sx * 3.4, 1.55, zf - 0.05, 0x4a3220);
+        b.box('ext', 'brick', 1.3, 0.12, 0.5, sx * 3.4, 0.95, zf - 0.2, 0x9a6a4c, { jit: 0.05 });   // window box / sill
+        b.box('ext', 'flat', 1.1, 0.16, 0.36, sx * 3.4, 1.06, zf - 0.22, [0x5a8a3a, 0x7a9a44][v % 2], { jit: 0.1 });
+        for (let i = 0; i < 5; i++) b.sph('ext', 'flat', 0.07, sx * 3.4 - 0.45 + i * 0.22, 1.18, zf - 0.22 + (i % 2) * 0.08, [0xe25a5a, 0xf0d040, 0xf39ac0, 0xffffff][i % 4], { jit: 0.1 });
+      }
+      b.box('ext', 'stone', 2.4, 0.12, 1.2, 0, 0.0, zf - 0.75, 0x8d8579, { jit: 0.06 });
+      for (let i = 0; i < 5; i++) b.cyl('ext', 'stone', 0.34, 0.34, 0.06, 7, (i % 2 ? 0.25 : -0.2), 0.03, zf - 1.7 - i * 0.62, 0x8a847a, { jit: 0.08 });
+      // bench + lantern outside
+      b.at(2.4, zf - 0.85, 0); F.bench(b, 'ext', 1.4); b.end();
+      b.cyl('ext', 'wood', 0.06, 0.07, 2.2, 6, -2.2, 1.1, zf - 0.7, 0x4a3220);
+      F.lantern(b, 'ext', -2.2, 2.05, zf - 0.7, { scale: 0.8, intensity: 16 });
+      // chimney pot on the mound
+      b.cyl('ext', 'brick', 0.34, 0.4, 1.5, 10, 2.4, 4.2, MZ + 0.6, 0xa06a4c, { jit: 0.06 });
+      b.cyl('ext', 'stone', 0.44, 0.44, 0.16, 10, 2.4, 4.98, MZ + 0.6, 0x7d766b);
+      b.cyl('ext', 'flat', 0.24, 0.24, 0.06, 10, 2.4, 5.05, MZ + 0.6, 0x151210, { jit: 0 });
+      b.smoke(2.4, 5.15, MZ + 0.6);
+      // door
+      b.door({ x: 0, z: zf, ry: 0, w: dr * 2, h: dr * 2, kind: 'round', hinge: -1, hex: doorHex, y: 0.05, t: 0.5, name: 'Round door' });
+      // ---- interior: round hall
+      const CZ = 1.8, R = 3.6, H = 2.5, gap = Math.asin(1.0 / R);
+      b.cyl('int', 'planks', R + 0.1, R + 0.1, 0.12, 28, 0, -0.01, CZ, 0x9a6f48, { jit: 0.04 });
+      b.boxCol(-R, -0.13, CZ - R, R, 0.05, CZ + R, true);
+      b.box('int', 'planks', 1.9, 0.12, 1.4, 0, -0.01, zf + 0.45, 0x9a6f48, { jit: 0.04 }); b.boxCol(-0.95, -0.13, zf - 0.3, 0.95, 0.05, zf + 1.2, true);
+      const wall = invertGeo(new T.CylinderGeometry(R, R, H, 28, 1, true, PI + gap, TAU - 2 * gap));
+      b.piece('int', 'wood', wall, 0, H / 2, CZ, 0xb08a58, { jit: 0.03, faceJit: false });
+      b.torus('int', 'wood', R - 0.03, 0.045, 0, 1.0, CZ, 0x5a3c25, { rx: HPI, jit: 0 });
+      b.torus('int', 'wood', R - 0.03, 0.05, 0, 0.12, CZ, 0x5a3c25, { rx: HPI, jit: 0 });
+      // passage
+      for (const sx of [-1, 1]) b.box('int', 'brick', 0.24, H, 1.4, sx * 1.07, H / 2, zf + 0.45, 0xb87a5a, { jit: 0.04 });
+      b.box('int', 'brick', 2.4, 0.3, 1.4, 0, H + 0.1, zf + 0.45, 0xb87a5a, { jit: 0.04 });
+      for (const sx of [-1, 1]) b.wallCol(sx * 0.95, zf - 0.3, sx * 0.95, zf + 1.3, H, 0.24);
+      // dome ceiling + beam ring (hidden when inside)
+      const ceil = invertGeo(domeGeo(R + 0.05, 28, 10)); ceil.scale(1, 0.55, 1);
+      b.piece('roof', 'plaster', ceil, 0, H - 0.02, CZ, 0xefe6d2, { jit: 0.02, faceJit: false });
+      b.torus('roof', 'wood', R - 0.05, 0.09, 0, H - 0.05, CZ, 0x5a3c25, { rx: HPI, jit: 0 });
+      for (let i = 0; i < 6; i++) { const an = i * PI / 6; b.box('roof', 'wood', R * 1.9, 0.1, 0.12, 0, H + 0.02, CZ, 0x5a3c25, { ry: an }); }
+      // furniture
+      b.at(-R + 0.55, CZ - 0.3, -HPI); F.hearth(b, 'int', 1.5, { h: H, fxScale: 0.7 }); b.end();
+      b.at(0.9, CZ - 0.1, 0.35); F.table(b, 'int', 1.3, 0.9); b.at(0, -0.75, 0); F.chair(b, 'int'); b.end(); b.at(0.2, 0.75, PI); F.chair(b, 'int'); b.end(); b.end();
+      F.candle(b, 'int', 0.9, 0.81, CZ - 0.1);
+      b.lathe('int', 'flat', [[0.02, 0], [0.07, 0.02], [0.08, 0.1], [0.05, 0.18], [0.05, 0.22], [0.06, 0.24]], 10, 0.6, 0.81, CZ + 0.2, 0xb8865a, { jit: 0.04 });
+      b.cyl('int', 'flat', 0.12, 0.12, 0.015, 12, 1.25, 0.81, CZ - 0.3, 0xece4d2, { jit: 0.02 });
+      b.sph('int', 'flat', 0.1, 1.25, 0.88, CZ - 0.3, 0xc89a5a, { sy: 0.6, sz: 1.5, jit: 0.05 });
+      b.at(0.5, CZ + 2.5, 0); F.bed(b, 'int', 1.0, 1.9, BLANKETS[v]); b.end();
+      b.at(-1.0, CZ + 2.9, 0); F.chest(b, 'int'); b.end();
+      b.at(R - 0.45, CZ - 0.9, HPI); F.shelf(b, 'int', 1.6, 'crockery', 1.9); b.end();
+      b.at(2.55, CZ + 1.7, 2.2); F.cupboard(b, 'int', 1.0, 1.7); b.end();
+      b.at(-2.4, CZ + 1.7, 0); F.barrel(b, 'int', 0.3, 0.8); b.end();
+      b.at(-1.75, CZ + 2.3, 0); F.barrel(b, 'int', 0.26, 0.7); b.end();
+      b.at(-2.6, CZ + 0.9, 0); F.sack(b, 'int'); b.end();
+      b.at(-1.4, CZ + 2.9, 0); F.sack(b, 'int', 0xb8a070); b.end();
+      b.at(-1.9, CZ - 0.9, 0); F.stool(b, 'int'); b.end();
+      b.at(0.3, CZ - 0.2, 0); F.rug(b, 'int', 2.4, 1.7, 'man'); b.end();
+      for (let i = 0; i < 3; i++) b.cyl('int', 'flat', 0.06, 0.06, 0.5, 6, -1.4 + i * 0.25, H - 0.35, CZ + 3.1, 0x6a7a3a, { rx: 0.2, jit: 0.1 });   // hanging herbs
+      b.light(0.9, 1.8, CZ, { kind: 'lamp', color: 0xffc070, intensity: 10, dist: 8, flicker: true });
+      b.spot(-1.6, CZ - 0.3, HPI, 'fire'); b.spot(0.9, CZ - 0.95, PI, 'table'); b.spot(0.5, CZ + 1.3, PI, 'bed');
+      b.interior(-R, -0.5, zf - 0.4, R, H + 1.0, CZ + R);
+      b.ringCol(0, CZ, R, H, 16, 0, 2.0);
+      for (let i = 0; i < 18; i++) {   // mound perimeter (skips the facade side)
+        const a0 = i / 18 * TAU, a1 = (i + 1) / 18 * TAU;
+        const p0 = { x: Math.sin(a0) * RX * 0.97, z: MZ + Math.cos(a0) * RZ * 0.97 }, p1 = { x: Math.sin(a1) * RX * 0.97, z: MZ + Math.cos(a1) * RZ * 0.97 };
+        if (p0.z < zf + 0.3 || p1.z < zf + 0.3) continue;
+        b.wallCol(p0.x, p0.z, p1.x, p1.z, 2.5, 0.4);
+      }
+      b.wallCol(-a, zf, -1.0, zf, 3.5, 0.5); b.wallCol(1.0, zf, a, zf, 3.5, 0.5);
+    },
+  });
+
+  /* ---------------- man_house (thatch cottage) ---------------- */
+  def('man_house', {
+    enterable: true,
+    build(b, v) {
+      const W = 7.2, D = 5.6, H = 3.1, peak = 5.5;
+      shell(b, {
+        W, D, h: H, peak, t: 0.35, wallMat: 'plaster', wallHex: PLASTERS[v], timber: true, baseH: 0.85,
+        roofMat: 'thatch', roofHex: THATCHES[v], capHex: 0x8a6a36, overhang: 0.6, roofTh: 0.45, shutters: v === 1,
+        chimney: { side: 'r', u: 0.4 },
+        holes: [
+          { side: 'f', u: -1.7, y: 0, w: 1.1, h: 2.1, door: true, hinge: -1 },
+          { side: 'f', u: 1.5, y: 1.1, w: 1.0, h: 1.0 },
+          { side: 'b', u: -1.4, y: 1.1, w: 0.9, h: 0.9 }, { side: 'b', u: 1.6, y: 1.1, w: 0.9, h: 0.9 },
+          { side: 'l', u: 0.8, y: 1.1, w: 0.9, h: 0.9 },
+        ],
+      });
+      // interior
+      b.at(W / 2 - 0.175 - 0.45, 0.4, -HPI); F.hearth(b, 'int', 1.7, { h: H }); b.end();
+      b.at(-0.5, 0.6, 0); F.table(b, 'int', 1.8, 0.9); b.end();
+      b.at(-0.5, -0.05, 0); F.bench(b, 'int', 1.6); b.end();
+      b.at(-0.5, 1.25, PI); F.bench(b, 'int', 1.6); b.end();
+      F.candle(b, 'int', -0.9, 0.81, 0.6);
+      b.cyl('int', 'flat', 0.13, 0.13, 0.015, 12, 0.0, 0.81, 0.5, 0xece4d2, { jit: 0.02 });
+      b.sph('int', 'flat', 0.11, 0.0, 0.88, 0.5, 0xc89a5a, { sy: 0.6, sz: 1.5, jit: 0.05 });
+      b.lathe('int', 'flat', [[0.02, 0], [0.07, 0.02], [0.08, 0.1], [0.05, 0.18], [0.05, 0.22], [0.06, 0.24]], 10, 0.1, 0.81, 0.85, 0xb8865a, { jit: 0.04 });
+      b.at(-W / 2 + 0.75, 1.5, 0); F.bed(b, 'int', 1.05, 2.0, BLANKETS[v]); b.end();
+      b.at(-W / 2 + 0.75, 0.05, 0); F.chest(b, 'int'); b.end();
+      b.at(1.6, D / 2 - 0.5, 0); F.cupboard(b, 'int', 1.1, 1.85); b.end();
+      b.at(-0.6, D / 2 - 0.4, 0); F.shelf(b, 'int', 1.6, 'crockery', 1.9); b.end();
+      b.at(1.9, -0.9, 0); F.stool(b, 'int'); b.end();
+      b.at(-0.5, 0.2, 0); F.rug(b, 'int', 2.6, 2.0, 'man'); b.end();
+      b.at(2.6, -D / 2 + 0.6, 0); F.barrel(b, 'int', 0.28, 0.75); b.end();
+      b.at(W / 2 - 0.7, D / 2 - 0.7, 0); F.sack(b, 'int'); b.end();
+      F.lantern(b, 'int', -2.9, 1.8, -D / 2 + 0.3, { scale: 0.8, intensity: 12, hook: true });
+      b.spot(1.3, 0.4, -HPI, 'fire'); b.spot(-0.5, -0.5, PI, 'table'); b.spot(-W / 2 + 1.6, 1.5, HPI, 'bed');
+    },
+  });
+
+  /* ---------------- man_house_2 (tiled, gable to the street, porch) ---------------- */
+  def('man_house_2', {
+    enterable: true,
+    build(b, v) {
+      const W = 6.4, D = 7.6, H = 3.5, peak = 6.2;
+      shell(b, {
+        W, D, h: H, peak, ridge: 'z', t: 0.35, wallMat: 'plaster', wallHex: [0xf1ece2, 0xe4d2ae, 0xdcd4c4][v], timber: true, baseH: 1.0,
+        roofMat: 'tile', roofHex: TILES[v], capHex: 0x4a3a34, overhang: 0.5, roofTh: 0.3, shutters: v !== 1,
+        chimney: { side: 'l', u: 1.2 },
+        holes: [
+          { side: 'f', u: 1.1, y: 0, w: 1.1, h: 2.2, door: true, hinge: 1, arch: true },
+          { side: 'f', u: -1.5, y: 1.1, w: 1.1, h: 1.1 },
+          { side: 'f', u: 0, y: 4.0, w: 0.8, h: 0.9 },
+          { side: 'r', u: -2.0, y: 1.1, w: 0.9, h: 1.0 }, { side: 'r', u: 1.8, y: 1.1, w: 0.9, h: 1.0 },
+          { side: 'b', u: 1.2, y: 1.1, w: 0.9, h: 1.0 },
+        ],
+      });
+      // porch canopy over the door
+      b.at(1.1, -D / 2, 0);
+      for (const sx of [-1, 1]) b.box('ext', 'wood', 0.16, 2.6, 0.16, sx * 1.0, 1.3, -1.3, 0x4a3220);
+      b.piece('ext', 'tile', chevronRoofGeo(2.6, 2.6, 3.3, 0.16, 1.7), 0, 0, -0.85, TILES[v], { jit: 0.04, faceJit: false });
+      b.box('ext', 'wood', 2.3, 0.12, 0.12, 0, 2.55, -1.3, 0x4a3220);
+      b.end();
+      // interior
+      b.at(-W / 2 + 0.175 + 0.45, 1.2, HPI); F.hearth(b, 'int', 1.6, { h: H }); b.end();
+      b.at(0.6, 0.2, 0); F.table(b, 'int', 1.5, 0.9); b.end();
+      b.at(0.6, -0.55, 0); F.chair(b, 'int'); b.end(); b.at(0.6, 0.95, PI); F.chair(b, 'int'); b.end();
+      F.candle(b, 'int', 0.3, 0.81, 0.2);
+      b.at(W / 2 - 0.75, D / 2 - 1.3, 0); F.bed(b, 'int', 1.1, 2.1, BLANKETS[(v + 2) % 5]); b.end();
+      b.at(W / 2 - 0.75, D / 2 - 2.95, 0); F.chest(b, 'int'); b.end();
+      b.at(-1.3, D / 2 - 0.42, 0); F.shelf(b, 'int', 1.5, 'books', 2.0); b.end();
+      b.at(0.9, D / 2 - 0.45, 0); F.cupboard(b, 'int', 1.0, 1.8); b.end();
+      // spinning wheel (charm)
+      b.at(-2.0, -1.8, 0.6);
+      b.torus('int', 'wood', 0.42, 0.03, 0, 0.75, 0, WOOD_D, { jit: 0 });
+      for (let i = 0; i < 6; i++) b.box('int', 'wood', 0.02, 0.8, 0.02, 0, 0.75, 0, WOOD_D, { rz: i * PI / 6 });
+      b.box('int', 'wood', 0.9, 0.06, 0.35, 0, 0.36, 0.15, WOOD_F); b.box('int', 'wood', 0.06, 0.4, 0.06, 0, 0.55, 0.02, WOOD_F);
+      for (const sx of [-1, 1]) b.box('int', 'wood', 0.06, 0.36, 0.06, sx * 0.3, 0.18, 0.15, WOOD_D, { rz: sx * 0.2 });
+      b.end();
+      b.at(0.5, 0.4, 0); F.rug(b, 'int', 2.4, 2.2, 'man'); b.end();
+      b.at(-2.4, D / 2 - 0.7, 0); F.barrel(b, 'int', 0.28, 0.7); b.end();
+      F.lantern(b, 'int', 2.4, 1.9, -D / 2 + 0.3, { scale: 0.8, intensity: 12, hook: true });
+      b.spot(-1.2, 1.2, HPI, 'fire'); b.spot(0.6, -1.0, PI, 'table'); b.spot(W / 2 - 1.6, D / 2 - 1.3, -HPI, 'bed');
+    },
+  });
+
+  /* ---------------- inn (two storeys, sign, gallery) ---------------- */
+  def('inn', {
+    enterable: true,
+    build(b, v, spec) {
+      const W = 14, D = 10, H = 6.6, peak = 9.8, t = 0.4, FL = 3.3;
+      const tile = v === 1;
+      shell(b, {
+        W, D, h: H, peak, t, wallMat: 'plaster', wallHex: [0xe9dfc8, 0xf2ede4, 0xdccbaa][v], timber: true, baseH: 1.0,
+        roofMat: tile ? 'tile' : 'thatch', roofHex: tile ? TILES[1] : THATCHES[v], capHex: tile ? 0x4a3a34 : 0x8a6a36, overhang: 0.7, roofTh: tile ? 0.3 : 0.5,
+        chimneys: [{ side: 'l', u: -1.0 }, { side: 'r', u: 2.0 }],
+        holes: [
+          { side: 'f', u: -2.0, y: 0, w: 1.5, h: 2.4, door: true, hinge: -1, arch: true },
+          { side: 'f', u: 1.2, y: 1.1, w: 1.2, h: 1.2 }, { side: 'f', u: 4.0, y: 1.1, w: 1.2, h: 1.2 }, { side: 'f', u: -5.0, y: 1.1, w: 1.2, h: 1.2 },
+          { side: 'f', u: -4.5, y: 4.2, w: 1.0, h: 1.1 }, { side: 'f', u: -1.5, y: 4.2, w: 1.0, h: 1.1 }, { side: 'f', u: 1.5, y: 4.2, w: 1.0, h: 1.1 }, { side: 'f', u: 4.5, y: 4.2, w: 1.0, h: 1.1 },
+          { side: 'b', u: -4, y: 1.1, w: 1.0, h: 1.1 }, { side: 'b', u: 4, y: 1.1, w: 1.0, h: 1.1 },
+          { side: 'b', u: -4.5, y: 4.2, w: 1.0, h: 1.1 }, { side: 'b', u: -1.5, y: 4.2, w: 1.0, h: 1.1 }, { side: 'b', u: 1.5, y: 4.2, w: 1.0, h: 1.1 }, { side: 'b', u: 4.5, y: 4.2, w: 1.0, h: 1.1 },
+          { side: 'l', u: 2.5, y: 1.1, w: 1.0, h: 1.1 }, { side: 'l', u: -3.2, y: 4.2, w: 0.9, h: 1.0 }, { side: 'l', u: 2.5, y: 4.2, w: 0.9, h: 1.0 },
+          { side: 'r', u: -2.0, y: 1.1, w: 1.0, h: 1.1 }, { side: 'r', u: -2.0, y: 4.2, w: 0.9, h: 1.0 }, { side: 'r', u: 3.5, y: 4.2, w: 0.9, h: 1.0 },
+        ],
+      });
+      // sign bracket + lanterns by the door
+      b.at(0, -D / 2, 0);
+      b.box('ext', 'metal', 0.06, 0.06, 1.3, 0.1, 3.9, -0.75, 0x2c2c30); b.box('ext', 'metal', 0.06, 0.9, 0.06, 0.1, 3.45, -0.2, 0x2c2c30); b.box('ext', 'metal', 0.05, 0.05, 0.9, 0.1, 3.55, -0.5, 0x2c2c30, { rx: -0.6 });
+      b.cyl('ext', 'metal', 0.015, 0.015, 0.3, 4, -0.5, 3.75, -1.2, 0x2c2c30); b.cyl('ext', 'metal', 0.015, 0.015, 0.3, 4, 0.7, 3.75, -1.2, 0x2c2c30);
+      b.box('ext', 'wood', 1.5, 0.55, 0.05, 0.1, 3.3, -1.2, 0x6e4626);
+      b.sign(0.1, 3.3, -1.2, 0, 1.5, 0.55);
+      F.lantern(b, 'ext', -3.2, 2.6, -0.35, { scale: 0.9, intensity: 24 }); F.lantern(b, 'ext', -0.7, 2.6, -0.35, { scale: 0.9, intensity: 24 });
+      b.box('ext', 'metal', 0.05, 0.05, 0.4, -3.2, 3.05, -0.2, 0x2c2c30); b.box('ext', 'metal', 0.05, 0.05, 0.4, -0.7, 3.05, -0.2, 0x2c2c30);
+      b.end();
+      // ---- ground floor
+      b.at(-W / 2 + t / 2 + 0.45, -1.0, HPI); F.hearth(b, 'int', 2.4, { h: FL, fxScale: 1.1 }); b.end();
+      b.at(1.5, D / 2 - t / 2 - 1.5, 0); F.counter(b, 'int', 6.2); b.end();
+      b.at(0.5, D / 2 - 0.42, 0); F.shelf(b, 'int', 2.4, 'bottles', 2.2); b.end();
+      b.at(3.2, D / 2 - 0.42, 0); F.shelf(b, 'int', 2.0, 'crockery', 2.2); b.end();
+      b.at(5.3, D / 2 - 0.9, 0); F.keg(b, 'int'); b.end(); b.at(5.3, D / 2 - 0.9, 0); b.at(0, 0, 0, 0.75); F.keg(b, 'int'); b.end(); b.end();
+      b.at(-1.4, D / 2 - 0.8, 0); F.barrel(b, 'int', 0.32, 0.85); b.end(); b.at(-2.2, D / 2 - 0.7, 0); F.barrel(b, 'int', 0.28, 0.7); b.end();
+      b.lathe('int', 'flat', [[0.03, 0], [0.05, 0.02], [0.06, 0.12], [0.04, 0.16], [0.045, 0.18]], 8, 0.0, 1.1, D / 2 - 1.55, 0xb08a58); b.lathe('int', 'flat', [[0.03, 0], [0.05, 0.02], [0.06, 0.12], [0.04, 0.16], [0.045, 0.18]], 8, 0.4, 1.1, D / 2 - 1.4, 0xb08a58);
+      b.cyl('int', 'flat', 0.13, 0.13, 0.015, 12, 2.6, 1.08, D / 2 - 1.5, 0xece4d2); b.sph('int', 'flat', 0.1, 2.6, 1.15, D / 2 - 1.5, 0xc89a5a, { sy: 0.6, sz: 1.5 });
+      F.candle(b, 'int', 3.8, 1.08, D / 2 - 1.5);
+      const tables = [[-3.8, 1.4, 0.2], [-0.3, 1.2, -0.3], [3.4, -2.6, 0.4], [-4.6, -3.3, 0.1], [0.5, -3.0, -0.2]];
+      for (const [tx, tz, tr] of tables) {
+        b.at(tx, tz, tr); F.table(b, 'int', 1.5, 1.0);
+        b.at(-0.5, -0.8, 0); F.stool(b, 'int'); b.end(); b.at(0.5, -0.8, 0); F.stool(b, 'int'); b.end(); b.at(-0.5, 0.8, 0); F.stool(b, 'int'); b.end(); b.at(0.5, 0.8, 0); F.stool(b, 'int'); b.end();
+        F.candle(b, 'int', 0.3, 0.81, 0.1);
+        b.lathe('int', 'flat', [[0.03, 0], [0.05, 0.02], [0.06, 0.12], [0.04, 0.16], [0.045, 0.18]], 8, -0.35, 0.81, -0.2, 0xb08a58);
+        b.end();
+        b.spot(tx, tz - 1.0, PI, 'table');
+      }
+      b.at(W / 2 - t / 2 - 0.75, -4.2, 0); F.stairs(b, 'int', 12, FL / 12, 0.32, 1.25, { rail: -1, stringers: [-1] }); b.end();
+      b.at(-1.5, -0.8, 0); F.rug(b, 'int', 3.2, 2.6, 'man'); b.end();
+      F.lantern(b, 'int', -2.0, 2.45, 0.5, { scale: 0.9, intensity: 16, chain: 0.6 }); F.lantern(b, 'int', 3.0, 2.45, -1.5, { scale: 0.9, intensity: 16, chain: 0.6 });
+      // upper floor slab (with stair well) + ceiling beams — hidden while the player is downstairs
+      const sx0 = W / 2 - t / 2 - 1.4;
+      b.floor(-W / 2 - t / 2, -D / 2 - t / 2, sx0, D / 2 + t / 2, FL, 'planks', 0x8a6242, 'upper', 0.2);
+      b.floor(sx0, -0.2, W / 2 + t / 2, D / 2 + t / 2, FL, 'planks', 0x8a6242, 'upper', 0.2);
+      for (let i = 0; i < 7; i++) b.box('upper', 'wood', 0.22, 0.28, D - t, -W / 2 + 1.0 + i * 2.0, FL - 0.32, 0, 0x4a3220, { jit: 0.03 });
+      b.box('upper', 'wood', W - t, 0.28, 0.24, 0, FL - 0.32, 0, 0x4a3220, { jit: 0.03 });
+      b.ceiling('upper', FL);
+      // upper floor furniture: gallery railing around the stair well, 3 rooms with beds
+      b.at(sx0 - 0.05, -2.4, HPI, FL); F.railing(b, 'upper', 4.4); b.end();
+      b.at(W / 2 - 1.5, -0.25, 0, FL); F.railing(b, 'upper', 1.9); b.end();
+      const rooms = [-4.6, -0.2, 4.2];
+      for (let i = 0; i < 3; i++) {
+        const rx = rooms[i];
+        b.at(rx, D / 2 - 1.35, 0, FL); F.bed(b, 'upper', 1.1, 2.1, BLANKETS[(i + v) % 5]); b.end();
+        b.at(rx + 1.2, D / 2 - 0.7, 0, FL); F.chest(b, 'upper'); b.end();
+        b.at(rx - 1.2, D / 2 - 0.55, 0, FL); F.stool(b, 'upper'); b.end();
+        F.candle(b, 'upper', rx - 1.2, FL + 0.48, D / 2 - 0.55);
+        b.at(rx, D / 2 - 3.0, 0, FL); F.rug(b, 'upper', 1.8, 1.2, 'man'); b.end();
+        if (i < 2) { const px = (rooms[i] + rooms[i + 1]) / 2; b.box('upper', 'plaster', 0.12, H - FL - 0.05, 4.6, px, FL + (H - FL) / 2, D / 2 - 2.3, 0xe9dfc8, { jit: 0.02 }); b.boxCol(px - 0.06, FL, D / 2 - 4.6, px + 0.06, H, D / 2); }
+        b.spot(rx, D / 2 - 2.9, PI, 'bed', FL);
+      }
+      b.at(-4.0, -3.4, 0, FL); F.table(b, 'upper', 1.2, 0.8); b.end(); F.candle(b, 'upper', -4.0, FL + 0.81, -3.4);
+      b.at(-4.0, -2.6, PI, FL); F.chair(b, 'upper'); b.end();
+      b.at(2.0, -3.5, 0, FL); F.shelf(b, 'upper', 1.4, 'books', 1.6); b.end();
+      F.lantern(b, 'upper', 0, FL + 2.2, -1.5, { scale: 0.8, intensity: 14, chain: 0.5 });
+      b.spot(1.5, D / 2 - t / 2 - 0.85, 0, 'keeper'); b.spot(-4.3, -1.0, HPI, 'fire'); b.spot(-2.6, -2.8, 0, 'idle');
+    },
+    name(spec) { return spec.name || 'The Inn'; },
+  });
+
+  /* ---------------- shop ---------------- */
+  def('shop', {
+    enterable: true,
+    build(b, v) {
+      const W = 7, D = 6.4, H = 3.4, peak = 5.8, t = 0.35;
+      shell(b, {
+        W, D, h: H, peak, ridge: 'z', t, wallMat: 'plaster', wallHex: [0xe3d6b8, 0xf0ebe0, 0xd8cfc0][v], timber: true, baseH: 0.9,
+        roofMat: v === 2 ? 'tile' : 'thatch', roofHex: v === 2 ? TILES[0] : THATCHES[(v + 1) % 3], capHex: v === 2 ? 0x4a3a34 : 0x8a6a36, overhang: 0.5, roofTh: v === 2 ? 0.3 : 0.42,
+        holes: [
+          { side: 'f', u: 1.6, y: 0, w: 1.1, h: 2.1, door: true, hinge: 1 },
+          { side: 'f', u: -1.3, y: 0.95, w: 1.9, h: 1.3 },
+          { side: 'f', u: 0.1, y: 4.0, w: 0.7, h: 0.8 },
+          { side: 'l', u: 1.0, y: 1.1, w: 0.9, h: 1.0 }, { side: 'r', u: -1.0, y: 1.1, w: 0.9, h: 1.0 }, { side: 'b', u: 0, y: 1.1, w: 0.9, h: 1.0 },
+        ],
+      });
+      // awning + display table outside the window, sign
+      b.at(-1.3, -D / 2, 0);
+      b.plane('ext', 'awning', 2.6, 1.5, 0, 2.95, -0.75, 0xffffff, { rx: -1.15, jit: 0 });
+      for (const sx of [-1, 1]) b.box('ext', 'wood', 0.08, 2.3, 0.08, sx * 1.25, 1.15, -1.4, 0x4a3220);
+      b.box('ext', 'wood', 2.6, 0.08, 0.08, 0, 2.3, -1.4, 0x4a3220);
+      b.at(0, -0.85, 0); F.table(b, 'ext', 1.8, 0.8); b.end();
+      for (let i = 0; i < 4; i++) b.sph('ext', 'flat', 0.11, -0.6 + i * 0.4, 0.9, -0.85, [0xc83a2a, 0x8ab040, 0xe0a030, 0xb88a40][i], { jit: 0.05 });
+      b.cyl('ext', 'flat', 0.1, 0.1, 0.5, 8, 0.5, 0.86, -1.0, 0x3a5a8a, { rz: HPI, jit: 0.04 });
+      b.end();
+      b.at(1.6, -D / 2, 0);
+      b.box('ext', 'metal', 0.06, 0.06, 1.0, 0.9, 3.0, -0.6, 0x2c2c30); b.box('ext', 'metal', 0.05, 0.05, 0.9, 0.9, 2.65, -0.45, 0x2c2c30, { rx: -0.75 });
+      b.box('ext', 'wood', 1.2, 0.45, 0.05, 0.9, 2.55, -0.95, 0x6e4626); b.sign(0.9, 2.55, -0.95, 0, 1.2, 0.45);
+      F.lantern(b, 'ext', -0.85, 2.3, -0.32, { scale: 0.8, intensity: 18 });
+      b.end();
+      // interior
+      b.at(0.2, 0.7, 0); F.counter(b, 'int', 4.6); b.end();
+      b.at(-1.5, D / 2 - 0.42, 0); F.shelf(b, 'int', 2.2, 'goods', 2.2); b.end();
+      b.at(1.2, D / 2 - 0.42, 0); F.shelf(b, 'int', 2.2, 'goods', 2.2); b.end();
+      b.at(W / 2 - 0.45, 0.3, HPI); F.shelf(b, 'int', 2.0, 'crockery', 2.0); b.end();
+      b.at(W / 2 - 0.8, D / 2 - 0.7, 0); F.chest(b, 'int'); b.end(); b.at(W / 2 - 0.8, D / 2 - 1.4, 0); F.chest(b, 'int', 0x6a4a2a); b.end();
+      b.at(-W / 2 + 0.7, D / 2 - 0.7, 0); F.barrel(b, 'int'); b.end(); b.at(-W / 2 + 0.7, D / 2 - 1.5, 0); F.barrel(b, 'int', 0.28, 0.7); b.end();
+      b.at(-W / 2 + 0.7, -0.5, 0); F.crate(b, 'int', 0.7); b.end(); b.at(-W / 2 + 0.7, -0.5, 0, 0.7); F.crate(b, 'int', 0.55); b.end();
+      b.at(-2.4, -2.2, 0); F.sack(b, 'int'); b.end(); b.at(-1.8, -2.4, 0); F.sack(b, 'int', 0xb8a070); b.end();
+      // scales + ledger on the counter
+      b.cyl('int', 'metal', 0.03, 0.05, 0.4, 6, 1.2, 1.28, 0.7, 0xb59a4a); b.box('int', 'metal', 0.6, 0.02, 0.02, 1.2, 1.48, 0.7, 0xb59a4a);
+      for (const sx of [-1, 1]) { b.cyl('int', 'metal', 0.1, 0.08, 0.02, 10, 1.2 + sx * 0.28, 1.3, 0.7, 0xb59a4a); b.cyl('int', 'metal', 0.004, 0.004, 0.18, 3, 1.2 + sx * 0.28, 1.39, 0.7, 0xb59a4a); }
+      b.box('int', 'flat', 0.35, 0.05, 0.28, -0.6, 1.1, 0.6, 0x5a3a2a); F.candle(b, 'int', -1.4, 1.07, 0.75);
+      b.at(0.2, -1.2, 0); F.rug(b, 'int', 2.8, 1.6, 'man'); b.end();
+      F.lantern(b, 'int', 0.2, 2.4, -0.6, { scale: 0.8, intensity: 14, chain: 0.5 });
+      b.spot(0.2, 1.5, 0, 'keeper'); b.spot(-1.5, -1.5, 0, 'idle');
+    },
+    name(spec) { return spec.name || 'Shop'; },
+  });
+
+  /* ---------------- elf_house ---------------- */
+  def('elf_house', {
+    enterable: true,
+    build(b, v) {
+      const W = 6.6, D = 8, H = 5.2, peak = 7.8, t = 0.35;
+      shell(b, {
+        W, D, h: H, peak, ridge: 'z', t, wallMat: 'plaster', wallHex: [0xeef0f4, 0xe8ecf2, 0xf2f0ea][v], wallJit: 0.01, baseH: 0.6, baseHex: 0xc4c8d0,
+        roofMat: 'tile', roofHex: [0x8fa3bf, 0x7f9bb8, 0xa4b0c4][v], capHex: 0xd8c070, curvedRoof: true, overhang: 0.8, roofTh: 0.25, woodHex: 0xb8b4a8, sillHex: 0xd0d4dc,
+        holes: [
+          { side: 'f', u: 0, y: 0, w: 1.2, h: 2.7, door: true, hinge: -1, arch: true, kind: 'elf' },
+          { side: 'f', u: -2.1, y: 1.3, w: 0.8, h: 2.0, arch: true }, { side: 'f', u: 2.1, y: 1.3, w: 0.8, h: 2.0, arch: true },
+          { side: 'l', u: -2.2, y: 1.3, w: 0.8, h: 2.0, arch: true }, { side: 'l', u: 2.2, y: 1.3, w: 0.8, h: 2.0, arch: true },
+          { side: 'r', u: 0, y: 1.3, w: 0.8, h: 2.0, arch: true }, { side: 'b', u: 0, y: 1.6, w: 1.0, h: 2.2, arch: true },
+        ],
+      });
+      // gold trim band, slender corner pillars, lanterns
+      b.box('ext', 'metal', W + 0.5, 0.1, 0.06, 0, H - 0.25, -D / 2 - t / 2, 0xd8b862); b.box('ext', 'metal', W + 0.5, 0.1, 0.06, 0, H - 0.25, D / 2 + t / 2, 0xd8b862);
+      b.box('ext', 'metal', 0.06, 0.1, D + 0.5, -W / 2 - t / 2, H - 0.25, 0, 0xd8b862); b.box('ext', 'metal', 0.06, 0.1, D + 0.5, W / 2 + t / 2, H - 0.25, 0, 0xd8b862);
+      for (const sx of [-1, 1]) { b.at(sx * (W / 2 - 0.1), -D / 2 - 0.7, 0); F.pillar(b, 'ext', 'elf', H + 0.1); b.end(); b.cylCol(sx * (W / 2 - 0.1), -D / 2 - 0.7, 0.4, H); }
+      b.box('ext', 'plaster', W + 0.6, 0.25, 1.4, 0, H + 0.05, -D / 2 - 0.5, 0xeef0f4, { jit: 0.01 });
+      F.lantern(b, 'ext', -1.1, 2.6, -D / 2 - 0.35, { elf: true, scale: 0.8, intensity: 16 }); F.lantern(b, 'ext', 1.1, 2.6, -D / 2 - 0.35, { elf: true, scale: 0.8, intensity: 16 });
+      // interior
+      b.at(-W / 2 + 0.85, D / 2 - 1.4, 0); F.bed(b, 'int', 1.15, 2.2, 0x3a5a8c); b.end();
+      b.at(W / 2 - 0.9, 0.5, 0); F.table(b, 'int', 1.3, 0.8); b.end(); b.at(W / 2 - 0.9, -0.3, PI); F.chair(b, 'int', 0xc8c0b0); b.end();
+      F.candle(b, 'int', W / 2 - 1.2, 0.81, 0.5);
+      b.box('int', 'flat', 0.3, 0.04, 0.22, W / 2 - 0.7, 0.83, 0.6, 0xe8e0d0); b.box('int', 'flat', 0.06, 0.2, 0.06, W / 2 - 0.5, 0.9, 0.3, 0x2a4a7a);
+      b.at(W / 2 - 0.45, D / 2 - 1.5, HPI); F.shelf(b, 'int', 2.0, 'books', 2.4); b.end();
+      b.at(-W / 2 + 0.45, -1.5, -HPI); F.shelf(b, 'int', 1.6, 'books', 2.0); b.end();
+      // harp
+      b.at(-1.2, -2.4, 0.6);
+      b.torus('int', 'wood', 0.55, 0.05, 0, 0.8, 0, 0xc8a850, { ts: 0, tl: PI, jit: 0 });
+      b.box('int', 'wood', 0.08, 1.2, 0.1, -0.5, 0.6, 0, 0xc8a850); b.box('int', 'wood', 1.1, 0.1, 0.12, 0, 0.1, 0, 0xc8a850);
+      for (let i = 0; i < 9; i++) b.box('int', 'metal', 0.006, 0.6 + i * 0.05, 0.006, -0.42 + i * 0.1, 0.4 + (0.6 + i * 0.05) / 2, 0, 0xe8e0c0);
+      b.end();
+      b.at(0.2, 0.4, 0); F.rug(b, 'int', 3.0, 3.6, 'elf'); b.end();
+      F.lantern(b, 'int', 0, 3.6, 0, { elf: true, scale: 0.9, intensity: 18, chain: 0.9 });
+      b.spot(W / 2 - 0.9, -1.1, PI, 'table'); b.spot(-1.0, 1.5, 0, 'idle');
+    },
+  });
+
+  /* ---------------- elf_hall ---------------- */
+  def('elf_hall', {
+    enterable: true,
+    build(b, v) {
+      const W = 12, D = 18, H = 7, peak = 10.6, t = 0.5;
+      shell(b, {
+        W, D, h: H, peak, ridge: 'z', t, wallMat: 'plaster', wallHex: [0xeef0f4, 0xf2f0ea, 0xe8ecf2][v], wallJit: 0.01, baseH: 0.8, baseHex: 0xc4c8d0,
+        roofMat: 'tile', roofHex: [0x8fa3bf, 0x7f9bb8, 0xa4b0c4][v], capHex: 0xd8c070, curvedRoof: true, overhang: 1.0, roofTh: 0.3, woodHex: 0xb8b4a8, sillHex: 0xd0d4dc,
+        floorMat: 'stone', floorHex: 0xdfe2e8,
+        holes: [
+          { side: 'f', u: 0, y: 0, w: 2.6, h: 4.4, door: true, hinge: -1, leaves: 2, arch: true, kind: 'elf' },
+          { side: 'f', u: -3.8, y: 1.6, w: 1.0, h: 3.0, arch: true }, { side: 'f', u: 3.8, y: 1.6, w: 1.0, h: 3.0, arch: true },
+          { side: 'l', u: -6, y: 1.6, w: 1.0, h: 3.4, arch: true }, { side: 'l', u: -2, y: 1.6, w: 1.0, h: 3.4, arch: true }, { side: 'l', u: 2, y: 1.6, w: 1.0, h: 3.4, arch: true }, { side: 'l', u: 6, y: 1.6, w: 1.0, h: 3.4, arch: true },
+          { side: 'r', u: -6, y: 1.6, w: 1.0, h: 3.4, arch: true }, { side: 'r', u: -2, y: 1.6, w: 1.0, h: 3.4, arch: true }, { side: 'r', u: 2, y: 1.6, w: 1.0, h: 3.4, arch: true }, { side: 'r', u: 6, y: 1.6, w: 1.0, h: 3.4, arch: true },
+          { side: 'b', u: -3, y: 2.0, w: 1.0, h: 3.0, arch: true }, { side: 'b', u: 3, y: 2.0, w: 1.0, h: 3.0, arch: true }, { side: 'b', u: 0, y: 5.0, w: 1.2, h: 2.4, arch: true },
+        ],
+      });
+      // colonnade porch
+      for (const px of [-4.8, -2.0, 2.0, 4.8]) { b.at(px, -D / 2 - 1.8, 0); F.pillar(b, 'ext', 'elf', H); b.end(); b.cylCol(px, -D / 2 - 1.8, 0.4, H); }
+      b.box('roof', 'plaster', W + 1.2, 0.3, 3.0, 0, H + 0.05, -D / 2 - 1.2, 0xeef0f4, { jit: 0.01 });
+      b.box('roof', 'metal', W + 1.3, 0.12, 0.08, 0, H + 0.26, -D / 2 - 2.7, 0xd8b862);
+      b.box('ext', 'metal', W + 0.6, 0.12, 0.06, 0, H - 0.3, -D / 2 - t / 2, 0xd8b862); b.box('ext', 'metal', W + 0.6, 0.12, 0.06, 0, H - 0.3, D / 2 + t / 2, 0xd8b862);
+      b.box('ext', 'metal', 0.06, 0.12, D + 0.6, -W / 2 - t / 2, H - 0.3, 0, 0xd8b862); b.box('ext', 'metal', 0.06, 0.12, D + 0.6, W / 2 + t / 2, H - 0.3, 0, 0xd8b862);
+      b.box('ext', 'stone', 6, 0.16, 3.2, 0, 0.0, -D / 2 - 1.5, 0xd8dbe2, { jit: 0.02 });
+      F.lantern(b, 'ext', -2.0, 4.0, -D / 2 - 1.4, { elf: true, scale: 1.0, intensity: 22 }); F.lantern(b, 'ext', 2.0, 4.0, -D / 2 - 1.4, { elf: true, scale: 1.0, intensity: 22 });
+      // interior: pillars, fountain, benches, dais + seat, banners, lanterns
+      for (const sx of [-1, 1]) for (const pz of [-4.5, 0.5, 5.5]) { b.at(sx * 3.6, pz, 0); F.pillar(b, 'int', 'elf', H - 0.05); b.end(); b.cylCol(sx * 3.6, pz, 0.4, H); b.at(sx * 3.6, pz, sx > 0 ? HPI : -HPI, H - 1.2); b.box('int', 'metal', 0.9, 0.05, 0.05, 0, 0, -0.45, 0xd8b862); F.banner(b, 'int', 0.7, 2.4, [0x3c5c8c, 0x5a7a9c, 0x2e4a6c][v], 0xe8e6d8); b.end(); }
+      b.at(0, -2.2, 0); F.fountain(b, 'int', 1.8); b.end(); b.cylCol(0, -2.2, 1.9, 0.7);
+      for (const sx of [-1, 1]) { b.at(sx * 2.0, 2.6, sx > 0 ? -HPI : HPI); stoneBench(b, 'int', 2.2); b.end(); b.at(sx * 2.0, -2.2, sx > 0 ? -HPI : HPI); stoneBench(b, 'int', 2.0); b.end(); b.at(sx * 4.9, -6.5, sx > 0 ? -HPI : HPI); stoneBench(b, 'int', 2.0); b.end(); }
+      b.box('int', 'stone', 7, 0.4, 3.2, 0, 0.25, D / 2 - 1.85, 0xd9dbe0, { jit: 0.02 }); b.box('int', 'stone', 8, 0.2, 4.2, 0, 0.15, D / 2 - 2.35, 0xd9dbe0, { jit: 0.02 });
+      b.boxCol(-4, 0, D / 2 - 4.45, 4, 0.25, D / 2 - 0.25, true); b.boxCol(-3.5, 0, D / 2 - 3.45, 3.5, 0.45, D / 2 - 0.25, true);
+      b.at(0, D / 2 - 1.3, 0, 0.45);
+      b.box('int', 'stone', 1.1, 0.12, 0.9, 0, 0.5, 0, 0xe4e6ea); b.box('int', 'stone', 1.1, 1.6, 0.14, 0, 1.0, 0.4, 0xe4e6ea, { jit: 0.02 });
+      for (const sx of [-1, 1]) b.box('int', 'stone', 0.14, 0.7, 0.9, sx * 0.55, 0.65, 0, 0xe4e6ea); b.box('int', 'flat', 0.9, 0.08, 0.7, 0, 0.6, 0, 0x3c5c8c);
+      b.torus('int', 'metal', 0.4, 0.04, 0, 1.75, 0.4, 0xd8b862, { ts: 0, tl: PI, jit: 0 });
+      b.end();
+      b.at(0, 1.5, 0); F.rug(b, 'int', 2.6, 8.0, 'elf'); b.end();
+      F.lantern(b, 'int', -3.6, 4.4, -2.0, { elf: true, scale: 1.1, intensity: 22, chain: 1.6 }); F.lantern(b, 'int', 3.6, 4.4, 3.0, { elf: true, scale: 1.1, intensity: 22, chain: 1.6 }); F.lantern(b, 'int', 0, 5.2, 5.5, { elf: true, scale: 1.1, intensity: 22, chain: 1.4 });
+      b.spot(0, D / 2 - 2.0, 0, 'lord', 0.45); b.spot(-2.4, -2.2, -HPI, 'idle'); b.spot(2.4, -2.2, HPI, 'idle'); b.spot(-2.0, 3.4, 0, 'table'); b.spot(2.0, 3.4, 0, 'table');
+    },
+  });
+
+  /* ---------------- dwarf_house ---------------- */
+  def('dwarf_house', {
+    enterable: true,
+    build(b, v) {
+      const W = 8, D = 7, H = 3.6, peak = 5.2, t = 0.6;
+      shell(b, {
+        W, D, h: H, peak, t, wallMat: 'stone', wallHex: [0x7a7478, 0x6e6a70, 0x807a74][v], wallJit: 0.05, baseH: 0.8, baseHex: 0x555157,
+        roofMat: 'stone', roofHex: 0x5f5c62, capHex: 0x4a474c, overhang: 0.45, roofTh: 0.5, woodHex: 0x3e2e22, sillHex: 0x555157,
+        floorMat: 'stone', floorHex: 0x6a6660,
+        holes: [
+          { side: 'f', u: -1.9, y: 0, w: 1.3, h: 2.3, door: true, hinge: -1, kind: 'dwarf' },
+          { side: 'f', u: 1.8, y: 1.3, w: 0.9, h: 0.8 }, { side: 'l', u: -1.0, y: 1.3, w: 0.8, h: 0.8 }, { side: 'b', u: 0, y: 1.3, w: 0.8, h: 0.8 },
+        ],
+        chimney: { side: 'r', u: 0.6 }, chimneyHex: 0x5c5658,
+      });
+      // angular buttresses + bronze rune plaque
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box('ext', 'stone', 0.7, 2.4, 0.7, sx * (W / 2 + 0.2), 0.7, sz * (D / 2 + 0.2), 0x66626a, { jit: 0.05, ry: PI / 4 });
+      b.box('ext', 'metal', 1.5, 0.5, 0.08, -1.9, 2.75, -D / 2 - t / 2 - 0.02, 0xb08040);
+      for (let i = 0; i < 3; i++) b.box('ext', 'metal', 0.22, 0.22, 0.05, -2.3 + i * 0.4, 2.75, -D / 2 - t / 2 - 0.08, 0x5a3a20, { rz: PI / 4 });
+      // interior
+      b.at(W / 2 - t / 2 - 0.45, 0.6, -HPI); F.hearth(b, 'int', 1.7, { h: H, hex: 0x5c5658 }); b.end();
+      b.at(-W / 2 + 1.0, D / 2 - 1.25, 0); F.bed(b, 'int', 1.3, 1.9, 0x6a5a48); b.end();
+      b.at(-W / 2 + 1.0, D / 2 - 2.75, 0); F.chest(b, 'int', 0x5a4030); b.end(); b.at(-W / 2 + 2.1, D / 2 - 0.6, 0); F.chest(b, 'int', 0x5a4030); b.end();
+      b.at(0.4, 0.2, 0); F.table(b, 'int', 1.6, 1.0, 0x5e4230); b.end();
+      b.at(0.0, -0.7, 0); F.stool(b, 'int'); b.end(); b.at(0.8, 1.1, 0); F.stool(b, 'int'); b.end();
+      b.cyl('int', 'flat', 0.06, 0.05, 0.14, 8, 0.2, 0.86, 0.3, 0x9ca3a8); b.cyl('int', 'flat', 0.06, 0.05, 0.14, 8, 0.6, 0.86, -0.1, 0x9ca3a8); F.candle(b, 'int', -0.2, 0.81, 0.0);
+      b.at(1.6, D / 2 - 0.42, 0); F.shelf(b, 'int', 1.8, 'crockery', 2.0); b.end();
+      b.at(-1.0, D / 2 - 0.42, 0);   // weapon rack
+      b.box('int', 'wood', 1.4, 0.08, 0.2, 0, 1.5, 0.1, 0x3e2e22); b.box('int', 'wood', 1.4, 0.08, 0.2, 0, 0.6, 0.1, 0x3e2e22);
+      for (const x of [-0.4, 0.1, 0.5]) { b.cyl('int', 'wood', 0.025, 0.03, 1.4, 6, x, 1.0, 0, 0x4a3220); b.box('int', 'metal', 0.3, 0.22, 0.04, x + 0.1, 1.55, 0, 0x8a8c94); }
+      b.end();
+      b.at(-2.2, -1.6, 0); F.barrel(b, 'int', 0.34, 0.9, 0x6a4a30); b.end();
+      b.at(0.4, 0.0, 0); F.rug(b, 'int', 2.8, 2.4, 'dwarf'); b.end();
+      b.at(-W / 2 + 0.6, -D / 2 + 0.7, 0); F.brazier(b, 'int', 0.7); b.end();
+      b.spot(1.4, 0.6, -HPI, 'fire'); b.spot(0.4, -1.1, PI, 'table');
+    },
+  });
+
+  /* ---------------- dwarf_hall ---------------- */
+  def('dwarf_hall', {
+    enterable: true,
+    build(b, v) {
+      const W = 16, D = 22, H = 8, peak = 11, t = 0.8;
+      shell(b, {
+        W, D, h: H, peak, ridge: 'z', t, wallMat: 'stone', wallHex: [0x66626a, 0x5e5a62, 0x6c6866][v], wallJit: 0.05, baseH: 1.2, baseHex: 0x4a474e,
+        roofMat: 'stone', roofHex: 0x57545b, capHex: 0x3f3c42, overhang: 0.6, roofTh: 0.6, woodHex: 0x3e2e22, sillHex: 0x4a474e,
+        floorMat: 'stone', floorHex: 0x615d62,
+        holes: [
+          { side: 'f', u: 0, y: 0, w: 3.2, h: 4.8, door: true, hinge: -1, leaves: 2, kind: 'dwarf' },
+          { side: 'f', u: -5.2, y: 3.6, w: 0.9, h: 2.0 }, { side: 'f', u: 5.2, y: 3.6, w: 0.9, h: 2.0 },
+          { side: 'l', u: -7, y: 3.2, w: 0.8, h: 2.4 }, { side: 'l', u: -2.5, y: 3.2, w: 0.8, h: 2.4 }, { side: 'l', u: 2, y: 3.2, w: 0.8, h: 2.4 }, { side: 'l', u: 6.5, y: 3.2, w: 0.8, h: 2.4 },
+          { side: 'r', u: -7, y: 3.2, w: 0.8, h: 2.4 }, { side: 'r', u: -2.5, y: 3.2, w: 0.8, h: 2.4 }, { side: 'r', u: 2, y: 3.2, w: 0.8, h: 2.4 }, { side: 'r', u: 6.5, y: 3.2, w: 0.8, h: 2.4 },
+        ],
+      });
+      // stepped portal + pillars + entablature + braziers + rune band
+      b.at(0, -D / 2 - t / 2, 0);
+      for (let i = 0; i < 3; i++) {
+        const w = 3.4 + i * 1.3, h = 5.0 + i * 0.9, d = 0.5, z = -(i * d) - d / 2, hx = [0x55515a, 0x4e4a52, 0x46434a][i];
+        for (const sx of [-1, 1]) b.box('ext', 'stone', 0.65, h, d, sx * (w / 2 + 0.3), h / 2, z, hx, { jit: 0.05 });
+        b.box('ext', 'stone', w + 1.9, 0.75, d, 0, h + 0.37, z, hx, { jit: 0.05 });
+      }
+      for (const px of [-3.6, 3.6]) b.box('ext', 'metal', 0.6, 0.6, 0.05, px, 4.0, -1.55, 0xb08040, { rz: PI / 4 });
+      for (let i = 0; i < 9; i++) b.box('ext', 'metal', 0.32, 0.32, 0.06, -6.4 + i * 1.6, 7.2, -0.06, 0xb08040, { rz: PI / 4 });
+      b.end();
+      for (const px of [-6.6, -3.6, 3.6, 6.6]) { b.at(px, -D / 2 - 2.4, 0); F.pillar(b, 'ext', 'dwarf', 8.4); b.end(); b.boxCol(px - 0.65, 0, -D / 2 - 3.05, px + 0.65, 8, -D / 2 - 1.75); }
+      b.box('roof', 'stone', W + 1.6, 1.0, 3.4, 0, H + 0.6, -D / 2 - 1.5, 0x4e4a52, { jit: 0.04 });
+      b.box('ext', 'stone', 10, 0.3, 4.2, 0, 0.1, -D / 2 - 2.0, 0x4a474e, { jit: 0.04 }); b.box('ext', 'stone', 11, 0.16, 5.0, 0, -0.05, -D / 2 - 2.4, 0x4a474e, { jit: 0.04 });
+      for (const sx of [-1, 1]) { b.box('ext', 'stone', 1.0, 1.0, 1.0, sx * 2.9, 0.75, -D / 2 - 1.6, 0x4e4a52, { jit: 0.05 }); b.at(sx * 2.9, -D / 2 - 1.6, 0, 1.25); F.brazier(b, 'ext', 1.1); b.end(); b.cylCol(sx * 2.9, -D / 2 - 1.6, 0.6, 2); }
+      // interior
+      for (const sx of [-1, 1]) for (const pz of [-7, -2.5, 2, 6.5]) { b.at(sx * 4.6, pz, 0); F.pillar(b, 'int', 'dwarf', H - 0.1, 0x5e5a5e); b.end(); b.boxCol(sx * 4.6 - 0.65, 0, pz - 0.65, sx * 4.6 + 0.65, H, pz + 0.65); }
+      b.at(-5.4, D / 2 - t / 2 - 1.0, 0); F.forge(b, 'int'); b.end(); b.boxCol(-6.6, 0, D / 2 - 2.9, -4.2, 2.4, D / 2 - 0.3);
+      b.at(-5.4, D / 2 - 4.0, 0); F.anvil(b, 'int'); b.end(); b.cylCol(-5.4, D / 2 - 4.0, 0.35, 1);
+      b.at(-3.0, D / 2 - 2.0, HPI); F.trough(b, 'int'); b.end();
+      b.at(-W / 2 + 0.6, 2.0, -HPI); b.box('int', 'wood', 3.0, 0.08, 0.2, 0, 1.6, 0.1, 0x3e2e22); b.box('int', 'wood', 3.0, 0.08, 0.2, 0, 0.7, 0.1, 0x3e2e22); for (let i = 0; i < 6; i++) { const x = -1.3 + i * 0.5; b.cyl('int', 'wood', 0.03, 0.035, 1.6, 6, x, 1.1, 0, 0x4a3220); b.box('int', 'metal', 0.34, 0.26, 0.05, x + 0.12, 1.72, 0, 0x8a8c94); } b.end();
+      b.at(0, -1.0, 0); F.table(b, 'int', 6.0, 1.3, 0x5e4230); b.end();
+      b.at(0, -2.0, 0); F.bench(b, 'int', 5.6, 0x5e4230); b.end(); b.at(0, 0.0, PI); F.bench(b, 'int', 5.6, 0x5e4230); b.end();
+      for (let i = 0; i < 5; i++) { const x = -2.4 + i * 1.2; b.cyl('int', 'flat', 0.06, 0.05, 0.14, 8, x, 0.86, -1.3 + (i % 2) * 0.5, 0x9ca3a8); if (i % 2 === 0) F.candle(b, 'int', x + 0.3, 0.81, -0.8); else b.cyl('int', 'flat', 0.14, 0.14, 0.015, 12, x - 0.3, 0.81, -1.0, 0xece4d2); }
+      b.box('int', 'stone', 7, 0.5, 3.4, 0, 0.3, D / 2 - 2.2, 0x55515a, { jit: 0.04 }); b.box('int', 'stone', 8.4, 0.25, 4.6, 0, 0.17, D / 2 - 2.8, 0x55515a, { jit: 0.04 });
+      b.boxCol(-4.2, 0, D / 2 - 5.1, 4.2, 0.3, D / 2 - 0.5, true); b.boxCol(-3.5, 0, D / 2 - 3.9, 3.5, 0.55, D / 2 - 0.5, true);
+      b.at(0, D / 2 - 1.6, 0, 0.55);
+      b.box('int', 'stone', 1.5, 0.7, 1.1, 0, 0.35, 0, 0x4a474e, { jit: 0.04 }); b.box('int', 'stone', 1.5, 2.2, 0.3, 0, 1.4, 0.45, 0x4a474e, { jit: 0.04 });
+      for (const sx of [-1, 1]) b.box('int', 'stone', 0.3, 1.1, 1.1, sx * 0.75, 0.9, 0, 0x4a474e, { jit: 0.04 });
+      b.box('int', 'flat', 1.0, 0.1, 0.8, 0, 0.75, -0.05, 0x6a2a2a); b.box('int', 'metal', 0.6, 0.6, 0.06, 0, 1.9, 0.28, 0xb08040, { rz: PI / 4 });
+      b.end();
+      for (const sx of [-1, 1]) { b.at(sx * 3.0, 5.0, 0); F.brazier(b, 'int', 1.0); b.end(); b.cylCol(sx * 3.0, 5.0, 0.5, 1.5); }
+      for (let i = 0; i < 4; i++) { b.at(W / 2 - 1.0 - (i % 2) * 0.9, D / 2 - 1.0 - Math.floor(i / 2) * 0.9, 0); F.barrel(b, 'int', 0.36, 1.0, 0x6a4a30); b.end(); }
+      b.at(W / 2 - 1.2, 3.0, 0); F.crate(b, 'int', 0.9, 0x7a5a3a); b.end(); b.at(W / 2 - 1.2, 3.0, 0, 0.9); F.crate(b, 'int', 0.7, 0x7a5a3a); b.end();
+      b.at(0, -4.0, 0); F.rug(b, 'int', 3.2, 12, 'dwarf'); b.end();
+      b.spot(0, D / 2 - 2.6, 0, 'lord', 0.55); b.spot(-5.4, D / 2 - 5.2, PI, 'forge'); b.spot(-1.5, -2.6, PI, 'table'); b.spot(1.5, -2.6, PI, 'table'); b.spot(-1.5, 0.6, 0, 'table'); b.spot(1.5, 0.6, 0, 'table'); b.spot(4.2, 5.0, HPI, 'fire');
+    },
+  });
+
+  /* ---------------- lossoth_hut ---------------- */
+  def('lossoth_hut', {
+    variants: 2, enterable: true,
+    build(b, v) {
+      const R = 3.5, snow = v === 1, mat = snow ? 'flat' : 'hide', hex = snow ? 0xeef2f8 : 0xb09068, inner = snow ? 0xd8dfe8 : 0x9a7a58;
+      const outer = domeGeo(R, 28, 12); b.piece('roof', mat, outer, 0, 0, 0, hex, { jit: snow ? 0.02 : 0.05, faceJit: false });
+      b.cyl('roof', mat, R * 1.02, R * 1.05, 1.0, 28, 0, -0.5, 0, hex, { jit: 0.03 });
+      if (!snow) for (const y of [0.9, 2.0, 2.8]) { const rr = Math.sqrt(R * R - y * y) + 0.02; b.torus('roof', 'flat', rr, 0.035, 0, y, 0, 0x4a3a28, { rx: HPI, jit: 0 }); }
+      else for (let i = 0; i < 6; i++) { const a = i * PI / 6; b.torus('roof', 'flat', R + 0.02, 0.05, 0, 0, 0, 0xd8dfe8, { ry: a, ts: 0, tl: PI, jit: 0 }); }
+      b.cyl('ext', 'flat', 0.45, 0.45, 0.08, 12, 0, R - 0.02, 0, 0x151210, { jit: 0 }); b.smoke(0, R + 0.1, 0);
+      const cap = invertGeo(new T.SphereGeometry(R - 0.08, 28, 8, 0, TAU, 0, 0.95)); b.piece('roof', mat, cap, 0, 0, 0, inner, { jit: 0.04, faceJit: false });
+      const band = invertGeo(new T.SphereGeometry(R - 0.08, 28, 6, 0, TAU, 0.95, HPI - 0.95 + 0.05)); b.piece('int', mat, band, 0, 0, 0, inner, { jit: 0.04, faceJit: false });
+      // entrance tunnel + hide flap door
+      b.box('ext', mat, 1.9, 2.0, 1.4, 0, 1.0, -R + 0.1, hex, { jit: 0.04 }); b.box('int', 'flat', 1.5, 1.75, 1.5, 0, 0.87, -R + 0.1, 0x2a2018, { jit: 0.04 });
+      for (const sx of [-1, 1]) b.wallCol(sx * 0.75, -R - 0.7, sx * 0.75, -R + 0.8, 2.0, 0.2);
+      b.box('ext', 'wood', 0.1, 1.85, 0.1, -0.8, 0.92, -R - 0.55, 0x4a3a28); b.box('ext', 'wood', 0.1, 1.85, 0.1, 0.8, 0.92, -R - 0.55, 0x4a3a28); b.box('ext', 'wood', 1.7, 0.1, 0.12, 0, 1.9, -R - 0.55, 0x4a3a28);
+      b.door({ x: 0, z: -R - 0.55, ry: 0, w: 1.5, h: 1.8, kind: 'flap', hinge: -1, y: 0.05, t: 0.2, name: 'Hide flap' });
+      b.ringCol(0, 0, R - 0.15, 3.2, 16, 0, 1.8);
+      // interior: fire pit, furs, bedrolls, fish rack, chest
+      b.cyl('int', 'flat', R - 0.05, R - 0.05, 0.1, 28, 0, 0.0, 0, 0x8a7a66, { jit: 0.05 }); b.boxCol(-R, -0.1, -R, R, 0.05, R, true);
+      b.box('int', 'planks', 1.5, 0.1, 1.5, 0, 0.0, -R + 0.1, 0x7a5a3a, { jit: 0.04 });
+      for (let i = 0; i < 9; i++) { const a = i / 9 * TAU; b.sph('int', 'rock', 0.2, Math.sin(a) * 0.75, 0.12, Math.cos(a) * 0.75, 0x6f6a64, { sy: 0.7, jit: 0.1 }); }
+      for (let i = 0; i < 3; i++) b.cyl('int', 'wood', 0.07, 0.08, 0.9, 7, 0, 0.16, 0, 0x3d2a18, { rz: HPI, ry: i * PI / 3, jit: 0.06 });
+      b.sph('int', 'ember', 0.32, 0, 0.12, 0, 0xff7a20, { sy: 0.4, jit: 0.2 });
+      b.light(0, 1.0, 0, { kind: 'fire', color: 0xffa040, intensity: 35, dist: 11 }); b.hearth(0, 0.3, 0, 1.0);
+      for (let i = 0; i < 3; i++) { const a = 0.9 + i * 1.5; b.at(Math.sin(a) * 2.1, Math.cos(a) * 2.1, a + PI); F.bedroll(b, 'int', [0x8a7a66, 0xa89880, 0x6a5a4a][i]); b.end(); }
+      b.sph('int', 'flat', 1.1, 1.3, 0.05, -1.4, 0xb09070, { sy: 0.06, jit: 0.08 }); b.sph('int', 'flat', 0.9, -1.6, 0.05, -0.9, 0xc8b090, { sy: 0.06, jit: 0.08 });
+      b.at(-2.2, 1.6, 0.7); F.chest(b, 'int', 0x6a5040); b.end();
+      b.at(2.0, 1.2, -0.6); b.box('int', 'wood', 0.08, 1.7, 0.08, -0.6, 0.85, 0, 0x4a3a28); b.box('int', 'wood', 0.08, 1.7, 0.08, 0.6, 0.85, 0, 0x4a3a28); b.box('int', 'wood', 1.3, 0.06, 0.06, 0, 1.7, 0, 0x4a3a28);
+      for (let i = 0; i < 4; i++) b.sph('int', 'flat', 0.1, -0.45 + i * 0.3, 1.45, 0, 0x8a9aa0, { sy: 2.2, sz: 0.5, jit: 0.06 }); b.end();
+      for (let i = 0; i < 5; i++) b.cyl('int', 'wood', 0.08, 0.09, 0.7, 7, -2.4 + (i % 3) * 0.2, 0.1 + Math.floor(i / 3) * 0.17, 2.6, 0x4a3320, { rz: HPI, jit: 0.06 });
+      b.spot(-1.3, -0.4, -HPI + 0.3, 'fire'); b.spot(1.3, 0.6, HPI - 0.4, 'fire');
+      b.interior(-R, -0.5, -R - 0.8, R, R + 0.5, R);
+    },
+  });
+
+  /* ---------------- tent ---------------- */
+  def('tent', {
+    enterable: true,
+    build(b, v) {
+      const R = 2.6, Hh = 3.0, hex = [0xd9c9a3, 0x5c6a4a, 0x9a4a3a][v];
+      const gap = 0.42;
+      b.cone('roof', 'cloth', R, Hh, 14, 0, Hh / 2, 0, hex, { open: true, ts: PI + gap, tl: TAU - 2 * gap, jit: 0.04, faceJit: false });
+      b.cyl('int', 'wood', 0.06, 0.07, Hh, 7, 0, Hh / 2, 0, 0x5a3c25);
+      b.sph('ext', 'wood', 0.1, 0, Hh + 0.05, 0, 0x5a3c25);
+      for (let i = 0; i < 4; i++) {
+        const a = PI / 4 + i * HPI, px = Math.sin(a) * (R + 0.9), pz = Math.cos(a) * (R + 0.9);
+        b.box('ext', 'wood', 0.08, 0.35, 0.08, px, 0.12, pz, 0x4a3220, { rx: 0.3 });
+        const len = Math.sqrt(0.81 + 1.4 * 1.4);
+        b.cyl('ext', 'flat', 0.012, 0.012, len, 4, Math.sin(a) * (R + 0.45), 0.75, Math.cos(a) * (R + 0.45), 0xc8b890, { rx: Math.atan2(0.9, 1.4) * Math.cos(a) * -1, rz: Math.atan2(0.9, 1.4) * Math.sin(a), ry: 0 });
+      }
+      b.cyl('int', 'cloth', R - 0.25, R - 0.25, 0.04, 14, 0, 0.02, 0, 0xbca987, { jit: 0.04 });
+      b.at(0.7, 0.5, 0.3); F.bedroll(b, 'int'); b.end();
+      b.at(-1.1, 0.7, -0.5); F.chest(b, 'int'); b.end();
+      b.at(-1.0, -0.9, 0); F.sack(b, 'int'); b.end();
+      F.lantern(b, 'int', 1.3, 0.02, -0.9, { scale: 0.7, intensity: 10, dist: 7 });
+      b.ringCol(0, 0, R - 0.1, 2.2, 14, 0, 2.0);
+      b.interior(-R, -0.5, -R, R, Hh + 0.3, R);
+      b.spot(0, -0.6, PI, 'bed');
+    },
+  });
+
+  /* ---------------- tower ---------------- */
+  def('tower', {
+    enterable: true,
+    build(b, v) {
+      const R = 3.4, Ri = 2.8, H = 9.6, hex = [0x8a857b, 0x7c7872, 0x8f8578][v];
+      const gap = Math.asin(0.72 / R);
+      b.cyl('ext', 'stone', R, R + 0.15, H + 1, 28, 0, H / 2 - 0.5, 0, hex, { open: true, ts: PI + gap, tl: TAU - 2 * gap, jit: 0.05 });
+      const inner = invertGeo(new T.CylinderGeometry(Ri, Ri, H, 28, 1, true, PI + gap, TAU - 2 * gap)); b.piece('int', 'stone', inner, 0, H / 2, 0, 0x6e6a64, { jit: 0.05 });
+      for (const sx of [-1, 1]) b.box('ext', 'stone', 0.5, 2.6, R - Ri + 0.1, sx * (0.72 + 0.25), 1.3, -(R + Ri) / 2, hex, { jit: 0.05 });
+      b.box('ext', 'stone', 2.4, 0.5, R - Ri + 0.1, 0, 2.85, -(R + Ri) / 2, hex, { jit: 0.05 });
+      b.box('ext', 'wood', 0.14, 2.5, 0.7, -0.72, 1.25, -R + 0.3, 0x4a3220); b.box('ext', 'wood', 0.14, 2.5, 0.7, 0.72, 1.25, -R + 0.3, 0x4a3220); b.box('ext', 'wood', 1.6, 0.14, 0.7, 0, 2.55, -R + 0.3, 0x4a3220);
+      b.box('ext', 'stone', 2.0, 0.12, 1.0, 0, 0.0, -R - 0.5, 0x8d8579, { jit: 0.06 });
+      b.door({ x: 0, z: -R + 0.3, ry: 0, w: 1.3, h: 2.4, kind: 'banded', hinge: -1, y: 0.05, t: 0.6 });
+      for (let i = 0; i < 4; i++) { const a = PI / 2 + i * 0.9 + 0.3, y = 3.2 + i * 1.6; b.box('ext', 'flat', 0.18, 0.9, 0.1, Math.sin(a) * R, y, Math.cos(a) * R, 0x0e0c0a, { ry: a, jit: 0 }); b.box('ext', 'stone', 0.5, 1.2, 0.12, Math.sin(a) * (R + 0.02), y, Math.cos(a) * (R + 0.02), 0x77726a, { ry: a, jit: 0.04 }); }
+      // parapet + merlons (exterior, stays visible) — platform (roof group, hidden when inside)
+      const rg = new T.RingGeometry(Ri - 0.1, R + 0.35, 28); rg.rotateX(-HPI); b.piece('ext', 'stone', rg, 0, H + 0.02, 0, hex, { jit: 0.04 });
+      b.cyl('ext', 'stone', R + 0.35, R + 0.35, 1.2, 28, 0, H + 0.6, 0, hex, { open: true, jit: 0.05 });
+      b.piece('ext', 'stone', invertGeo(new T.CylinderGeometry(R - 0.1, R - 0.1, 1.2, 28, 1, true)), 0, H + 0.6, 0, 0x77726a, { jit: 0.05 });
+      const rg2 = new T.RingGeometry(R - 0.1, R + 0.35, 28); rg2.rotateX(-HPI); b.piece('ext', 'stone', rg2, 0, H + 1.2, 0, hex, { jit: 0.04 });
+      for (let i = 0; i < 12; i++) { const a = i / 12 * TAU; b.box('ext', 'stone', 0.8, 0.8, 0.5, Math.sin(a) * (R + 0.1), H + 1.6, Math.cos(a) * (R + 0.1), hex, { ry: a, jit: 0.05 }); }
+      b.piece('roof', 'stone', new T.CylinderGeometry(Ri + 0.02, Ri + 0.02, 0.3, 28, 1, false, PI - 0.5, TAU - 1.6), 0, H - 0.15, 0, 0x7d786f, { jit: 0.04 });
+      for (let i = 0; i < 12; i++) { const a0 = (i / 12) * TAU, a1 = ((i + 1) / 12) * TAU, am = (a0 + a1) / 2; let d = Math.atan2(Math.sin(am - PI), Math.cos(am - PI)); if (Math.abs(d) < 0.55) continue; const cx = Math.sin(am) * Ri * 0.55, cz = Math.cos(am) * Ri * 0.55; b.boxCol(cx - 0.9, H - 0.3, cz - 0.9, cx + 0.9, H, cz + 0.9, true); }
+      b.boxCol(-1.2, H - 0.3, -1.2, 1.2, H, 1.2, true);
+      b.cyl('ext', 'wood', 0.05, 0.06, 3.2, 6, 0, H + 1.6, 0, 0x4a3220); b.at(0.55, 0, 0, H + 3.0); b.plane('ext', 'cloth', 1.1, 0.7, 0, -0.35, 0, [0x8c2e2a, 0x3c5c8c, 0x3e6a44][v], { ry: HPI, jit: 0.03 }); b.end();
+      F.lantern(b, 'ext', 0, H + 1.25, R - 0.4, { scale: 0.8, intensity: 16 });
+      // interior floor + spiral stair around a central column
+      b.cyl('int', 'stone', Ri + 0.05, Ri + 0.05, 0.12, 28, 0, -0.01, 0, 0x6a655e, { jit: 0.05 }); b.boxCol(-Ri, -0.13, -Ri, Ri, 0.05, Ri, true);
+      b.cyl('int', 'stone', 0.55, 0.6, H, 12, 0, H / 2, 0, 0x6e6a64, { jit: 0.05 }); b.cylCol(0, 0, 0.6, H);
+      const N = 26, rise = (H - 0.3) / N, a0 = PI + 0.75, sweep = TAU * 0.92;
+      for (let i = 0; i < N; i++) {
+        const a = a0 + (i / N) * sweep, y = (i + 1) * rise, rc = (Ri + 0.6) / 2 - 0.05, sx = Math.sin(a) * rc, sz = Math.cos(a) * rc;
+        b.box('int', 'stone', Ri - 0.6 - 0.05, 0.18, 0.75, sx, y - 0.09, sz, 0x8a857b, { ry: a + HPI, jit: 0.05 });
+        b.at(sx, sz, a + HPI, y); b.boxCol(-(Ri - 0.6) / 2, -0.4, -0.38, (Ri - 0.6) / 2, 0, 0.38, true); b.end();
+      }
+      b.at(1.5, 0.6, 0); F.crate(b, 'int', 0.7); b.end(); b.at(-1.2, 1.4, 0); F.barrel(b, 'int', 0.3, 0.8); b.end();
+      F.lantern(b, 'int', -1.6, 2.2, -1.2, { scale: 0.8, intensity: 14, hook: true });
+      b.ringCol(0, 0, (R + Ri) / 2, H, 16, 0, 1.5);
+      b.interior(-Ri, -0.5, -R, Ri, H - 0.35, Ri);
+      b.spot(0, 1.4, 0, 'idle'); b.spot(0.8, -1.2, 0, 'watch', H);
+    },
+  });
+
+  /* ---------------- ruin_wall ---------------- */
+  def('ruin_wall', {
+    static: true,
+    key(spec, v) { return 'ruin_wall:' + v + ':' + Math.round((spec.len || 7) * 2); },
+    build(b, v, spec) {
+      const L = spec.len || 7, hMax = 2.2 + v * 0.6, r = b.rng, hex = 0x8a8878;
+      b.box('ext', 'stone', L, 2.0, 0.85, 0, 0.0, 0, 0x7f8a6e, { jit: 0.07 });
+      let x = -L / 2;
+      while (x < L / 2) {
+        const w = Math.min(0.55 + r() * 0.7, L / 2 - x);
+        const h = r() < 0.15 ? 0.2 + r() * 0.3 : 0.6 + r() * (hMax - 0.6);
+        b.box('ext', 'stone', w, h, 0.8, x + w / 2, 1.0 + h / 2, 0, hex, { jit: 0.08 });
+        x += w;
+      }
+      for (let i = 0; i < 6; i++) b.box('ext', 'rock', 0.3 + r() * 0.4, 0.2 + r() * 0.3, 0.3 + r() * 0.3, (r() - 0.5) * L, 0.1, (r() < 0.5 ? -1 : 1) * (0.6 + r() * 0.6), 0x7d7873, { ry: r() * PI, jit: 0.08 });
+      b.wallCol(-L / 2, 0, L / 2, 0, hMax, 0.85);
+    },
+  });
+
+  /* ---------------- ruin_tower ---------------- */
+  def('ruin_tower', {
+    build(b, v) {
+      const R = 3.0, N = 12, r = b.rng, hex = 0x85827a, gapStart = 2 + v, gapLen = 2 + (v % 2);
+      for (let i = 0; i < N; i++) {
+        if (i >= gapStart && i < gapStart + gapLen) continue;
+        const a = (i + 0.5) / N * TAU, h = (i === 0 || i === N - 1) ? 2.4 : 2.5 + r() * 5.0, chord = 2 * R * Math.sin(PI / N) + 0.08;
+        b.box('ext', 'stone', chord, h + 1, 0.8, Math.sin(a) * R, h / 2 - 0.5, Math.cos(a) * R, hex, { ry: a, jit: 0.07 });
+        b.box('ext', 'stone', chord, 0.5, 0.86, Math.sin(a) * R, 0.25, Math.cos(a) * R, 0x7a8468, { ry: a, jit: 0.06 });
+        b.wallCol(Math.sin(a - PI / N) * R, Math.cos(a - PI / N) * R, Math.sin(a + PI / N) * R, Math.cos(a + PI / N) * R, h, 0.8);
+      }
+      b.cyl('ext', 'stone', R - 0.3, R - 0.3, 0.14, 16, 0, 0.02, 0, 0x74706a, { jit: 0.06 });
+      for (let i = 0; i < 10; i++) b.box('ext', 'rock', 0.4 + r() * 0.6, 0.3 + r() * 0.4, 0.4 + r() * 0.5, (r() - 0.5) * 9, 0.15, (r() - 0.5) * 9, 0x7d7873, { ry: r() * PI, rx: (r() - 0.5) * 0.3, jit: 0.08 });
+      const a = (gapStart + gapLen / 2) / N * TAU;
+      b.box('ext', 'stone', 1.6, 0.9, 0.9, Math.sin(a) * (R + 0.6), 0.45, Math.cos(a) * (R + 0.6), hex, { ry: a + 0.4, rx: 0.2, jit: 0.07 });
+      b.box('ext', 'rock', 1.0, 0.6, 0.9, Math.sin(a) * (R - 0.8), 0.3, Math.cos(a) * (R - 0.8), 0x7d7873, { ry: a - 0.3, jit: 0.07 });
+      b.spot(0, 0, 0, 'idle');
+    },
+  });
+
+  /* ---------------- barrow ---------------- */
+  def('barrow', {
+    enterable: true, variants: 2,
+    build(b, v) {
+      const RX = 6.6, RY = 3.2, RZ = 6.0, zf = -3.0, cave = v === 1;
+      const mg = domeGeo(1, 28, 14); mg.scale(RX, RY, RZ);
+      const mp = mg.attributes.position, mn = mg.attributes.normal;
+      for (let i = 0; i < mp.count; i++) if (mp.getZ(i) < zf + 0.2) { mp.setZ(i, zf + 0.2); mn.setXYZ(i, 0, 0, -1); }
+      b.piece('roof', cave ? 'rock' : 'grass', mg, 0, -0.3, 0, cave ? 0x6f6a64 : 0x62884a, { jit: 0.06, faceJit: false });
+      b.cyl('roof', cave ? 'rock' : 'grass', RX * 1.02, RX * 1.05, 1.0, 28, 0, -0.55, 0, cave ? 0x6f6a64 : 0x5f8447, { sz: RZ / RX, jit: 0.05 });
+      // portal: standing stones + lintel, dark passage, crypt
+      for (const sx of [-1, 1]) b.box('ext', 'rock', 0.9, 3.0, 1.0, sx * 1.5, 1.2, zf - 0.3, 0x6a665f, { jit: 0.08, rz: sx * 0.03 });
+      b.box('ext', 'rock', 4.2, 0.7, 1.2, 0, 2.95, zf - 0.3, 0x6a665f, { jit: 0.08 });
+      b.box('ext', 'flat', 2.2, 2.7, 0.3, 0, 1.35, zf + 0.1, 0x070605, { jit: 0 });
+      b.box('int', 'flat', 0.3, 2.7, 3.6, -1.1, 1.35, zf + 1.7, 0x141210, { jit: 0.05 }); b.box('int', 'flat', 0.3, 2.7, 3.6, 1.1, 1.35, zf + 1.7, 0x141210, { jit: 0.05 });
+      b.box('roof', 'flat', 2.5, 0.3, 3.6, 0, 2.75, zf + 1.7, 0x141210, { jit: 0.05 });
+      b.box('int', 'stone', 2.2, 0.12, 3.6, 0, -0.01, zf + 1.7, 0x4e4a46, { jit: 0.06 });
+      for (const sx of [-1, 1]) b.wallCol(sx * 0.95, zf - 0.6, sx * 0.95, zf + 3.5, 2.7, 0.3);
+      const CX = 3.0, CZ0 = zf + 3.5, CZ1 = CZ0 + 5.5, CH = 3.0;
+      b.box('int', 'stone', 0.4, CH, CZ1 - CZ0, -CX, CH / 2, (CZ0 + CZ1) / 2, 0x4a4744, { jit: 0.07 }); b.box('int', 'stone', 0.4, CH, CZ1 - CZ0, CX, CH / 2, (CZ0 + CZ1) / 2, 0x4a4744, { jit: 0.07 });
+      b.box('int', 'stone', 2 * CX + 0.4, CH, 0.4, 0, CH / 2, CZ1, 0x4a4744, { jit: 0.07 });
+      for (const sx of [-1, 1]) b.box('int', 'stone', CX - 1.1 + 0.2, CH, 0.4, sx * (1.1 + (CX - 1.1) / 2), CH / 2, CZ0, 0x4a4744, { jit: 0.07 });
+      b.box('roof', 'stone', 2 * CX + 0.4, 0.4, CZ1 - CZ0 + 0.4, 0, CH + 0.2, (CZ0 + CZ1) / 2, 0x3e3b38, { jit: 0.06 });
+      b.floor(-CX, CZ0, CX, CZ1, 0.05, 'stone', 0x55514c);
+      b.wallCol(-CX, CZ0, -CX, CZ1, CH, 0.4); b.wallCol(CX, CZ0, CX, CZ1, CH, 0.4); b.wallCol(-CX, CZ1, CX, CZ1, CH, 0.4); b.wallCol(-CX, CZ0, -1.1, CZ0, CH, 0.4); b.wallCol(1.1, CZ0, CX, CZ0, CH, 0.4);
+      b.at(0, (CZ0 + CZ1) / 2 + 0.4, 0); F.coffin(b, 'int'); b.end(); b.boxCol(-0.75, 0, (CZ0 + CZ1) / 2 - 1.0, 0.75, 1.3, (CZ0 + CZ1) / 2 + 1.8);
+      for (const sx of [-1, 1]) { b.lathe('int', 'flat', [[0.1, 0], [0.25, 0.05], [0.3, 0.4], [0.2, 0.6], [0.22, 0.7]], 10, sx * 2.4, 0.05, CZ1 - 0.6, 0x6a5a4a, { jit: 0.05 }); b.box('int', 'rock', 0.6, 0.5, 0.6, sx * 2.4, 0.3, CZ0 + 1.0, 0x5a5650, { jit: 0.07 }); F.candle(b, 'int', sx * 2.4, 0.56, CZ0 + 1.0); }
+      b.at(CX - 0.7, CZ1 - 0.9, HPI); F.chest(b, 'int', 0x4a3a2a); b.end();
+      b.at(-CX + 0.5, CZ0 + 3.5, -HPI); stoneBench(b, 'int', 1.6, 0x5a5650); b.end();
+      for (let i = 0; i < 4; i++) b.box('int', 'flat', 0.7, 0.06, 0.6, (b.rng() - 0.5) * 4, 0.08, CZ0 + 1 + b.rng() * 3.5, 0x2a2622, { ry: b.rng() * PI, jit: 0.1 });
+      b.light(0, 1.8, (CZ0 + CZ1) / 2, { kind: 'elf', color: 0x86a0c8, intensity: 12, dist: 10, flicker: true });
+      for (let i = 0; i < 5; i++) { const a = 0.6 + i * 1.05, rr = 8.5 + (i % 2) * 1.2; b.at(Math.sin(a) * rr, Math.cos(a) * rr, a); menhir(b, 'ext', 2.2 + (i % 3) * 0.5, 0x746f68); b.end(); b.cylCol(Math.sin(a) * rr, Math.cos(a) * rr, 0.6, 2.5); }
+      for (let i = 0; i < 16; i++) { const a0 = i / 16 * TAU, a1 = (i + 1) / 16 * TAU; const p0 = { x: Math.sin(a0) * RX * 0.96, z: Math.cos(a0) * RZ * 0.96 }, p1 = { x: Math.sin(a1) * RX * 0.96, z: Math.cos(a1) * RZ * 0.96 }; if (p0.z < zf + 0.6 || p1.z < zf + 0.6) continue; b.wallCol(p0.x, p0.z, p1.x, p1.z, 2.4, 0.4); }
+      b.wallCol(-RX, zf, -1.1, zf, 3, 0.5); b.wallCol(1.1, zf, RX, zf, 3, 0.5);
+      b.interior(-CX, -0.5, zf - 0.5, CX, CH + 0.5, CZ1);
+      b.spot(0, CZ0 + 1.2, PI, 'idle');
+    },
+  });
+
+  /* ---------------- dock ---------------- */
+  def('dock', {
+    key(spec, v) { return 'dock:' + v + ':' + Math.round((spec.len || 14) / 2) + ':' + Math.round((spec.deckLocal === undefined ? 0.6 : spec.deckLocal) * 4); },
+    build(b, v, spec) {
+      const L = spec.len || 14, W = 3.2, dy = spec.deckLocal === undefined ? 0.6 : spec.deckLocal, hex = [0x7a5a3a, 0x6e5238, 0x86643f][v];
+      b.box('ext', 'planks', W, 0.12, L + 1.0, 0, dy - 0.06, -L / 2 + 0.5, hex, { jit: 0.05 });
+      b.boxCol(-W / 2, dy - 0.3, -L, W / 2, dy, 1.0, true);
+      for (const sx of [-1, 1]) b.box('ext', 'wood', 0.18, 0.22, L + 1.0, sx * (W / 2 - 0.09), dy - 0.22, -L / 2 + 0.5, 0x4a3320, { jit: 0.05 });
+      const np = Math.max(2, Math.round(L / 2.6));
+      for (let i = 0; i <= np; i++) {
+        const z = -L + (L / np) * i + 0.2;
+        for (const sx of [-1, 1]) { const tall = (i === 0 || i % 2 === 0); b.cyl('ext', 'wood', 0.15, 0.17, 4.2 + (tall ? 1.0 : 0), 8, sx * (W / 2 + 0.05), dy - 2.1 + (tall ? 0.5 : 0), z, 0x4e3a28, { jit: 0.06 }); if (tall) b.cyl('ext', 'wood', 0.19, 0.16, 0.1, 8, sx * (W / 2 + 0.05), dy + 1.05, z, 0x3e2e20); }
+        b.box('ext', 'wood', W + 0.3, 0.18, 0.18, 0, dy - 0.28, z, 0x4a3320, { jit: 0.05 });
+      }
+      for (const sx of [-1, 1]) { b.cyl('ext', 'wood', 0.16, 0.16, 0.9, 8, sx * (W / 2 - 0.35), dy + 0.45, -L + 0.6, 0x3e2e20, { jit: 0.05 }); b.cyl('ext', 'wood', 0.2, 0.2, 0.12, 8, sx * (W / 2 - 0.35), dy + 0.92, -L + 0.6, 0x3e2e20); }
+      b.torus('ext', 'flat', 0.28, 0.06, 0.55, dy + 0.06, -L + 1.6, 0xb8a888, { rx: HPI, jit: 0.04 }); b.torus('ext', 'flat', 0.2, 0.05, 0.55, dy + 0.16, -L + 1.6, 0xb8a888, { rx: HPI, jit: 0.04 });
+      b.at(-0.9, -L + 2.4, 0.4, dy); F.crate(b, 'ext', 0.75); b.end(); b.at(-0.9, -L + 2.4, 0.4, dy + 0.75); F.crate(b, 'ext', 0.6); b.end();
+      b.at(0.9, -L + 3.6, 0, dy); F.barrel(b, 'ext', 0.3, 0.8); b.end();
+      b.cyl('ext', 'wood', 0.08, 0.1, 3.3, 7, W / 2 - 0.2, dy + 1.6, -L + 0.2, 0x4a3320); b.box('ext', 'wood', 0.6, 0.06, 0.06, W / 2 - 0.45, dy + 3.15, -L + 0.2, 0x4a3320);
+      F.lantern(b, 'ext', W / 2 - 0.75, dy + 2.6, -L + 0.2, { scale: 0.9, intensity: 24, hook: true, chain: 0.1 });
+      for (const sx of [-1, 1]) b.box('ext', 'wood', 0.06, 2.4, 0.06, W / 2 + 0.15, dy - 0.9, -L + 1.0 + sx * 0.2, 0x4a3320); for (let i = 0; i < 5; i++) b.box('ext', 'wood', 0.06, 0.05, 0.46, W / 2 + 0.15, dy - 0.05 - i * 0.45, -L + 1.0, 0x4a3320);
+      b.box('ext', 'planks', W + 1.4, 0.12, 1.6, 0, dy * 0.5 - 0.06, 1.4, hex, { rx: Math.atan2(dy, 1.6), jit: 0.05 }); b.boxCol(-W / 2 - 0.7, dy * 0.5 - 0.35, 0.6, W / 2 + 0.7, dy * 0.5 + 0.05, 2.2, true);
+      b.spot(0, -L + 2.2, PI, 'boatmaster', dy); b.spot(0, -L - 2.5, 0, 'boat', dy);
+    },
+  });
+
+  /* ---------------- bridge ---------------- */
+  def('bridge', {
+    key(spec, v) { return 'bridge:' + v + ':' + Math.round((spec.len || 24) / 2); },
+    build(b, v, spec) {
+      const L = spec.len || 24, W = 5.2, rise = Math.min(1.5, L * 0.06), N = 16, hex = [0x8f8a82, 0x7f7b76, 0x968f84][v];
+      const arc = z => 0.25 + rise * (1 - Math.pow(2 * z / L, 2));
+      const sh = new T.Shape(); sh.moveTo(-L / 2, -3.5); sh.lineTo(L / 2, -3.5); sh.lineTo(L / 2, arc(L / 2));
+      for (let i = N; i >= 0; i--) { const z = -L / 2 + (L / N) * i; sh.lineTo(z, arc(z)); }
+      sh.closePath();
+      const hole = new T.Path(); hole.absellipse(0, -0.9, L * 0.33, Math.min(2.2, L * 0.1), 0, TAU, false); sh.holes.push(hole);
+      const g = new T.ExtrudeGeometry(sh, { depth: W, bevelEnabled: false, curveSegments: 12 }); g.translate(0, 0, -W / 2); g.rotateY(HPI);
+      b.piece('ext', 'stone', g, 0, 0, 0, hex, { jit: 0.04, faceJit: false });
+      for (const sx of [-1, 1]) {
+        const ps = new T.Shape(); ps.moveTo(-L / 2 - 0.3, arc(L / 2) - 0.4);
+        for (let i = 0; i <= N; i++) { const z = -L / 2 + (L / N) * i; ps.lineTo(z, arc(z) + 1.05); }
+        ps.lineTo(L / 2 + 0.3, arc(L / 2) - 0.4); ps.closePath();
+        const pg = new T.ExtrudeGeometry(ps, { depth: 0.42, bevelEnabled: false }); pg.translate(0, 0, -0.21); pg.rotateY(HPI);
+        b.piece('ext', 'stone', pg, sx * (W / 2 - 0.21), 0, 0, 0x847f77, { jit: 0.05, faceJit: false });
+        b.box('ext', 'stone', 0.9, 1.6, 0.9, sx * (W / 2 - 0.2), arc(L / 2) + 0.55, -L / 2 - 0.1, 0x7a756e, { jit: 0.05 }); b.box('ext', 'stone', 0.9, 1.6, 0.9, sx * (W / 2 - 0.2), arc(L / 2) + 0.55, L / 2 + 0.1, 0x7a756e, { jit: 0.05 });
+        if (v === 1) { F.lantern(b, 'ext', sx * (W / 2 - 0.2), arc(L / 2) + 1.4, -L / 2 - 0.1, { scale: 0.8, intensity: 16 }); F.lantern(b, 'ext', sx * (W / 2 - 0.2), arc(L / 2) + 1.4, L / 2 + 0.1, { scale: 0.8, intensity: 16 }); }
+      }
+      for (let i = 0; i < N; i++) {
+        const z0 = -L / 2 + (L / N) * i, z1 = z0 + L / N, zm = (z0 + z1) / 2, y = arc(zm);
+        b.box('ext', 'stone', W - 0.9, 0.1, L / N + 0.05, 0, y + 0.02, zm, 0x7c776f, { rx: -Math.atan2(arc(z1) - arc(z0), L / N), jit: 0.05 });
+        b.boxCol(-W / 2 + 0.45, y - 1.5, z0, W / 2 - 0.45, y + 0.05, z1, true);
+        for (const sx of [-1, 1]) b.boxCol(sx * (W / 2 - 0.42) - 0.21, y - 0.5, z0, sx * (W / 2 - 0.42) + 0.21, y + 1.1, z1);
+      }
+      for (const sz of [-1, 1]) b.box('ext', 'stone', W + 0.3, 3.0, 1.6, 0, -1.6, sz * (L * 0.33 + 0.9), 0x6f6a64, { jit: 0.05 });
+    },
+  });
+
+  /* ---------------- wall_segment ---------------- */
+  def('wall_segment', {
+    static: true, variants: 2,
+    key(spec, v) { return 'wall_segment:' + v + ':' + Math.round((spec.len || 12) * 2); },
+    build(b, v, spec) {
+      const L = spec.len || 12;
+      if (v === 1) {
+        const n = Math.round(L / 0.38);
+        for (let i = 0; i <= n; i++) { const x = -L / 2 + (L / n) * i, h = 3.8 + (b.rng() - 0.5) * 0.4; b.cyl('ext', 'wood', 0.19, 0.2, h + 0.6, 7, x, h / 2 - 0.3, 0, 0x5e4128, { jit: 0.08 }); b.cone('ext', 'wood', 0.19, 0.45, 7, x, h + 0.22, 0, 0x4a3220, { jit: 0.06 }); }
+        b.box('ext', 'wood', L + 0.2, 0.18, 0.12, 0, 1.3, 0.24, 0x4a3220); b.box('ext', 'wood', L + 0.2, 0.18, 0.12, 0, 3.0, 0.24, 0x4a3220);
+        b.wallCol(-L / 2, 0, L / 2, 0, 4.0, 0.4);
+      } else {
+        b.box('ext', 'stone', L + 0.15, 5.6, 1.2, 0, 1.8, 0, 0x8a857b, { jit: 0.06 });
+        b.box('ext', 'stone', L + 0.3, 1.2, 1.4, 0, -0.2, 0, 0x7a756d, { jit: 0.06 });
+        b.box('ext', 'stone', L + 0.15, 0.25, 1.35, 0, 4.7, 0, 0x7d786f, { jit: 0.05 });
+        const n = Math.max(1, Math.round(L / 1.5));
+        for (let i = 0; i <= n; i++) { const x = -L / 2 + (L / n) * i; if (Math.abs(x) > L / 2 - 0.3) continue; b.box('ext', 'stone', 0.7, 0.85, 0.5, x, 5.2, -0.35, 0x8a857b, { jit: 0.06 }); }
+        b.box('ext', 'planks', L, 0.1, 0.6, 0, 4.82, 0.3, 0x7a5a3a, { jit: 0.05 });
+        b.wallCol(-L / 2, 0, L / 2, 0, 5.4, 1.2);
+      }
+    },
+  });
+
+  /* ---------------- gate ---------------- */
+  def('gate', {
+    variants: 2,
+    build(b, v) {
+      const OP = 6.4, TW = 3.2, TH = 9.0, hex = 0x8a857b;
+      const g = wallGeo(OP + TW * 2 + 0.2, 7.6, 1.5, [{ s: 0, y: 0, w: OP, h: 7.0, arch: true }], 0, 1.0);
+      b.piece('ext', 'stone', g, 0, 0, 0, hex, { jit: 0.04, faceJit: false });
+      for (const sx of [-1, 1]) {
+        const tx = sx * (OP / 2 + TW / 2);
+        b.box('ext', 'stone', TW, TH + 1, TW, tx, TH / 2 - 0.5, 0, hex, { jit: 0.06 });
+        b.box('ext', 'stone', TW + 0.5, 0.35, TW + 0.5, tx, TH + 0.1, 0, 0x7d786f, { jit: 0.05 });
+        for (let i = 0; i < 4; i++) { const a = i * HPI; b.box('ext', 'stone', 0.7, 0.8, 0.5, tx + Math.sin(a) * (TW / 2 + 0.05), TH + 0.65, Math.cos(a) * (TW / 2 + 0.05), hex, { ry: a, jit: 0.05 }); b.box('ext', 'stone', 0.7, 0.8, 0.5, tx + Math.sin(a + PI / 4) * (TW / 2 + 0.25), TH + 0.65, Math.cos(a + PI / 4) * (TW / 2 + 0.25), hex, { ry: a + PI / 4, jit: 0.05 }); }
+        if (v === 1) b.cone('roof', 'tile', TW * 0.85, 2.6, 4, tx, TH + 1.6, 0, TILES[1], { ry: PI / 4, jit: 0.04 });
+        b.at(tx, -TW / 2 - 0.05, 0, 5.0); F.banner(b, 'ext', 1.2, 2.6, [0x8c2e2a, 0x3c5c8c][v], 0xd8c060); b.end();
+        F.lantern(b, 'ext', sx * (OP / 2 + 0.2), 4.2, -TW / 2 - 0.3, { scale: 0.9, intensity: 22 }); b.box('ext', 'metal', 0.05, 0.05, 0.5, sx * (OP / 2 + 0.2), 4.65, -TW / 2 - 0.1, 0x2c2c30);
+        b.wallCol(tx - TW / 2, -TW / 2, tx + TW / 2, -TW / 2, TH, 0.3); b.wallCol(tx - TW / 2, TW / 2, tx + TW / 2, TW / 2, TH, 0.3); b.wallCol(tx - sx * TW / 2, -TW / 2, tx - sx * TW / 2, TW / 2, TH, 0.3); b.wallCol(tx + sx * TW / 2, -TW / 2, tx + sx * TW / 2, TW / 2, TH, 0.3);
+        // open gate leaf against the inner tower face
+        b.at(sx * (OP / 2 - 0.1), 0.75, sx * 1.75);
+        b.box('ext', 'wood', 0.12, 5.6, OP / 2 - 0.2, 0, 2.85, (OP / 2 - 0.2) / 2, 0x4a3220, { jit: 0.05 });
+        for (const y of [1.0, 2.9, 4.8]) b.box('ext', 'metal', 0.16, 0.14, OP / 2 - 0.1, 0, y, (OP / 2 - 0.2) / 2, 0x2c2c30);
+        b.end();
+      }
+      for (let i = 0; i < 8; i++) b.box('ext', 'metal', 0.09, 1.6, 0.09, -OP / 2 + 0.55 + i * (OP - 1.1) / 7, 6.2, -0.5, 0x2c2c30);
+      b.box('ext', 'metal', OP - 0.9, 0.09, 0.09, 0, 5.6, -0.5, 0x2c2c30); b.box('ext', 'metal', OP - 0.9, 0.09, 0.09, 0, 6.5, -0.5, 0x2c2c30);
+      b.box('ext', 'stone', OP + 1, 0.16, 5, 0, -0.02, 0, 0x7a756d, { jit: 0.05 });
+    },
+  });
+
+  /* ---------------- fence ---------------- */
+  def('fence', {
+    static: true,
+    key(spec, v) { return 'fence:' + v + ':' + Math.round((spec.len || 6) * 2); },
+    build(b, v, spec) {
+      const L = spec.len || 6;
+      if (v === 2) { b.box('ext', 'rock', L, 1.3, 0.55, 0, 0.35, 0, 0x8a857b, { jit: 0.09 }); b.box('ext', 'rock', L + 0.1, 0.16, 0.65, 0, 1.03, 0, 0x7d786f, { jit: 0.07 }); b.wallCol(-L / 2, 0, L / 2, 0, 1.1, 0.55); return; }
+      const n = Math.max(1, Math.round(L / 2));
+      for (let i = 0; i <= n; i++) b.box('ext', 'wood', 0.13, 1.5, 0.13, -L / 2 + (L / n) * i, 0.35, 0, 0x6b4a2a, { jit: 0.06 });
+      if (v === 1) { const m = Math.round(L / 0.22); for (let i = 0; i <= m; i++) { const x = -L / 2 + (L / m) * i; b.box('ext', 'wood', 0.09, 1.0, 0.03, x, 0.55, -0.08, 0xd8d0c0, { jit: 0.05 }); b.cone('ext', 'wood', 0.065, 0.1, 4, x, 1.09, -0.08, 0xd8d0c0, { ry: PI / 4 }); } b.box('ext', 'wood', L, 0.06, 0.04, 0, 0.35, -0.05, 0xd8d0c0); b.box('ext', 'wood', L, 0.06, 0.04, 0, 0.85, -0.05, 0xd8d0c0); }
+      else { b.box('ext', 'wood', L, 0.09, 0.05, 0, 0.5, 0, 0x7d5a35, { jit: 0.05 }); b.box('ext', 'wood', L, 0.09, 0.05, 0, 0.95, 0, 0x7d5a35, { jit: 0.05 }); }
+      b.wallCol(-L / 2, 0, L / 2, 0, 1.0, 0.2);
+    },
+  });
+
+  /* ---------------- well ---------------- */
+  def('well', {
+    static: true,
+    build(b, v) {
+      const hex = [0x8d8579, 0x7f7a72, 0x968f84][v];
+      b.cyl('ext', 'stone', 1.05, 1.1, 1.0, 16, 0, 0.5, 0, hex, { jit: 0.07 });
+      b.piece('ext', 'stone', invertGeo(new T.CylinderGeometry(0.85, 0.85, 1.4, 16, 1, true)), 0, 0.3, 0, 0x3a3835, { jit: 0.05 });
+      b.cyl('ext', 'water', 0.85, 0.85, 0.02, 16, 0, 0.3, 0, 0x2c4c62, { jit: 0.02 });
+      b.torus('ext', 'stone', 0.95, 0.1, 0, 1.0, 0, 0x7d786f, { rx: HPI, jit: 0.05 });
+      for (const sx of [-1, 1]) b.box('ext', 'wood', 0.14, 2.4, 0.14, sx * 1.0, 1.2, 0, 0x5a3c25, { jit: 0.05 });
+      b.cyl('ext', 'wood', 0.07, 0.07, 2.3, 8, 0, 1.95, 0, 0x4a3220, { rz: HPI });
+      b.box('ext', 'wood', 0.06, 0.4, 0.06, 1.2, 2.1, 0, 0x4a3220); b.box('ext', 'wood', 0.06, 0.06, 0.3, 1.2, 2.28, 0.15, 0x4a3220);
+      b.cyl('ext', 'flat', 0.015, 0.015, 1.1, 4, 0, 1.4, 0, 0xb8a888); b.lathe('ext', 'wood', [[0.09, 0], [0.13, 0.02], [0.15, 0.22], [0.14, 0.24]], 10, 0, 0.75, 0, 0x5a3c25, { jit: 0.05 }); b.torus('ext', 'metal', 0.14, 0.012, 0, 0.98, 0, 0x3a3a40, { ry: HPI });
+      b.piece('ext', v === 1 ? 'tile' : 'thatch', chevronRoofGeo(2.8, 2.45, 3.05, 0.16, 2.6), 0, 0, 0, v === 1 ? TILES[0] : THATCHES[0], { ry: -HPI, jit: 0.04, faceJit: false });
+      b.box('ext', 'wood', 2.5, 0.1, 0.1, 0, 2.45, 0, 0x4a3220);
+      b.cylCol(0, 0, 1.15, 1.0);
+    },
+  });
+
+  /* ---------------- campfire ---------------- */
+  def('campfire', {
+    static: true,
+    build(b, v) {
+      for (let i = 0; i < 9; i++) { const a = i / 9 * TAU + (b.rng() - 0.5) * 0.3; b.sph('ext', 'rock', 0.2 + b.rng() * 0.08, Math.sin(a) * 0.75, 0.1, Math.cos(a) * 0.75, 0x7d7873, { sy: 0.65, jit: 0.1 }); }
+      for (let i = 0; i < 4; i++) { const a = i * HPI + 0.4; b.cyl('ext', 'wood', 0.08, 0.1, 1.0, 7, Math.sin(a) * 0.25, 0.28, Math.cos(a) * 0.25, 0x4a3320, { rz: 0.45, ry: a + HPI, jit: 0.08 }); }
+      b.sph('ext', 'ember', 0.32, 0, 0.12, 0, 0xff7a20, { sy: 0.4, jit: 0.25 });
+      b.light(0, 0.9, 0, { kind: 'fire', color: 0xffa040, intensity: 36, dist: 12 }); b.hearth(0, 0.3, 0, 1.1);
+      for (let i = 0; i < 3; i++) { const a = 0.5 + i * 2.1; b.at(Math.sin(a) * 1.8, Math.cos(a) * 1.8, a); log(b, 'ext', 1.5, 0.2, 0x5e4128); b.end(); b.spot(Math.sin(a) * 1.35, Math.cos(a) * 1.35, a + PI, 'sit'); }
+      if (v === 1) { for (let i = 0; i < 3; i++) { const a = i * TAU / 3; b.cyl('ext', 'wood', 0.03, 0.035, 1.8, 5, Math.sin(a) * 0.45, 0.85, Math.cos(a) * 0.45, 0x4a3320, { rz: Math.cos(a) * 0.5, rx: -Math.sin(a) * 0.5 }); } b.cyl('ext', 'metal', 0.012, 0.012, 0.5, 4, 0, 1.4, 0, 0x2a2a2e); b.lathe('ext', 'metal', [[0.05, 0], [0.19, 0.04], [0.21, 0.24], [0.17, 0.3]], 10, 0, 0.9, 0, 0x2b2b2f); }
+      if (v === 2) { b.at(1.5, -1.3, 0.3); F.crate(b, 'ext', 0.6); b.end(); b.at(-1.4, -1.5, 0); F.sack(b, 'ext'); b.end(); }
+      b.cylCol(0, 0, 0.6, 0.5);
+    },
+  });
+
+  /* ---------------- market_stall ---------------- */
+  def('market_stall', {
+    static: true,
+    build(b, v) {
+      b.box('ext', 'wood', 2.6, 0.08, 1.1, 0, 0.96, 0, WOOD_F, { jit: 0.04 });
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box('ext', 'wood', 0.1, 0.92, 0.1, sx * 1.2, 0.46, sz * 0.45, WOOD_D);
+      b.plane('ext', 'awning', 2.5, 0.85, 0, 0.5, -0.56, 0xffffff, { jit: 0 }); b.plane('ext', 'awning', 1.0, 0.85, -1.3, 0.5, 0, 0xffffff, { ry: -HPI, jit: 0 }); b.plane('ext', 'awning', 1.0, 0.85, 1.3, 0.5, 0, 0xffffff, { ry: HPI, jit: 0 });
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box('ext', 'wood', 0.08, 2.5 + (sz < 0 ? 0.3 : 0), 0.08, sx * 1.3, 1.25 + (sz < 0 ? 0.15 : 0), sz * 0.65, 0x4a3220);
+      b.plane('ext', 'awning', 3.0, 1.7, 0, 2.55, -0.05, 0xffffff, { rx: -HPI + 0.28, jit: 0 });
+      b.box('ext', 'wood', 2.9, 0.08, 0.08, 0, 2.78, -0.7, 0x4a3220); b.box('ext', 'wood', 2.9, 0.08, 0.08, 0, 2.35, 0.75, 0x4a3220);
+      if (v === 0) { for (let i = 0; i < 2; i++) { b.at(-0.7 + i * 1.4, 0, 0, 1.0); b.box('ext', 'wood', 0.9, 0.25, 0.6, 0, 0.12, 0, 0x9a7048); for (let k = 0; k < 8; k++) b.sph('ext', 'flat', 0.08, -0.32 + (k % 4) * 0.21, 0.28, -0.14 + Math.floor(k / 4) * 0.28, i ? [0x8ab040, 0x6a9a30][k % 2] : [0xc83a2a, 0xe05a30][k % 2], { jit: 0.06 }); b.end(); } b.sph('ext', 'flat', 0.22, 0, 1.2, 0.1, 0xe08a30, { sy: 0.7, jit: 0.05 }); }
+      else if (v === 1) { for (let i = 0; i < 5; i++) b.cyl('ext', 'flat', 0.1, 0.1, 0.9, 8, -0.9 + i * 0.45, 1.1, 0.05 + (i % 2) * 0.1, [0x8a2a2a, 0x2a4a8a, 0x5a7a2a, 0xe8dcc8, 0x6a3a7a][i], { rz: HPI, jit: 0.04 }); b.box('ext', 'flat', 0.5, 0.5, 0.5, 0.9, 1.25, -0.1, 0xd8c8a0, { jit: 0.04 }); }
+      else { for (let i = 0; i < 5; i++) b.lathe('ext', 'flat', [[0.02, 0], [0.09, 0.02], [0.11, 0.14], [0.07, 0.24], [0.08, 0.28]], 10, -0.9 + i * 0.45, 1.0, 0.1 - (i % 2) * 0.3, [0xb8865a, 0xd9c9a8, 0x8a7a6a][i % 3], { jit: 0.04 }); b.cyl('ext', 'flat', 0.16, 0.16, 0.02, 12, 0.6, 1.0, -0.3, 0xece4d2); }
+      b.at(1.9, 0.3, 0); F.barrel(b, 'ext', 0.3, 0.8); b.end(); b.at(-1.9, 0.2, 0); F.sack(b, 'ext'); b.end();
+      b.boxCol(-1.3, 0, -0.6, 1.3, 1.0, 0.6);
+      b.spot(0, 1.1, 0, 'vendor');
+    },
+  });
+
+  /* ---------------- stable ---------------- */
+  def('stable', {
+    enterable: true,
+    build(b, v) {
+      const W = 8.4, D = 6.4, H = 3.2, peak = 4.9;
+      for (const sx of [-1, 1]) for (const pz of [-D / 2 + 0.2, 0, D / 2 - 0.2]) { b.box('ext', 'wood', 0.3, H + 0.6, 0.3, sx * (W / 2 - 0.15), H / 2 - 0.3, pz, 0x5a3c25, { jit: 0.05 }); b.cylCol(sx * (W / 2 - 0.15), pz, 0.22, H); }
+      b.box('ext', 'planks', W, H + 0.8, 0.16, 0, H / 2 - 0.4, D / 2 - 0.08, 0x8a6a45, { jit: 0.05 }); b.wallCol(-W / 2, D / 2 - 0.08, W / 2, D / 2 - 0.08, H, 0.16);
+      for (const sx of [-1, 1]) { b.box('ext', 'planks', 0.16, 1.5 + 0.8, D - 0.3, sx * (W / 2 - 0.08), 0.75 - 0.4, 0, 0x8a6a45, { jit: 0.05 }); b.wallCol(sx * (W / 2 - 0.08), -D / 2, sx * (W / 2 - 0.08), D / 2, 1.5, 0.16); b.box('ext', 'wood', 0.2, 0.12, D, sx * (W / 2 - 0.08), 1.56, 0, 0x5a3c25); }
+      b.box('ext', 'wood', W + 0.2, 0.22, 0.24, 0, H + 0.1, -D / 2 + 0.05, 0x5a3c25); b.box('ext', 'wood', W + 0.2, 0.22, 0.24, 0, H + 0.1, D / 2 - 0.05, 0x5a3c25);
+      const g = chevronRoofGeo(D + 1.6, H - 0.1, peak, 0.42, W + 1.2); b.piece('roof', 'thatch', g, 0, 0, 0, THATCHES[v], { ry: -HPI, jit: 0.04, faceJit: false });
+      b.cyl('roof', 'thatch', 0.2, 0.2, W + 1.3, 8, 0, peak - 0.02, 0, 0x8a6a36, { rz: HPI });
+      for (let i = 0; i < 5; i++) { const x = -W / 2 + 0.5 + i * (W - 1) / 4; b.box('roof', 'wood', 0.14, 0.18, D + 0.4, x, H + 0.22, 0, 0x4a3220, { jit: 0.03 }); b.box('roof', 'wood', 0.14, 0.14, D / 2 + 0.6, x, H + (peak - H) / 2 + 0.05, -D / 4 - 0.1, 0x4a3220, { rx: -Math.atan2(peak - H, D / 2), jit: 0.03 }); b.box('roof', 'wood', 0.14, 0.14, D / 2 + 0.6, x, H + (peak - H) / 2 + 0.05, D / 4 + 0.1, 0x4a3220, { rx: Math.atan2(peak - H, D / 2), jit: 0.03 }); }
+      b.box('int', 'stone', W, 0.1, D, 0, 0.0, 0, 0x7a6a52, { jit: 0.06 }); b.boxCol(-W / 2, -0.12, -D / 2, W / 2, 0.05, D / 2, true);
+      for (const dx of [-1.4, 1.4]) { b.box('int', 'planks', 0.12, 1.5, 3.2, dx, 0.75, D / 2 - 1.7, 0x8a6a45, { jit: 0.04 }); b.wallCol(dx, D / 2 - 3.3, dx, D / 2, 1.5, 0.12); }
+      for (const tx of [-2.7, 0, 2.7]) { b.at(tx, D / 2 - 0.45, 0); F.trough(b, 'int'); b.end(); b.sph('int', 'thatch', 0.9, tx, 0.0, D / 2 - 1.6, 0xcdaa5c, { sy: 0.18, jit: 0.06 }); }
+      b.at(-W / 2 + 0.9, -D / 2 + 1.0, 0.2); F.hayBale(b, 'int'); b.end(); b.at(-W / 2 + 0.9, -D / 2 + 1.0, 0.2, 0.6); F.hayBale(b, 'int'); b.end(); b.at(-W / 2 + 0.9, -D / 2 + 1.75, -0.3); F.hayBale(b, 'int'); b.end();
+      b.at(-W / 2 + 0.7, 0.4, 0); F.barrel(b, 'int', 0.3, 0.8); b.end(); b.at(-W / 2 + 0.75, 1.2, 0); F.sack(b, 'int'); b.end();
+      b.box('int', 'wood', 0.08, 1.6, 0.08, W / 2 - 0.5, 0.8, -D / 2 + 0.6, 0x4a3220); b.box('int', 'wood', 0.6, 0.06, 0.06, W / 2 - 0.8, 1.55, -D / 2 + 0.6, 0x4a3220);
+      for (let i = 0; i < 3; i++) { b.box('int', 'metal', 0.05, 0.05, 0.3, W / 2 - 0.5, 1.2 - i * 0.35, -D / 2 + 0.6, 0x4a4a52); b.torus('int', 'flat', 0.12, 0.03, W / 2 - 0.5, 1.15 - i * 0.35, -D / 2 + 0.4, 0x5a3a2a, { rx: 0.3, jit: 0.04 }); }
+      F.lantern(b, 'int', W / 2 - 0.55, 2.3, 0.2, { scale: 0.85, intensity: 16, hook: true });
+      b.box('ext', 'wood', 0.14, 1.1, 0.14, -2.5, 0.55, -D / 2 - 1.4, 0x5a3c25); b.box('ext', 'wood', 0.14, 1.1, 0.14, -0.5, 0.55, -D / 2 - 1.4, 0x5a3c25); b.box('ext', 'wood', 2.2, 0.1, 0.1, -1.5, 1.05, -D / 2 - 1.4, 0x5a3c25); b.wallCol(-2.5, -D / 2 - 1.4, -0.5, -D / 2 - 1.4, 1.1, 0.14);
+      b.horse(2.7, D / 2 - 1.9, 0); b.horse(-2.7, D / 2 - 1.9, 0.2);
+      b.interior(-W / 2, -0.5, -D / 2, W / 2, peak + 0.5, D / 2);
+      b.spot(-1.5, -D / 2 - 0.7, PI, 'keeper'); b.spot(0.4, -1.6, 0, 'idle');
+    },
+  });
+
+  /* ---------------- shrine ---------------- */
+  def('shrine', {
+    enterable: true,
+    build(b, v) {
+      const elf = v === 0, hex = elf ? 0xe4e6ea : 0xa8a49c;
+      b.box('ext', 'stone', 3.8, 0.34, 3.8, 0, 0.17, 0, hex, { jit: 0.03 }); b.box('ext', 'stone', 4.6, 0.17, 4.6, 0, 0.085, 0, hex, { jit: 0.03 });
+      b.boxCol(-2.3, 0, -2.3, 2.3, 0.17, 2.3, true); b.boxCol(-1.9, 0, -1.9, 1.9, 0.34, 1.9, true);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) { b.at(sx * 1.45, sz * 1.45, 0, 0.34); F.pillar(b, 'ext', elf ? 'elf' : 'wood', 2.9, elf ? undefined : 0x8a8478); b.end(); b.cylCol(sx * 1.45, sz * 1.45, 0.3, 3.2); }
+      b.box('roof', 'stone', 3.9, 0.22, 3.9, 0, 3.35, 0, hex, { jit: 0.03 });
+      b.cone('roof', elf ? 'tile' : 'thatch', 2.9, 1.5, 4, 0, 4.2, 0, elf ? 0x8fa3bf : THATCHES[1], { ry: PI / 4, jit: 0.04 });
+      b.sph('roof', 'metal', 0.14, 0, 4.98, 0, 0xd8b862);
+      b.box('ext', 'stone', 1.4, 0.95, 0.7, 0, 0.34 + 0.475, 0.9, hex, { jit: 0.03 }); b.boxCol(-0.7, 0.34, 0.55, 0.7, 1.3, 1.25);
+      b.at(0, 0.9, PI, 0.34 + 0.95); figure(b, 'ext', 0.55, elf ? 0xe4e6ea : 0x9a968e, elf ? 'robed' : 'warrior'); b.end();
+      for (const x of [-0.5, -0.3, 0.3, 0.5]) F.candle(b, 'ext', x, 0.34 + 0.95, 0.62);
+      b.lathe('ext', 'flat', [[0.02, 0], [0.12, 0.02], [0.15, 0.09], [0.13, 0.11]], 10, 0, 0.34 + 0.95, 0.62, 0xb59a4a); for (let i = 0; i < 4; i++) b.sph('ext', 'flat', 0.045, (i - 1.5) * 0.05, 0.34 + 1.08, 0.62, [0xc83a2a, 0x8ab040, 0xe0a030][i % 3]);
+      for (const sx of [-1, 1]) { b.at(sx * 1.1, -2.9, 0); stoneBench(b, 'ext', 1.4, hex); b.end(); }
+      b.light(0, 1.9, 0.5, { kind: elf ? 'elf' : 'lamp', color: elf ? 0xbfd8ff : 0xffc070, intensity: 14, dist: 9, flicker: !elf });
+      b.interior(-1.9, -0.5, -1.9, 1.9, 3.3, 1.9);
+      b.spot(0, -0.6, PI, 'pray', 0.34);
+    },
+  });
+
+  /* ---------------- props ---------------- */
+  def('lamp', {
+    static: true,
+    key(spec, v) { return 'lamp:' + (spec.style === 'elf' ? 'elf' : spec.style === 'dwarf' ? 'dwarf' : 'man') + ':' + v; },
+    build(b, v, spec) {
+      if (spec.style === 'elf') {
+        b.cyl('ext', 'stone', 0.07, 0.11, 3.4, 8, 0, 1.7, 0, 0xe4e6ea, { jit: 0.02 }); b.cyl('ext', 'stone', 0.28, 0.32, 0.16, 8, 0, 0.08, 0, 0xd0d4dc, { jit: 0.02 });
+        b.torus('ext', 'metal', 0.16, 0.025, 0, 3.3, 0, 0xd8b862, { rx: HPI }); F.lantern(b, 'ext', 0, 3.42, 0, { elf: true, scale: 0.9, intensity: 20 });
+      } else if (spec.style === 'dwarf') {
+        b.box('ext', 'metal', 0.16, 3.2, 0.16, 0, 1.6, 0, 0x3a3a40, { jit: 0.03 }); b.box('ext', 'stone', 0.6, 0.35, 0.6, 0, 0.17, 0, 0x5c5658, { jit: 0.05 });
+        b.box('ext', 'metal', 0.5, 0.5, 0.05, 0, 2.5, 0, 0xb08040, { rz: PI / 4 }); F.lantern(b, 'ext', 0, 3.2, 0, { scale: 1.0, intensity: 24 });
+      } else {
+        b.box('ext', 'wood', 0.16, 3.4, 0.16, 0, 1.5, 0, 0x4e3a28, { jit: 0.05 }); b.box('ext', 'stone', 0.5, 0.3, 0.5, 0, 0.15, 0, 0x8d8579, { jit: 0.06 });
+        b.box('ext', 'wood', 0.7, 0.1, 0.1, 0.3, 3.15, 0, 0x4e3a28); b.box('ext', 'wood', 0.1, 0.1, 0.55, 0.3, 2.9, 0, 0x4e3a28, { rz: 0.8 });
+        F.lantern(b, 'ext', 0.6, 2.55, 0, { scale: 0.9, intensity: 22, chain: 0.15, hook: true });
+      }
+      b.cylCol(0, 0, 0.14, 2.5);
+    },
+  });
+  def('sign', {
+    static: true, variants: 2,
+    build(b, v) {
+      b.cyl('ext', 'wood', 0.07, 0.09, 2.4, 7, 0, 1.2, 0, 0x4e3a28, { jit: 0.05 }); b.cyl('ext', 'stone', 0.25, 0.3, 0.14, 8, 0, 0.07, 0, 0x8d8579, { jit: 0.06 });
+      b.box('ext', 'wood', 1.4, 0.44, 0.06, 0.05, 1.9, 0, 0x7a5a3a, { jit: 0.04 });
+      if (v === 1) b.cone('ext', 'wood', 0.22, 0.3, 4, 0.9, 1.9, 0, 0x7a5a3a, { rz: -HPI, ry: PI / 4 });
+      b.sign(0.05, 1.9, 0, 0, 1.4, 0.44);
+      b.cylCol(0, 0, 0.1, 2.0);
+    },
+  });
+  def('crate', { static: true, build(b, v) { if (v === 0) { F.crate(b, 'ext', 0.8); } else if (v === 1) { F.crate(b, 'ext', 0.9); b.at(0.1, 0.05, 0.4, 0.9); F.crate(b, 'ext', 0.6); b.end(); } else { F.crate(b, 'ext', 0.7); b.at(0.85, 0.1, 0.2); F.crate(b, 'ext', 0.6); b.end(); } b.boxCol(-0.5, 0, -0.5, 0.5, 0.9, 0.5); } });
+  def('barrel', { static: true, build(b, v) { if (v === 0) F.barrel(b, 'ext'); else if (v === 1) { F.barrel(b, 'ext'); b.at(0.72, 0.1, 0); F.barrel(b, 'ext', 0.28, 0.72); b.end(); } else { b.at(0, 0, 0); F.keg(b, 'ext'); b.end(); } b.cylCol(0, 0, v === 1 ? 0.7 : 0.4, 0.9); } });
+  def('hay', { static: true, build(b, v) { if (v === 0) { F.hayBale(b, 'ext'); b.at(0.1, 0.05, 0.15, 0.6); F.hayBale(b, 'ext'); b.end(); b.at(1.1, 0.2, -0.4); F.hayBale(b, 'ext'); b.end(); } else if (v === 1) F.hayPile(b, 'ext', 1.3); else { F.hayPile(b, 'ext', 0.9); b.cyl('ext', 'wood', 0.03, 0.04, 2.2, 5, 0.3, 0.9, 0.2, 0x5a3c25, { rz: 0.5 }); } b.cylCol(0, 0, 0.8, 0.6); } });
+  def('cart', {
+    static: true,
+    build(b, v) {
+      b.box('ext', 'wood', 2.3, 0.14, 1.3, 0, 0.78, 0, 0x7a5a3a, { jit: 0.05 });
+      for (const sx of [-1, 1]) b.box('ext', 'wood', 2.3, 0.55, 0.06, sx * 0.62, 1.1, 0, 0x8a6a45, { jit: 0.05 }); for (const sz of [-1, 1]) b.box('ext', 'wood', 0.06, 0.55, 1.2, 0, 1.1, sz * 1.12, 0x8a6a45, { jit: 0.05 });
+      b.cyl('ext', 'wood', 0.05, 0.05, 1.7, 7, 0, 0.55, 0.2, 0x4a3220, { rz: HPI });
+      for (const sx of [-1, 1]) { b.torus('ext', 'wood', 0.5, 0.07, sx * 0.8, 0.55, 0.2, 0x5a3c25, { ry: HPI, jit: 0.04 }); b.cyl('ext', 'wood', 0.1, 0.1, 0.14, 8, sx * 0.8, 0.55, 0.2, 0x4a3220, { rz: HPI }); for (let i = 0; i < 6; i++) b.box('ext', 'wood', 0.05, 0.95, 0.04, sx * 0.8, 0.55, 0.2, 0x6a4a2a, { rx: i * PI / 6 }); }
+      for (const sx of [-1, 1]) b.box('ext', 'wood', 0.08, 0.08, 2.2, sx * 0.45, 0.62, -2.1, 0x5a3c25, { rx: 0.14 });
+      if (v === 0) b.sph('ext', 'thatch', 1.0, 0, 0.85, 0, 0xcdaa5c, { sy: 0.55, sz: 0.65, jit: 0.06 });
+      else if (v === 1) { for (let i = 0; i < 3; i++) { b.at(-0.7 + i * 0.7, 0, 0.5, 0.85); F.sack(b, 'ext', [0xc4ac7c, 0xb8a070, 0xd0b888][i]); b.end(); } }
+      else { for (let i = 0; i < 2; i++) { b.at(-0.55 + i * 1.1, 0, 0, 0.85); F.barrel(b, 'ext', 0.28, 0.7); b.end(); } }
+      b.boxCol(-1.2, 0, -0.7, 1.2, 1.4, 0.7);
+    },
+  });
+  def('statue', {
+    static: true,
+    build(b, v) {
+      if (v === 2) { menhir(b, 'ext', 3.6, 0x7d7873); for (let i = 0; i < 3; i++) b.box('ext', 'flat', 0.14, 0.14, 0.05, 0.05, 1.0 + i * 0.5, -0.5, 0x2a2622, { rz: PI / 4, jit: 0 }); b.cylCol(0, 0, 0.65, 3.4); return; }
+      const hex = v === 1 ? 0xd8dbe2 : 0x9a968e;
+      b.box('ext', 'stone', 1.5, 0.25, 1.5, 0, 0.125, 0, hex, { jit: 0.03 }); b.box('ext', 'stone', 1.1, 1.0, 1.1, 0, 0.75, 0, hex, { jit: 0.03 }); b.box('ext', 'stone', 1.3, 0.12, 1.3, 0, 1.3, 0, hex, { jit: 0.03 });
+      b.at(0, 0, 0, 1.36); figure(b, 'ext', 1.25, hex, v === 1 ? 'robed' : 'warrior'); b.end();
+      b.boxCol(-0.75, 0, -0.75, 0.75, 1.4, 0.75);
+    },
+  });
