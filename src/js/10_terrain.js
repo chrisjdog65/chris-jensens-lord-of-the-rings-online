@@ -43,8 +43,8 @@
   const SKIRT = [5, 8, 12];
   const FALLBACK_W = 0.12;                    // weight of the global fallback biome
   const SUPPORT = 1.35;                       // zone influence radius = radius * SUPPORT
-  const LAKE_RIM = 2.5, RIVER_BANK = 1.8, RIVER_BED = -3.2, FORD_BED = -0.9, SEA_FLOOR = -25, CAUSEWAY_H = 1.4;
-  const TOWN_MIN_H = 2.5, VALLEY_FLOOR = 6.5;
+  const LAKE_RIM = 2.5, RIVER_BANK = 1.4, RIVER_BED = -3.2, FORD_BED = -0.9, SEA_FLOOR = -25, CAUSEWAY_H = 1.4;
+  const TOWN_MIN_H = 2.5, VALLEY_FLOOR = 5;
 
   let HALF = 2048, WORLD_SIZE = 4096, SEA = 0;
   let GC = 64, INV_CELL = 1 / CELL;
@@ -67,19 +67,19 @@
   // amplitude (overridden by zone.mountain * 120); crag: small rocky outcrops; downs: long anisotropic hills;
   // plateau: terraced macro relief; ice: ice ridges + full snow cover; forest: darker mossy floor; marsh: wet flats.
   const BIOME = {
-    shire:    { base: 18, macro: 7,  meso: 2.2, micro: 0.35, ridge: 0,   crag: 0 },
-    breeland: { base: 15, macro: 6,  meso: 2.5, micro: 0.4,  ridge: 0,   crag: 0 },
-    forest:   { base: 22, macro: 6,  meso: 3.2, micro: 0.5,  ridge: 0,   crag: 1.5, forest: 1 },
-    marsh:    { base: 8,  macro: 3,  meso: 1.4, micro: 0.3,  ridge: 0,   crag: 0,   marsh: 1 },
-    barren:   { base: 25, macro: 9,  meso: 4.0, micro: 0.6,  ridge: 14,  crag: 4 },
-    downs:    { base: 30, macro: 8,  meso: 3.0, micro: 0.4,  ridge: 0,   crag: 1,   downs: 1 },
-    lake:     { base: 16, macro: 6,  meso: 2.5, micro: 0.4,  ridge: 0,   crag: 0.5 },
-    elven:    { base: 30, macro: 8,  meso: 3.0, micro: 0.4,  ridge: 10,  crag: 1 },
-    mountain: { base: 80, macro: 25, meso: 6.0, micro: 0.8,  ridge: 120, crag: 6 },
-    dark:     { base: 40, macro: 10, meso: 3.5, micro: 0.6,  ridge: 45,  crag: 5,   plateau: 1 },
-    arctic:   { base: 20, macro: 7,  meso: 2.5, micro: 0.4,  ridge: 18,  crag: 2,   ice: 1 },
-    island:   { base: 14, macro: 7,  meso: 3.0, micro: 0.5,  ridge: 12,  crag: 3 },
-    wild:     { base: 15, macro: 6,  meso: 2.5, micro: 0.4,  ridge: 0,   crag: 0 },
+    shire:    { base: 18, macro: 12, meso: 2.4, micro: 0.35, ridge: 0,   crag: 0 },
+    breeland: { base: 15, macro: 10, meso: 2.6, micro: 0.4,  ridge: 0,   crag: 0 },
+    forest:   { base: 22, macro: 10, meso: 3.2, micro: 0.5,  ridge: 0,   crag: 1.5, forest: 1 },
+    marsh:    { base: 8,  macro: 4,  meso: 1.4, micro: 0.3,  ridge: 0,   crag: 0,   marsh: 1 },
+    barren:   { base: 25, macro: 13, meso: 4.0, micro: 0.6,  ridge: 14,  crag: 4 },
+    downs:    { base: 30, macro: 11, meso: 3.0, micro: 0.4,  ridge: 0,   crag: 1,   downs: 1 },
+    lake:     { base: 16, macro: 9,  meso: 2.5, micro: 0.4,  ridge: 0,   crag: 0.5 },
+    elven:    { base: 30, macro: 10, meso: 3.0, micro: 0.4,  ridge: 10,  crag: 1 },
+    mountain: { base: 80, macro: 26, meso: 6.0, micro: 0.8,  ridge: 120, crag: 6 },
+    dark:     { base: 40, macro: 13, meso: 3.5, micro: 0.6,  ridge: 45,  crag: 5,   plateau: 1 },
+    arctic:   { base: 20, macro: 9,  meso: 2.5, micro: 0.4,  ridge: 18,  crag: 2,   ice: 1 },
+    island:   { base: 14, macro: 10, meso: 3.0, micro: 0.5,  ridge: 12,  crag: 3 },
+    wild:     { base: 15, macro: 9,  meso: 2.5, micro: 0.4,  ridge: 0,   crag: 0 },
   };
   const FALLBACK_BIOME = 'breeland';
 
@@ -110,7 +110,7 @@
   let VAL_X = 1400, VAL_Z = 40, VAL_R = 235, VAL_R2 = VAL_R * VAL_R;
 
   // side products of the last height() call (read by colour/ground-type code, never by other modules)
-  let L_macro = 0, L_meso = 0, L_micro = 0, L_sea = 0, L_lake = 0, L_shoreBase = 0, L_valley = 0;
+  let L_macro = 0, L_meso = 0, L_micro = 0, L_sea = 0, L_lake = 0, L_shoreBase = 0, L_valley = 0, L_ridge = 0;
   let L_road = 0, L_roadCore = 0, L_town = 0, L_shore = 0, L_water = 0;
 
   // ---------------------------------------------------------------- zone blending
@@ -160,7 +160,8 @@
   function landH(x, z, low) {
     blendH(x, z);
     const base = B[0], macA = B[1], mesA = B[2], micA = B[3], ridA = B[4], dwn = B[5], pla = B[6], ice = B[7], crg = B[8], mtn = B[9];
-    let macro = G.fbm(x * 0.0016667, z * 0.0016667, low ? 2 : 3, 2, 0.5);
+    let macro = G.fbm(x * 0.0016667, z * 0.0016667, low ? 2 : 4, 2, 0.5);
+    let ridge = 0;
     if (pla > 0.01) {                                      // terraced plateaus (Angmar)
       const f = (macro + 1) * 2;
       const i = Math.floor(f);
@@ -172,6 +173,7 @@
       const r = G.ridged(x * 0.00286 + 3.1, z * 0.00286 - 1.7, low ? 2 : 4, 2, 0.5);
       const core = ss(0.12, 0.8, mtn);
       h += ridA * (0.12 + 0.88 * core) * r;
+      ridge = (1 - r) * core * (ridA > 60 ? 1 : ridA / 60);
     }
     if (dwn > 0.01) {                                      // long rolling downs (anisotropic)
       const u = x * 0.866 - z * 0.5, v = x * 0.5 + z * 0.866;
@@ -185,7 +187,9 @@
       h += mesA * meso + micA * micro;
       if (crg > 0.3) h += crg * (G.ridged(x * 0.0161 + 1, z * 0.0161 - 5, 2, 2, 0.5) - 0.35);
     }
-    L_macro = macro; L_meso = meso; L_micro = micro;
+    // soft floor: land never dips below ~1.5 m on its own (valley bottoms become marshy flats); water features carve later
+    if (h < 16) h = 1.5 + 2.5 * Math.log(1 + Math.exp((h - 1.5) * 0.4));
+    L_macro = macro; L_meso = meso; L_micro = micro; L_ridge = ridge;
     return h;
   }
 
@@ -219,15 +223,15 @@
     // --- lakes & bays: gentle rim, then a smooth bowl
     for (let o = 0; o < LAK_N; o += 4) {
       const dx = x - LAK[o], dz = z - LAK[o + 1];
-      const R = LAK[o + 2], lim = R * 1.8;
+      const R = LAK[o + 2], lim = R + 100;
       const d2 = dx * dx + dz * dz;
       if (d2 >= lim * lim) continue;
-      const t = (Math.sqrt(d2) + R * 0.08 * G.noise2(x * 1.4 / R + 1, z * 1.4 / R + 3)) / R;
-      const rim = ss(1.75, 1.12, t);
-      if (rim > 0) h += (LAKE_RIM + (h - LAKE_RIM) * 0.3 - h) * rim;
-      const rs = ss(1.6, 1.0, t);
+      const d = Math.sqrt(d2) + R * 0.12 * (G.noise2(x * 1.4 / R + 1, z * 1.4 / R + 3) + 0.5 * G.noise2(x * 3.1 / R - 2, z * 3.1 / R + 5));
+      const rim = ss(R + 90, R + 14, d);
+      if (rim > 0) h += (LAKE_RIM + (h - LAKE_RIM) * 0.25 - h) * rim;
+      const rs = ss(R + 40, R + 4, d);
       if (rs > shore) shore = rs;
-      const bowl = ss(1.0, 0.55, t);
+      const bowl = ss(R + 8, R * 0.5, d);
       if (bowl > 0) {
         h += (-LAK[o + 3] + 2 * macro + 0.5 * meso - h) * bowl;
         if (bowl > lake) lake = bowl;
@@ -249,7 +253,7 @@
       const d2 = dx * dx + dz * dz;
       if (d2 < VAL_R2) {
         valley = ss(VAL_R, VAL_R * 0.53, Math.sqrt(d2) + 12 * G.noise2(x * 0.02 + 1, z * 0.02 + 9));
-        h += (VALLEY_FLOOR + (h - VALLEY_FLOOR) * 0.3 - h) * valley;
+        h += (VALLEY_FLOOR + (h - VALLEY_FLOOR) * 0.25 - h) * valley;
       }
     }
     L_sea = sea; L_lake = lake; L_shoreBase = shore; L_valley = valley;
@@ -337,8 +341,8 @@
         if (kf > 0) {
           const bank = ss(hw + 60, hw + 9, d) * kf;
           const bh = RIVER_BANK + 0.5 * micro;
-          h += (bh - h) * 0.75 * bank;
-          const carve = ss(hw + 9, hw, d) * kf;
+          h += (bh - h) * (0.55 + 0.45 * ss(hw + 26, hw + 6, d)) * bank;
+          const carve = ss(hw + 6, hw - 3, d) * kf;
           const bed = VSEG[bs + 8] + (FORD_BED - VSEG[bs + 8]) * roadCore + 0.35 * micro;
           h += (bed - h) * carve;
           if (bank > shore) shore = bank;
@@ -544,8 +548,8 @@
       ZT[o + Z_S2] = S * S; ZT[o + Z_INVS2] = 1 / (S * S);
       ZT[o + Z_BASE] = base;
       ZT[o + Z_MAC] = bp.macro * (0.75 + 0.25 * rf);
-      ZT[o + Z_MES] = bp.meso * rf;
-      ZT[o + Z_MIC] = bp.micro * rf;
+      ZT[o + Z_MES] = bp.meso * (0.5 + 0.5 * rf);
+      ZT[o + Z_MIC] = bp.micro * (0.5 + 0.5 * rf);
       ZT[o + Z_RID] = ridge;
       ZT[o + Z_DWN] = bp.downs || 0;
       ZT[o + Z_PLA] = bp.plateau || 0;
@@ -643,7 +647,7 @@
     // --- rivers (+ the Rivendell stream, valley-only)
     RIVERS = [];
     const riverList = (Array.isArray(water.rivers) ? water.rivers : dw.rivers).slice();
-    riverList.push({ id: 'bruinen_stream', name: 'The Bruinen', width: 4.5, bed: -1.3, valleyOnly: true,
+    riverList.push({ id: 'bruinen_stream', name: 'The Bruinen', width: 8, bed: -1.8, valleyOnly: true,
       points: [{ x: VAL_X + 70, z: VAL_Z - 190 }, { x: VAL_X + 35, z: VAL_Z - 95 }, { x: VAL_X + 8, z: VAL_Z - 10 }, { x: VAL_X - 30, z: VAL_Z + 70 }, { x: VAL_X - 75, z: VAL_Z + 170 }] });
     const vseg = [], vbox = [];
     for (const rv of riverList) {
@@ -747,7 +751,7 @@
     linearRGB(0x8f8a80, PAL, P_SCREE); linearRGB(0xd8e8f4, PAL, P_ICE);
   }
   const _col = { r: 0, g: 0, b: 0 };
-  function colorAt(x, z, h, sl, roadW, shore, town, out) {
+  function colorAt(x, z, h, sl, roadW, shore, town, ridge, out) {
     blendC(x, z, h);
     const v1 = G.fbm(x * 0.022 + 3, z * 0.022 - 8, 2, 2, 0.5);
     const v2 = G.noise2(x * 0.00625 + 7, z * 0.00625 - 3);
@@ -779,12 +783,15 @@
     // rock on steep ground (sooner in rocky zones), darker on cliffs
     const rockF = ss(0.5 - 0.15 * rockZ, 0.78 - 0.15 * rockZ, sl);
     if (rockF > 0) {
-      const dk = ss(0.7, 0.96, sl);
-      const rr = (PAL[P_ROCK] + (PAL[P_ROCK_DARK] - PAL[P_ROCK]) * dk) * 0.65 + C[3] * 0.35;
-      const rg = (PAL[P_ROCK + 1] + (PAL[P_ROCK_DARK + 1] - PAL[P_ROCK + 1]) * dk) * 0.65 + C[4] * 0.35;
-      const rb = (PAL[P_ROCK + 2] + (PAL[P_ROCK_DARK + 2] - PAL[P_ROCK + 2]) * dk) * 0.65 + C[5] * 0.35;
+      const dk = ss(0.7, 0.96, sl), hi = ss(40, 150, h);
+      let rr = PAL[P_ROCK] + (PAL[P_SCREE] - PAL[P_ROCK]) * hi, rg = PAL[P_ROCK + 1] + (PAL[P_SCREE + 1] - PAL[P_ROCK + 1]) * hi, rb = PAL[P_ROCK + 2] + (PAL[P_SCREE + 2] - PAL[P_ROCK + 2]) * hi;
+      rr = (rr + (PAL[P_ROCK_DARK] - rr) * dk) * 0.7 + C[3] * 0.3;
+      rg = (rg + (PAL[P_ROCK_DARK + 1] - rg) * dk) * 0.7 + C[4] * 0.3;
+      rb = (rb + (PAL[P_ROCK_DARK + 2] - rb) * dk) * 0.7 + C[5] * 0.3;
       r += (rr - r) * rockF; g += (rg - g) * rockF; b += (rb - b) * rockF;
     }
+    // valley shading between the ridges (cheap ambient occlusion from the ridge field)
+    if (ridge > 0.02) { const ao = 1 - 0.34 * ridge; r *= ao; g *= ao; b *= ao; }
     // snow: above the snow line in mountain zones, everywhere in the arctic (not on cliffs)
     let snowF = C[6] * (1 - ss(0.55, 0.85, sl)) + C[7] * (1 - ss(0.5, 0.8, sl)) * ss(-0.5, 0.8, h);
     if (snowF > 1) snowF = 1;
@@ -796,7 +803,7 @@
       r += (sr - r) * snowF; g += (sg - g) * snowF; b += (sb - b) * snowF;
     }
     // beaches & banks near the water line (wet and darker right at it)
-    const sandF = shore * ss(3.2, 1.2, h) * (1 - town * 0.5) * (1 - snowF * 0.7);
+    const sandF = shore * ss(3.6, 1.4, h) * (1 - town * 0.5) * (1 - snowF * 0.7);
     if (sandF > 0) {
       const wet = ss(0.6, -0.4, h);
       const sr = PAL[P_SAND] + (PAL[P_SAND_WET] - PAL[P_SAND]) * wet;
@@ -832,7 +839,7 @@
     out = out || { r: 0, g: 0, b: 0 };
     const sl = slope(x, z);
     const h = height(x, z);
-    return colorAt(x, z, h, sl, L_road, L_shore, L_town, out);
+    return colorAt(x, z, h, sl, L_road, L_shore, L_town, L_ridge, out);
   }
 
   // ---------------------------------------------------------------- procedural textures (tileable)
@@ -933,7 +940,7 @@
     INDEX[lod] = idx;
     return idx;
   }
-  const HS = new Float32Array(52 * 52), RW = new Float32Array(52 * 52), SH = new Float32Array(52 * 52), TW = new Float32Array(52 * 52);
+  const HS = new Float32Array(52 * 52), RW = new Float32Array(52 * 52), SH = new Float32Array(52 * 52), TW = new Float32Array(52 * 52), RV = new Float32Array(52 * 52);
   const pool = [[], [], []];
   function allocArrays(lod) {
     const p = pool[lod];
@@ -951,7 +958,7 @@
       let i = gz * M;
       for (let gx = 0; gx < M; gx++, i++) {
         HS[i] = height(x0 + (gx - 1) * step, z);
-        RW[i] = L_road; SH[i] = L_shore; TW[i] = L_town;
+        RW[i] = L_road; SH[i] = L_shore; TW[i] = L_town; RV[i] = L_ridge;
       }
     }
     const arrs = allocArrays(lod);
@@ -972,7 +979,7 @@
         pos[v3] = x; pos[v3 + 1] = h; pos[v3 + 2] = z;
         nrm[v3] = nx; nrm[v3 + 1] = ny; nrm[v3 + 2] = nz;
         const s2 = 1 - ny * ny;
-        colorAt(x, z, h, s2 <= 0 ? 0 : Math.sqrt(s2), RW[gi], SH[gi], TW[gi], _col);
+        colorAt(x, z, h, s2 <= 0 ? 0 : Math.sqrt(s2), RW[gi], SH[gi], TW[gi], RV[gi], _col);
         col[v3] = _col.r; col[v3 + 1] = _col.g; col[v3 + 2] = _col.b;
         uv[vi * 2] = x * invTile; uv[vi * 2 + 1] = z * invTile;
         if (h < minY) minY = h;
@@ -1122,7 +1129,7 @@
       pos[i * 3] = x; pos[i * 3 + 1] = h - HORIZON_DROP; pos[i * 3 + 2] = z;
       nrm[i * 3] = nx; nrm[i * 3 + 1] = l; nrm[i * 3 + 2] = nz;
       const s2 = 1 - l * l;
-      colorAt(x, z, h, s2 <= 0 ? 0 : Math.sqrt(s2), 0, h < 3 ? 1 : 0, 0, _col);
+      colorAt(x, z, h, s2 <= 0 ? 0 : Math.sqrt(s2), 0, h < 3 ? 1 : 0, 0, 0, _col);
       col[i * 3] = _col.r; col[i * 3 + 1] = _col.g; col[i * 3 + 2] = _col.b;
     }
     const idx = new Uint32Array(N * N * 6);
@@ -1406,13 +1413,13 @@
         nx *= nl; nz *= nl;
         const ny = nl;
         const sl = Math.sqrt(Math.max(0, 1 - ny * ny));
-        const shade = 0.62 + 0.55 * Math.max(0, nx * lx + ny * ly + nz * lz) - 0.12 * sl;
+        const shade = 0.55 + 0.75 * Math.max(0, nx * lx + ny * ly + nz * lz) - 0.1 * sl;
         let r, g, b;
         if (h < SEA - 0.15) {
           const t = ss(-14, -0.15, h);
           r = MAP_SEA[0] + (MAP_SHALLOW[0] - MAP_SEA[0]) * t; g = MAP_SEA[1] + (MAP_SHALLOW[1] - MAP_SEA[1]) * t; b = MAP_SEA[2] + (MAP_SHALLOW[2] - MAP_SEA[2]) * t;
         } else {
-          colorAt(x, z, h, sl, 0, 0, 0, tmp);
+          colorAt(x, z, h, sl, 0, 0, 0, 0, tmp);
           r = srgbByte(tmp.r); g = srgbByte(tmp.g); b = srgbByte(tmp.b);
           const sand = ss(2.6, 0.6, h) * (L_shoreBase > 0 ? 1 : 1);
           if (sand > 0) { r += (MAP_SAND[0] - r) * sand; g += (MAP_SAND[1] - g) * sand; b += (MAP_SAND[2] - b) * sand; }
@@ -1469,18 +1476,24 @@
       ctx.stroke();
     }
     // zone names (large, translucent) with level ranges
-    const zf = Math.max(9, size / 512 * 19);
+    const zf = Math.max(8, size / 512 * 12.5);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const zn of ZONES) {
       const q = P(zn.center.x, zn.center.z);
-      const name = String(zn.name || zn.id).toUpperCase();
+      const lines = String(zn.name || zn.id).toUpperCase().split(' & ');
       ctx.font = '600 ' + zf + 'px Cinzel, "Times New Roman", Georgia, serif';
-      ctx.lineWidth = Math.max(2, zf * 0.22); ctx.strokeStyle = 'rgba(245,235,210,0.35)'; ctx.strokeText(name, q[0], q[1]);
-      ctx.fillStyle = 'rgba(28,20,10,0.5)'; ctx.fillText(name, q[0], q[1]);
+      if ('letterSpacing' in ctx) ctx.letterSpacing = (zf * 0.14).toFixed(1) + 'px';
+      let y = q[1] - (lines.length - 1) * zf * 0.6;
+      for (const ln of lines) {
+        ctx.lineWidth = Math.max(2, zf * 0.26); ctx.strokeStyle = 'rgba(245,235,210,0.42)'; ctx.strokeText(ln, q[0], y);
+        ctx.fillStyle = 'rgba(28,20,10,0.55)'; ctx.fillText(ln, q[0], y);
+        y += zf * 1.2;
+      }
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
       if (Array.isArray(zn.level)) {
-        ctx.font = 'italic ' + Math.max(7, zf * 0.55) + 'px "Crimson Pro", Georgia, serif';
-        ctx.lineWidth = Math.max(1.5, zf * 0.14); ctx.strokeText('Levels ' + zn.level[0] + ' – ' + zn.level[1], q[0], q[1] + zf * 0.85);
-        ctx.fillStyle = 'rgba(28,20,10,0.55)'; ctx.fillText('Levels ' + zn.level[0] + ' – ' + zn.level[1], q[0], q[1] + zf * 0.85);
+        ctx.font = 'italic ' + Math.max(7, zf * 0.7) + 'px "Crimson Pro", Georgia, serif';
+        ctx.lineWidth = Math.max(1.5, zf * 0.18); ctx.strokeText('Levels ' + zn.level[0] + ' – ' + zn.level[1], q[0], y - zf * 0.25);
+        ctx.fillStyle = 'rgba(28,20,10,0.6)'; ctx.fillText('Levels ' + zn.level[0] + ' – ' + zn.level[1], q[0], y - zf * 0.25);
       }
     }
     // towns: markers + names

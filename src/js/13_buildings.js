@@ -155,8 +155,9 @@
       }
       ctx.globalAlpha = 1;
       const gr = ctx.createLinearGradient(0, y0 + rh - 12, 0, y0 + rh);
-      gr.addColorStop(0, 'rgba(60,35,10,0)'); gr.addColorStop(1, 'rgba(60,35,10,0.55)');
-      ctx.fillStyle = gr; ctx.fillRect(0, y0 + rh - 12, w, 12);
+      gr.addColorStop(0, 'rgba(60,35,10,0)'); gr.addColorStop(1, 'rgba(50,28,8,0.7)');
+      ctx.fillStyle = gr; ctx.fillRect(0, y0 + rh - 14, w, 14);
+      ctx.fillStyle = 'rgba(255,235,190,0.22)'; ctx.fillRect(0, y0, w, 3);
     }
   }
   function texPlaster(ctx, w, h) {
@@ -454,7 +455,7 @@
     door(d) { const p = this.xf(d.x, d.y || 0, d.z); this.meta.doors.push(Object.assign({}, d, { x: p.x, y: p.y, z: p.z, ry: this.yaw(d.ry || 0) })); }
     light(x, y, z, o) {
       o = o || {}; const p = this.xf(x, y, z);
-      this.meta.lights.push({ x: p.x, y: p.y, z: p.z, color: o.color || 0xffa040, intensity: o.intensity || 40, dist: o.dist || 12, kind: o.kind || 'fire', flicker: o.flicker === undefined ? (o.kind === 'fire' || !o.kind) : o.flicker });
+      this.meta.lights.push({ x: p.x, y: p.y, z: p.z, color: o.color || 0xffa040, intensity: o.intensity || 40, dist: o.dist || 12, kind: o.kind || 'fire', flicker: o.flicker === undefined ? (o.kind === 'fire' || !o.kind) : o.flicker, interior: !!o.interior });
     }
     hearth(x, y, z, scale, kind) { const p = this.xf(x, y, z); this.meta.hearths.push({ x: p.x, y: p.y, z: p.z, scale: scale || 1, kind: kind || 'fire_static' }); }
     smoke(x, y, z) { this.meta.smokes.push(this.xf(x, y, z)); }
@@ -593,8 +594,8 @@
       const k = (o.peak - H) / (across / 2);
       const ye = H - k * ov;
       const g = chevronRoofGeo(span, ye, o.peak, th, len, !!o.curvedRoof);
-      b.piece('roof', o.roofMat || 'thatch', g, 0, 0, 0, o.roofHex === undefined ? 0xb8944f : o.roofHex, { ry: ridgeX ? -HPI : 0, jit: 0.04, faceJit: false });
-      const capHex = o.capHex === undefined ? 0x8a6a36 : o.capHex;
+      b.piece('roof', o.roofMat || 'thatch', g, 0, 0, 0, o.roofHex === undefined ? 0x9c7f47 : o.roofHex, { ry: ridgeX ? -HPI : 0, jit: 0.04, faceJit: false });
+      const capHex = o.capHex === undefined ? 0x6e5430 : o.capHex;
       b.cyl('roof', o.roofMat || 'thatch', 0.2, 0.2, len + 0.1, 8, 0, o.peak - 0.02, 0, capHex, ridgeX ? { rz: HPI } : { rx: HPI });
     }
     for (const ch of (o.chimneys || (o.chimney ? [o.chimney] : []))) {
@@ -603,7 +604,7 @@
       const cx = cs.x + out[0] * 0.3, cz = cs.z + out[1] * 0.3, top = (o.peak || H) + 0.9;
       b.box('ext', 'stone', 1.0, top + 1, 1.0, cx, top / 2 - 0.5, cz, o.chimneyHex || 0x8b8377, { jit: 0.08 });
       b.box('ext', 'stone', 1.25, 0.25, 1.25, cx, top + 0.1, cz, 0x7d766b, { jit: 0.05 });
-      b.box('ext', 'flat', 0.5, 0.06, 0.5, cx, top + 0.25, cz, 0x151210, { jit: 0 });
+      b.box('ext', 'stone', 0.5, 0.06, 0.5, cx, top + 0.25, cz, 0x151210, { jit: 0 });
       b.smoke(cx, top + 0.35, cz);
     }
     return { W, D, H, t };
@@ -725,17 +726,17 @@
       b.cyl(g, 'wood', 0.08, 0.09, 0.6, 7, 0.06, 0.2, 0.04, 0x4a3320, { rz: HPI, ry: -0.5, jit: 0.06 });
       b.cyl(g, 'wood', 0.07, 0.08, 0.5, 7, 0.0, 0.3, 0.0, 0x33241a, { rz: HPI, ry: 1.2, jit: 0.06 });
       for (let i = 0; i < 6; i++) b.sph(g, 'ember', 0.07 + b.rng() * 0.05, (b.rng() - 0.5) * 0.7, 0.06, (b.rng() - 0.5) * 0.35, 0xff7a20, { sy: 0.5, jit: 0.2 });
-      b.cyl(g, 'metal', 0.016, 0.016, 0.9, 5, 0, 1.3, 0.1, 0x2a2a2e);                        // hook chain
-      b.lathe(g, 'metal', [[0.05, 0], [0.19, 0.04], [0.21, 0.24], [0.17, 0.3]], 10, 0, 0.55, 0.1, 0x2b2b2f, { jit: 0.05 });
+      b.cyl(g, 'flat', 0.016, 0.016, 0.9, 5, 0, 1.3, 0.1, 0x2a2a2e);                         // hook chain
+      b.lathe(g, 'flat', [[0.05, 0], [0.19, 0.04], [0.21, 0.24], [0.17, 0.3]], 10, 0, 0.55, 0.1, 0x2b2b2f, { jit: 0.05 });
       F.candle(b, g, -w / 2 + 0.3, 1.99, 0.05); F.candle(b, g, w / 2 - 0.3, 1.99, 0.05);
       b.lathe(g, 'flat', [[0.03, 0], [0.09, 0.02], [0.1, 0.12], [0.06, 0.22], [0.07, 0.26]], 10, 0, 1.99, 0.0, 0x7b8a97, { jit: 0.04 });
-      b.light(0, 0.9, -0.35, { kind: 'fire', color: 0xffa040, intensity: 40, dist: 12 });
+      b.light(0, 0.9, -0.35, { kind: 'fire', color: 0xffa040, intensity: 40, dist: 12, interior: g === 'int' || g === 'upper' });
       b.hearth(0, 0.22, -0.02, o.fxScale || 0.9);
     },
     candle(b, g, x, y, z) {
       b.cyl(g, 'flat', 0.024, 0.026, 0.15, 7, x, y + 0.075, z, 0xf0e8d0, { jit: 0.02 });
       b.cone(g, 'ember', 0.02, 0.07, 6, x, y + 0.18, z, 0xffcc60, { jit: 0.1 });
-      b.cyl(g, 'metal', 0.05, 0.05, 0.015, 8, x, y + 0.007, z, 0xb59a4a);
+      b.cyl(g, 'flat', 0.05, 0.05, 0.015, 8, x, y + 0.007, z, 0xb59a4a);
     },
     counter(b, g, len, hex) {
       hex = hex || WOOD_F;
@@ -793,21 +794,21 @@
       b.lathe(g, 'metal', [[0.1, 0], [0.4, 0.06], [0.44, 0.35], [0.36, 0.5], [0.3, 0.52]], 12, 0, 0.55 * scale, 0, 0x3a3a40, { sx: scale, sy: scale, sz: scale, jit: 0.05 });
       for (let i = 0; i < 3; i++) { const a = i * TAU / 3; b.cyl(g, 'metal', 0.03, 0.04, 0.6 * scale, 6, Math.sin(a) * 0.22 * scale, 0.3 * scale, Math.cos(a) * 0.22 * scale, 0x3a3a40, { rz: Math.cos(a) * 0.18, rx: -Math.sin(a) * 0.18 }); }
       for (let i = 0; i < 5; i++) b.sph(g, 'ember', 0.09 * scale, (b.rng() - 0.5) * 0.4 * scale, 0.95 * scale, (b.rng() - 0.5) * 0.4 * scale, 0xff7a20, { sy: 0.6, jit: 0.2 });
-      b.light(0, 1.4 * scale, 0, { kind: 'fire', color: 0xffa040, intensity: 30 * scale, dist: 10 * scale });
+      b.light(0, 1.4 * scale, 0, { kind: 'fire', color: 0xffa040, intensity: 30 * scale, dist: 10 * scale, interior: g === 'int' });
       b.hearth(0, 0.95 * scale, 0, 0.55 * scale);
     },
     lantern(b, g, x, y, z, o) {
       o = o || {};
-      const glow = o.elf ? 'elfglow' : 'lampglow', hexF = o.elf ? 0xd8dce6 : 0x2c2c30;
+      const glow = o.elf ? 'elfglow' : 'lampglow', hexF = o.elf ? 0xd8dce6 : 0x26262a, fm = o.elf ? 'metal' : 'wood';
       const s = o.scale || 1;
-      b.box(g, 'metal', 0.26 * s, 0.05, 0.26 * s, x, y + 0.02, z, hexF);
-      b.box(g, 'metal', 0.24 * s, 0.05, 0.24 * s, x, y + 0.36 * s, z, hexF);
-      b.cone(g, 'metal', 0.18 * s, 0.12 * s, 4, x, y + 0.44 * s, z, hexF, { ry: PI / 4 });
-      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box(g, 'metal', 0.025, 0.34 * s, 0.025, x + sx * 0.11 * s, y + 0.19 * s, z + sz * 0.11 * s, hexF);
+      b.box(g, fm, 0.26 * s, 0.05, 0.26 * s, x, y + 0.02, z, hexF, { jit: 0 });
+      b.box(g, fm, 0.24 * s, 0.05, 0.24 * s, x, y + 0.36 * s, z, hexF, { jit: 0 });
+      b.cone(g, fm, 0.18 * s, 0.12 * s, 4, x, y + 0.44 * s, z, hexF, { ry: PI / 4, jit: 0 });
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box(g, fm, 0.025, 0.34 * s, 0.025, x + sx * 0.11 * s, y + 0.19 * s, z + sz * 0.11 * s, hexF, { jit: 0 });
       b.box(g, glow, 0.17 * s, 0.28 * s, 0.17 * s, x, y + 0.19 * s, z, 0xffffff, { jit: 0 });
-      if (o.chain) b.cyl(g, 'metal', 0.015, 0.015, o.chain, 5, x, y + 0.5 * s + o.chain / 2, z, hexF);
-      if (o.hook) b.torus(g, 'metal', 0.05, 0.012, x, y + 0.53 * s, z, hexF);
-      b.light(x, y + 0.2 * s, z, { kind: o.elf ? 'elf' : 'lamp', color: o.elf ? 0xbfd8ff : 0xffc070, intensity: o.intensity || 22, dist: o.dist || 11, flicker: !o.elf });
+      if (o.chain) b.cyl(g, fm, 0.015, 0.015, o.chain, 5, x, y + 0.5 * s + o.chain / 2, z, hexF, { jit: 0 });
+      if (o.hook) b.torus(g, fm, 0.05, 0.012, x, y + 0.53 * s, z, hexF, { jit: 0 });
+      b.light(x, y + 0.2 * s, z, { kind: o.elf ? 'elf' : 'lamp', color: o.elf ? 0xbfd8ff : 0xffc070, intensity: o.intensity || 22, dist: o.dist || 11, flicker: !o.elf, interior: g === 'int' || g === 'upper' });
     },
     anvil(b, g) {
       b.cyl(g, 'wood', 0.3, 0.34, 0.55, 9, 0, 0.27, 0, 0x4a3420, { jit: 0.05 });
@@ -827,7 +828,7 @@
       b.box(g, 'stone', 1.2, 4.0, 1.2, 0, 4.6, 0.3, 0x55505a, { jit: 0.06 });
       b.box(g, 'wood', 0.5, 0.2, 0.9, 1.5, 1.05, 0.3, WOOD_F, { ry: 0.3 });
       b.box(g, 'flat', 0.44, 0.1, 0.6, 1.5, 1.18, 0.3, 0x5a3a2a, { ry: 0.3 });
-      b.light(0, 1.6, -0.3, { kind: 'fire', color: 0xffa040, intensity: 45, dist: 13 });
+      b.light(0, 1.6, -0.3, { kind: 'fire', color: 0xffa040, intensity: 45, dist: 13, interior: g === 'int' });
       b.hearth(0, 1.2, 0.05, 0.75);
     },
     fountain(b, g, r) {
@@ -836,7 +837,7 @@
       b.cyl(g, 'water', r * 0.89, r * 0.89, 0.02, 20, 0, 0.5, 0, 0x4d8cc0, { jit: 0.02 });
       b.lathe(g, 'stone', [[0.16, 0.1], [0.14, 1.0], [0.22, 1.1], [0.55, 1.15], [0.6, 1.28], [0.5, 1.3], [0.12, 1.32], [0.1, 1.34], [0.08, 1.7], [0.14, 1.72], [0.16, 1.9], [0.1, 1.98], [0, 2.0]], 14, 0, 0, 0, 0xe4e6ea, { jit: 0.02 });
       b.cyl(g, 'water', 0.49, 0.49, 0.02, 14, 0, 1.24, 0, 0x5b9bd0, { jit: 0.02 });
-      b.light(0, 2.2, 0, { kind: 'elf', color: 0xbfd8ff, intensity: 18, dist: 12, flicker: false });
+      b.light(0, 2.2, 0, { kind: 'elf', color: 0xbfd8ff, intensity: 18, dist: 12, flicker: false, interior: g === 'int' });
     },
     bedroll(b, g, hex) {
       hex = hex || 0x6a5a4a;
@@ -920,7 +921,7 @@
   function def(name, r) { RECIPES[name] = Object.assign({ name, variants: 3, enterable: false, static: false }, r); }
 
   const PLASTERS = [0xe8dcc2, 0xdac8a2, 0xf1ece2];
-  const THATCHES = [0xb8944f, 0xa88848, 0xc7a55c];
+  const THATCHES = [0x9c7f47, 0x8f7640, 0xa98c50];
   const TILES = [0x7f4d3a, 0x5f6672, 0x8a5a44];
 
   /* ---------------- hobbit_hole ---------------- */
@@ -930,38 +931,43 @@
       const doorHex = [0x3f7a3a, 0xc9a53a, 0x3b5c9a, 0x9a3b30][v];
       const zf = -2.4, RX = 7.6, RY = 4.7, RZ = 6.6, MZ = 1.0, MY = -0.35;
       // mound (front flattened into the facade plane)
-      const mg = domeGeo(1, 32, 16); mg.scale(RX, RY, RZ);
+      const mg = domeGeo(1, 44, 22); mg.scale(RX, RY, RZ);
       const mp = mg.attributes.position, mn = mg.attributes.normal, zc = zf - MZ + 0.12;
-      for (let i = 0; i < mp.count; i++) if (mp.getZ(i) < zc) { mp.setZ(i, zc); mn.setXYZ(i, 0, 0, -1); }
+      const flat = new Uint8Array(mp.count);
+      for (let i = 0; i < mp.count; i++) if (mp.getZ(i) < zc) { mp.setZ(i, zc); mn.setXYZ(i, 0, 0, -1); flat[i] = (Math.abs(mp.getX(i)) < 1.45 && mp.getY(i) < 2.95) ? 2 : 1; }
+      const idx = mg.index.array, keep = [];   // drop flat-face triangles behind the door so the passage is open
+      for (let i = 0; i < idx.length; i += 3) { const a = idx[i], b2 = idx[i + 1], c = idx[i + 2]; if (flat[a] && flat[b2] && flat[c] && (flat[a] === 2 || flat[b2] === 2 || flat[c] === 2)) continue; keep.push(a, b2, c); }
+      mg.setIndex(keep);
       b.piece('roof', 'grass', mg, 0, MY, MZ, 0x6f9a48, { jit: 0.06, faceJit: false });
       b.cyl('roof', 'grass', RX * 1.03, RX * 1.06, 1.2, 32, 0, -0.55, MZ, 0x6b9446, { sz: RZ / RX, jit: 0.05 });  // skirt hides slope gaps
       // facade: half-ellipse brick wall with round door & windows
-      const k = Math.sqrt(1 - Math.pow((zf - MZ) / RZ, 2)), a = RX * k, by = RY * k;
+      const a = 5.0, by = 3.9;
       const sh = new T.Shape(); sh.moveTo(-a, -1); sh.lineTo(a, -1); sh.lineTo(a, MY + 0.01); sh.absellipse(0, MY, a, by, 0, PI, false); sh.lineTo(-a, -1);
       const dr = 0.95;
       const hole = new T.Path(); hole.absarc(0, dr + 0.05, dr, 0, TAU, false); sh.holes.push(hole);
-      for (const sx of [-1, 1]) { const p = new T.Path(); p.absarc(sx * 3.4, 1.55, 0.5, 0, TAU, false); sh.holes.push(p); }
+      for (const sx of [-1, 1]) { const p = new T.Path(); p.absarc(sx * 2.75, 1.55, 0.5, 0, TAU, false); sh.holes.push(p); }
       const fg = new T.ExtrudeGeometry(sh, { depth: 0.5, bevelEnabled: false, curveSegments: 14 }); fg.translate(0, 0, -0.25);
       b.piece('ext', 'brick', fg, 0, 0, zf, 0xb87a5a, { jit: 0.03, faceJit: false });
       b.torus('ext', 'brick', dr + 0.12, 0.14, 0, dr + 0.05, zf - 0.28, 0xa8694a, { jit: 0.08 });
       for (const sx of [-1, 1]) {
-        b.torus('ext', 'brick', 0.6, 0.1, sx * 3.4, 1.55, zf - 0.27, 0xa8694a, { jit: 0.08 });
-        b.cyl('ext', 'glass', 0.48, 0.48, 0.06, 16, sx * 3.4, 1.55, zf, 0xffffff, { rx: HPI });
-        b.box('ext', 'wood', 0.05, 0.96, 0.1, sx * 3.4, 1.55, zf - 0.05, 0x4a3220); b.box('ext', 'wood', 0.96, 0.05, 0.1, sx * 3.4, 1.55, zf - 0.05, 0x4a3220);
-        b.box('ext', 'brick', 1.3, 0.12, 0.5, sx * 3.4, 0.95, zf - 0.2, 0x9a6a4c, { jit: 0.05 });   // window box / sill
-        b.box('ext', 'flat', 1.1, 0.16, 0.36, sx * 3.4, 1.06, zf - 0.22, [0x5a8a3a, 0x7a9a44][v % 2], { jit: 0.1 });
-        for (let i = 0; i < 5; i++) b.sph('ext', 'flat', 0.07, sx * 3.4 - 0.45 + i * 0.22, 1.18, zf - 0.22 + (i % 2) * 0.08, [0xe25a5a, 0xf0d040, 0xf39ac0, 0xffffff][i % 4], { jit: 0.1 });
+        b.torus('ext', 'brick', 0.6, 0.1, sx * 2.75, 1.55, zf - 0.27, 0xa8694a, { jit: 0.08 });
+        b.cyl('ext', 'glass', 0.48, 0.48, 0.06, 16, sx * 2.75, 1.55, zf, 0xffffff, { rx: HPI });
+        b.box('ext', 'wood', 0.05, 0.96, 0.1, sx * 2.75, 1.55, zf - 0.05, 0x4a3220); b.box('ext', 'wood', 0.96, 0.05, 0.1, sx * 2.75, 1.55, zf - 0.05, 0x4a3220);
+        b.box('ext', 'brick', 1.3, 0.12, 0.5, sx * 2.75, 0.95, zf - 0.2, 0x9a6a4c, { jit: 0.05 });   // window box / sill
+        b.box('ext', 'brick', 1.1, 0.16, 0.36, sx * 2.75, 1.06, zf - 0.22, [0x5a8a3a, 0x7a9a44][v % 2], { jit: 0.1 });
+        for (let i = 0; i < 5; i++) b.sph('ext', 'brick', 0.07, sx * 2.75 - 0.45 + i * 0.22, 1.18, zf - 0.22 + (i % 2) * 0.08, [0xe25a5a, 0xf0d040, 0xf39ac0, 0xffffff][i % 4], { jit: 0.1 });
       }
       b.box('ext', 'stone', 2.4, 0.12, 1.2, 0, 0.0, zf - 0.75, 0x8d8579, { jit: 0.06 });
       for (let i = 0; i < 5; i++) b.cyl('ext', 'stone', 0.34, 0.34, 0.06, 7, (i % 2 ? 0.25 : -0.2), 0.03, zf - 1.7 - i * 0.62, 0x8a847a, { jit: 0.08 });
       // bench + lantern outside
-      b.at(2.4, zf - 0.85, 0); F.bench(b, 'ext', 1.4); b.end();
-      b.cyl('ext', 'wood', 0.06, 0.07, 2.2, 6, -2.2, 1.1, zf - 0.7, 0x4a3220);
-      F.lantern(b, 'ext', -2.2, 2.05, zf - 0.7, { scale: 0.8, intensity: 16 });
+      b.at(3.9, zf - 0.85, 0); F.bench(b, 'ext', 1.4); b.end();
+      b.cyl('ext', 'wood', 0.06, 0.07, 2.2, 6, -1.7, 1.1, zf - 0.9, 0x4a3220);
+      F.lantern(b, 'ext', -1.7, 2.05, zf - 0.9, { scale: 0.8, intensity: 16 });
+      b.at(-3.9, zf - 0.6, 0); F.barrel(b, 'ext', 0.28, 0.7); b.end();
       // chimney pot on the mound
       b.cyl('ext', 'brick', 0.34, 0.4, 1.5, 10, 2.4, 4.2, MZ + 0.6, 0xa06a4c, { jit: 0.06 });
       b.cyl('ext', 'stone', 0.44, 0.44, 0.16, 10, 2.4, 4.98, MZ + 0.6, 0x7d766b);
-      b.cyl('ext', 'flat', 0.24, 0.24, 0.06, 10, 2.4, 5.05, MZ + 0.6, 0x151210, { jit: 0 });
+      b.cyl('ext', 'stone', 0.24, 0.24, 0.06, 10, 2.4, 5.05, MZ + 0.6, 0x151210, { jit: 0 });
       b.smoke(2.4, 5.15, MZ + 0.6);
       // door
       b.door({ x: 0, z: zf, ry: 0, w: dr * 2, h: dr * 2, kind: 'round', hinge: -1, hex: doorHex, y: 0.05, t: 0.5, name: 'Round door' });
@@ -979,8 +985,8 @@
       b.box('int', 'brick', 2.4, 0.3, 1.4, 0, H + 0.1, zf + 0.45, 0xb87a5a, { jit: 0.04 });
       for (const sx of [-1, 1]) b.wallCol(sx * 0.95, zf - 0.3, sx * 0.95, zf + 1.3, H, 0.24);
       // dome ceiling + beam ring (hidden when inside)
-      const ceil = invertGeo(domeGeo(R + 0.05, 28, 10)); ceil.scale(1, 0.55, 1);
-      b.piece('roof', 'plaster', ceil, 0, H - 0.02, CZ, 0xefe6d2, { jit: 0.02, faceJit: false });
+      const ceil = invertGeo(domeGeo(R + 0.05, 28, 10)); ceil.scale(1, 0.38, 1);
+      b.piece('roof', 'wood', ceil, 0, H - 0.02, CZ, 0xe2cfa8, { jit: 0.02, faceJit: false });
       b.torus('roof', 'wood', R - 0.05, 0.09, 0, H - 0.05, CZ, 0x5a3c25, { rx: HPI, jit: 0 });
       for (let i = 0; i < 6; i++) { const an = i * PI / 6; b.box('roof', 'wood', R * 1.9, 0.1, 0.12, 0, H + 0.02, CZ, 0x5a3c25, { ry: an }); }
       // furniture
@@ -1001,7 +1007,7 @@
       b.at(-1.9, CZ - 0.9, 0); F.stool(b, 'int'); b.end();
       b.at(0.3, CZ - 0.2, 0); F.rug(b, 'int', 2.4, 1.7, 'man'); b.end();
       for (let i = 0; i < 3; i++) b.cyl('int', 'flat', 0.06, 0.06, 0.5, 6, -1.4 + i * 0.25, H - 0.35, CZ + 3.1, 0x6a7a3a, { rx: 0.2, jit: 0.1 });   // hanging herbs
-      b.light(0.9, 1.8, CZ, { kind: 'lamp', color: 0xffc070, intensity: 10, dist: 8, flicker: true });
+      b.light(0.9, 1.8, CZ, { kind: 'lamp', color: 0xffc070, intensity: 10, dist: 8, flicker: true, interior: true });
       b.spot(-1.6, CZ - 0.3, HPI, 'fire'); b.spot(0.9, CZ - 0.95, PI, 'table'); b.spot(0.5, CZ + 1.3, PI, 'bed');
       b.interior(-R, -0.5, zf - 0.4, R, H + 1.0, CZ + R);
       b.ringCol(0, CZ, R, H, 16, 0, 2.0);
@@ -1121,12 +1127,12 @@
       });
       // sign bracket + lanterns by the door
       b.at(0, -D / 2, 0);
-      b.box('ext', 'metal', 0.06, 0.06, 1.3, 0.1, 3.9, -0.75, 0x2c2c30); b.box('ext', 'metal', 0.06, 0.9, 0.06, 0.1, 3.45, -0.2, 0x2c2c30); b.box('ext', 'metal', 0.05, 0.05, 0.9, 0.1, 3.55, -0.5, 0x2c2c30, { rx: -0.6 });
-      b.cyl('ext', 'metal', 0.015, 0.015, 0.3, 4, -0.5, 3.75, -1.2, 0x2c2c30); b.cyl('ext', 'metal', 0.015, 0.015, 0.3, 4, 0.7, 3.75, -1.2, 0x2c2c30);
+      b.box('ext', 'wood', 0.06, 0.06, 1.3, 0.1, 3.9, -0.75, 0x26262a, { jit: 0 }); b.box('ext', 'wood', 0.06, 0.9, 0.06, 0.1, 3.45, -0.2, 0x26262a, { jit: 0 }); b.box('ext', 'wood', 0.05, 0.05, 0.9, 0.1, 3.55, -0.5, 0x26262a, { rx: -0.6, jit: 0 });
+      b.cyl('ext', 'wood', 0.015, 0.015, 0.3, 4, -0.5, 3.75, -1.2, 0x26262a, { jit: 0 }); b.cyl('ext', 'wood', 0.015, 0.015, 0.3, 4, 0.7, 3.75, -1.2, 0x26262a, { jit: 0 });
       b.box('ext', 'wood', 1.5, 0.55, 0.05, 0.1, 3.3, -1.2, 0x6e4626);
       b.sign(0.1, 3.3, -1.2, 0, 1.5, 0.55);
       F.lantern(b, 'ext', -3.2, 2.6, -0.35, { scale: 0.9, intensity: 24 }); F.lantern(b, 'ext', -0.7, 2.6, -0.35, { scale: 0.9, intensity: 24 });
-      b.box('ext', 'metal', 0.05, 0.05, 0.4, -3.2, 3.05, -0.2, 0x2c2c30); b.box('ext', 'metal', 0.05, 0.05, 0.4, -0.7, 3.05, -0.2, 0x2c2c30);
+      b.box('ext', 'wood', 0.05, 0.05, 0.4, -3.2, 3.05, -0.2, 0x26262a, { jit: 0 }); b.box('ext', 'wood', 0.05, 0.05, 0.4, -0.7, 3.05, -0.2, 0x26262a, { jit: 0 });
       b.end();
       // ---- ground floor
       b.at(-W / 2 + t / 2 + 0.45, -1.0, HPI); F.hearth(b, 'int', 2.4, { h: FL, fxScale: 1.1 }); b.end();
@@ -1168,7 +1174,7 @@
         b.at(rx - 1.2, D / 2 - 0.55, 0, FL); F.stool(b, 'upper'); b.end();
         F.candle(b, 'upper', rx - 1.2, FL + 0.48, D / 2 - 0.55);
         b.at(rx, D / 2 - 3.0, 0, FL); F.rug(b, 'upper', 1.8, 1.2, 'man'); b.end();
-        if (i < 2) { const px = (rooms[i] + rooms[i + 1]) / 2; b.box('upper', 'plaster', 0.12, H - FL - 0.05, 4.6, px, FL + (H - FL) / 2, D / 2 - 2.3, 0xe9dfc8, { jit: 0.02 }); b.boxCol(px - 0.06, FL, D / 2 - 4.6, px + 0.06, H, D / 2); }
+        if (i < 2) { const px = (rooms[i] + rooms[i + 1]) / 2; b.box('upper', 'planks', 0.12, H - FL - 0.05, 4.6, px, FL + (H - FL) / 2, D / 2 - 2.3, 0xb08a5a, { jit: 0.03 }); b.boxCol(px - 0.06, FL, D / 2 - 4.6, px + 0.06, H, D / 2); }
         b.spot(rx, D / 2 - 2.9, PI, 'bed', FL);
       }
       b.at(-4.0, -3.4, 0, FL); F.table(b, 'upper', 1.2, 0.8); b.end(); F.candle(b, 'upper', -4.0, FL + 0.81, -3.4);
@@ -1201,11 +1207,11 @@
       for (const sx of [-1, 1]) b.box('ext', 'wood', 0.08, 2.3, 0.08, sx * 1.25, 1.15, -1.4, 0x4a3220);
       b.box('ext', 'wood', 2.6, 0.08, 0.08, 0, 2.3, -1.4, 0x4a3220);
       b.at(0, -0.85, 0); F.table(b, 'ext', 1.8, 0.8); b.end();
-      for (let i = 0; i < 4; i++) b.sph('ext', 'flat', 0.11, -0.6 + i * 0.4, 0.9, -0.85, [0xc83a2a, 0x8ab040, 0xe0a030, 0xb88a40][i], { jit: 0.05 });
-      b.cyl('ext', 'flat', 0.1, 0.1, 0.5, 8, 0.5, 0.86, -1.0, 0x3a5a8a, { rz: HPI, jit: 0.04 });
+      for (let i = 0; i < 4; i++) b.sph('ext', 'wood', 0.11, -0.6 + i * 0.4, 0.9, -0.85, [0xc83a2a, 0x8ab040, 0xe0a030, 0xb88a40][i], { jit: 0.05 });
+      b.cyl('ext', 'wood', 0.1, 0.1, 0.5, 8, 0.5, 0.86, -1.0, 0x3a5a8a, { rz: HPI, jit: 0.04 });
       b.end();
       b.at(1.6, -D / 2, 0);
-      b.box('ext', 'metal', 0.06, 0.06, 1.0, 0.9, 3.0, -0.6, 0x2c2c30); b.box('ext', 'metal', 0.05, 0.05, 0.9, 0.9, 2.65, -0.45, 0x2c2c30, { rx: -0.75 });
+      b.box('ext', 'wood', 0.06, 0.06, 1.0, 0.9, 3.0, -0.6, 0x26262a, { jit: 0 }); b.box('ext', 'wood', 0.05, 0.05, 0.9, 0.9, 2.65, -0.45, 0x26262a, { rx: -0.75, jit: 0 });
       b.box('ext', 'wood', 1.2, 0.45, 0.05, 0.9, 2.55, -0.95, 0x6e4626); b.sign(0.9, 2.55, -0.95, 0, 1.2, 0.45);
       F.lantern(b, 'ext', -0.85, 2.3, -0.32, { scale: 0.8, intensity: 18 });
       b.end();
@@ -1248,7 +1254,7 @@
       b.box('ext', 'metal', W + 0.5, 0.1, 0.06, 0, H - 0.25, -D / 2 - t / 2, 0xd8b862); b.box('ext', 'metal', W + 0.5, 0.1, 0.06, 0, H - 0.25, D / 2 + t / 2, 0xd8b862);
       b.box('ext', 'metal', 0.06, 0.1, D + 0.5, -W / 2 - t / 2, H - 0.25, 0, 0xd8b862); b.box('ext', 'metal', 0.06, 0.1, D + 0.5, W / 2 + t / 2, H - 0.25, 0, 0xd8b862);
       for (const sx of [-1, 1]) { b.at(sx * (W / 2 - 0.1), -D / 2 - 0.7, 0); F.pillar(b, 'ext', 'elf', H + 0.1); b.end(); b.cylCol(sx * (W / 2 - 0.1), -D / 2 - 0.7, 0.4, H); }
-      b.box('ext', 'plaster', W + 0.6, 0.25, 1.4, 0, H + 0.05, -D / 2 - 0.5, 0xeef0f4, { jit: 0.01 });
+      b.box('roof', 'tile', W + 0.6, 0.25, 1.4, 0, H + 0.05, -D / 2 - 0.5, [0x8fa3bf, 0x7f9bb8, 0xa4b0c4][v], { jit: 0.01 });
       F.lantern(b, 'ext', -1.1, 2.6, -D / 2 - 0.35, { elf: true, scale: 0.8, intensity: 16 }); F.lantern(b, 'ext', 1.1, 2.6, -D / 2 - 0.35, { elf: true, scale: 0.8, intensity: 16 });
       // interior
       b.at(-W / 2 + 0.85, D / 2 - 1.4, 0); F.bed(b, 'int', 1.15, 2.2, 0x3a5a8c); b.end();
@@ -1288,8 +1294,7 @@
       });
       // colonnade porch
       for (const px of [-4.8, -2.0, 2.0, 4.8]) { b.at(px, -D / 2 - 1.8, 0); F.pillar(b, 'ext', 'elf', H); b.end(); b.cylCol(px, -D / 2 - 1.8, 0.4, H); }
-      b.box('roof', 'plaster', W + 1.2, 0.3, 3.0, 0, H + 0.05, -D / 2 - 1.2, 0xeef0f4, { jit: 0.01 });
-      b.box('roof', 'metal', W + 1.3, 0.12, 0.08, 0, H + 0.26, -D / 2 - 2.7, 0xd8b862);
+      b.box('roof', 'tile', W + 1.2, 0.3, 3.0, 0, H + 0.05, -D / 2 - 1.2, [0x8fa3bf, 0x7f9bb8, 0xa4b0c4][v], { jit: 0.01 });
       b.box('ext', 'metal', W + 0.6, 0.12, 0.06, 0, H - 0.3, -D / 2 - t / 2, 0xd8b862); b.box('ext', 'metal', W + 0.6, 0.12, 0.06, 0, H - 0.3, D / 2 + t / 2, 0xd8b862);
       b.box('ext', 'metal', 0.06, 0.12, D + 0.6, -W / 2 - t / 2, H - 0.3, 0, 0xd8b862); b.box('ext', 'metal', 0.06, 0.12, D + 0.6, W / 2 + t / 2, H - 0.3, 0, 0xd8b862);
       b.box('ext', 'stone', 6, 0.16, 3.2, 0, 0.0, -D / 2 - 1.5, 0xd8dbe2, { jit: 0.02 });
@@ -1427,7 +1432,7 @@
       for (let i = 0; i < 9; i++) { const a = i / 9 * TAU; b.sph('int', 'rock', 0.2, Math.sin(a) * 0.75, 0.12, Math.cos(a) * 0.75, 0x6f6a64, { sy: 0.7, jit: 0.1 }); }
       for (let i = 0; i < 3; i++) b.cyl('int', 'wood', 0.07, 0.08, 0.9, 7, 0, 0.16, 0, 0x3d2a18, { rz: HPI, ry: i * PI / 3, jit: 0.06 });
       b.sph('int', 'ember', 0.32, 0, 0.12, 0, 0xff7a20, { sy: 0.4, jit: 0.2 });
-      b.light(0, 1.0, 0, { kind: 'fire', color: 0xffa040, intensity: 35, dist: 11 }); b.hearth(0, 0.3, 0, 1.0);
+      b.light(0, 1.0, 0, { kind: 'fire', color: 0xffa040, intensity: 35, dist: 11, interior: true }); b.hearth(0, 0.3, 0, 1.0);
       for (let i = 0; i < 3; i++) { const a = 0.9 + i * 1.5; b.at(Math.sin(a) * 2.1, Math.cos(a) * 2.1, a + PI); F.bedroll(b, 'int', [0x8a7a66, 0xa89880, 0x6a5a4a][i]); b.end(); }
       b.sph('int', 'flat', 1.1, 1.3, 0.05, -1.4, 0xb09070, { sy: 0.06, jit: 0.08 }); b.sph('int', 'flat', 0.9, -1.6, 0.05, -0.9, 0xc8b090, { sy: 0.06, jit: 0.08 });
       b.at(-2.2, 1.6, 0.7); F.chest(b, 'int', 0x6a5040); b.end();
@@ -1576,7 +1581,7 @@
       b.at(CX - 0.7, CZ1 - 0.9, HPI); F.chest(b, 'int', 0x4a3a2a); b.end();
       b.at(-CX + 0.5, CZ0 + 3.5, -HPI); stoneBench(b, 'int', 1.6, 0x5a5650); b.end();
       for (let i = 0; i < 4; i++) b.box('int', 'flat', 0.7, 0.06, 0.6, (b.rng() - 0.5) * 4, 0.08, CZ0 + 1 + b.rng() * 3.5, 0x2a2622, { ry: b.rng() * PI, jit: 0.1 });
-      b.light(0, 1.8, (CZ0 + CZ1) / 2, { kind: 'elf', color: 0x86a0c8, intensity: 12, dist: 10, flicker: true });
+      b.light(0, 1.8, (CZ0 + CZ1) / 2, { kind: 'elf', color: 0x86a0c8, intensity: 12, dist: 10, flicker: true, interior: true });
       for (let i = 0; i < 5; i++) { const a = 0.6 + i * 1.05, rr = 8.5 + (i % 2) * 1.2; b.at(Math.sin(a) * rr, Math.cos(a) * rr, a); menhir(b, 'ext', 2.2 + (i % 3) * 0.5, 0x746f68); b.end(); b.cylCol(Math.sin(a) * rr, Math.cos(a) * rr, 0.6, 2.5); }
       for (let i = 0; i < 16; i++) { const a0 = i / 16 * TAU, a1 = (i + 1) / 16 * TAU; const p0 = { x: Math.sin(a0) * RX * 0.96, z: Math.cos(a0) * RZ * 0.96 }, p1 = { x: Math.sin(a1) * RX * 0.96, z: Math.cos(a1) * RZ * 0.96 }; if (p0.z < zf + 0.6 || p1.z < zf + 0.6) continue; b.wallCol(p0.x, p0.z, p1.x, p1.z, 2.4, 0.4); }
       b.wallCol(-RX, zf, -1.1, zf, 3, 0.5); b.wallCol(1.1, zf, RX, zf, 3, 0.5);
@@ -2087,7 +2092,7 @@
     bld.door = bld.doors[0] || null;
     const p = {};
     for (const s of m.spots) { l2w(bld, s.x, s.z, p); bld.interiorSpots.push({ x: p.x, y: bld.y + s.y, z: p.z, yaw: bld.yaw + s.yaw, role: s.role, building: bld }); }
-    for (const l of m.lights) { l2w(bld, l.x, l.z, p); bld.lights.push({ x: p.x, y: bld.y + l.y, z: p.z, color: l.color, base: l.intensity, dist: l.dist, kind: l.kind, flicker: l.flicker, seed: hash2(p.x, p.z) * 100, on: true, light: null, stamp: 0, cur: 0, bld }); }
+    for (const l of m.lights) { l2w(bld, l.x, l.z, p); bld.lights.push({ x: p.x, y: bld.y + l.y, z: p.z, color: l.color, base: l.intensity, dist: l.dist, kind: l.kind, flicker: l.flicker, interior: !!l.interior, seed: hash2(p.x, p.z) * 100, on: true, light: null, stamp: 0, d2: 0, bld }); }
     for (const h of m.hearths) { l2w(bld, h.x, h.z, p); bld.hearths.push({ pos: new T.Vector3(p.x, bld.y + h.y, p.z), scale: h.scale, kind: h.kind, opts: { scale: h.scale, loop: true }, fxId: null }); }
     for (const s of m.smokes) { l2w(bld, s.x, s.z, p); const sm = { pos: new T.Vector3(p.x, bld.y + s.y, p.z), scale: 0.8, kind: 'smoke', opts: { scale: 0.8, loop: true, color: 0x9a948c }, fxId: null }; bld.smokes.push(sm); bld.hearths.push(sm); }
     for (const h of m.horses) { l2w(bld, h.x, h.z, p); bld.horses.push({ x: p.x, z: p.z, y: bld.y, yaw: bld.yaw + h.yaw, rig: null, ent: null }); }
@@ -2328,6 +2333,7 @@
         if (!v.on) continue;
         const dx = v.x - px, dy = v.y - py, dz = v.z - pz, d2 = dx * dx + dy * dy + dz * dz;
         if (d2 > LIGHT_DIST * LIGHT_DIST) continue;
+        if (v.interior && playerInside !== bld && !nearDoorOf(bld, px, pz)) continue;
         if (virtIntensity(v) <= 0.01) continue;
         // bounded insertion sort by distance
         let k = candN < POOL_SIZE ? candN++ : POOL_SIZE - 1;
@@ -2343,6 +2349,10 @@
       const v = cand[i]; if (v.light) continue;
       for (const slot of pool) if (!slot.virt) { slot.virt = v; v.light = slot.light; slot.light.position.set(v.x, v.y, v.z); slot.light.color.setHex(v.color); slot.light.distance = v.dist; break; }
     }
+  }
+  function nearDoorOf(bld, px, pz) {
+    for (const d of bld.doors) { const dx = d.pos.x - px, dz = d.pos.z - pz; if (dx * dx + dz * dz < 16) return true; }
+    return false;
   }
   function flickerLights() {
     for (const slot of pool) {

@@ -149,7 +149,11 @@
     for (let s = 0; s < pts.length; s++) {
       const p = pts[s];
       const a = pts[Math.max(0, s - 1)], b = pts[Math.min(pts.length - 1, s + 1)];
-      dir.set(b.x - a.x, b.y - a.y, b.z - a.z); if (dir.lengthSq() < 1e-8) dir.set(0, 1, 0); dir.normalize();
+      dir.set(b.x - a.x, b.y - a.y, b.z - a.z);
+      const segLen = dir.length() || 1;
+      if (dir.lengthSq() < 1e-8) dir.set(0, 1, 0); dir.normalize();
+      // normal tilt along the axis from the radius gradient (a cone narrowing upward gets upward-tilted normals)
+      const rk = -(b.r - a.r) / segLen;
       up.set(0, 1, 0); if (Math.abs(dir.y) > 0.98) up.set(1, 0, 0);
       t1.crossVectors(up, dir).normalize(); t2.crossVectors(dir, t1).normalize();
       for (let k = 0; k <= radial; k++) {
@@ -161,6 +165,7 @@
         const cs = Math.cos(th), sn = Math.sin(th);
         tmp.set(t1.x * cs + t2.x * sn, t1.y * cs + t2.y * sn, t1.z * cs + t2.z * sn);
         P.push(p.x + tmp.x * r, p.y + tmp.y * r, p.z + tmp.z * r);
+        tmp.x += dir.x * rk; tmp.y += dir.y * rk; tmp.z += dir.z * rk; tmp.normalize();
         N.push(tmp.x, tmp.y, tmp.z);
         U.push(k / radial, s / (pts.length - 1));
       }
@@ -336,8 +341,8 @@
       [_blob(2.3, 1, COL.oakLeaf, COL.oakLeafTop, { oy: 4.9, seed: 21, squash: 0.8 }),
        _blob(1.7, 1, COL.oakLeaf, COL.oakLeafTop, { ox: 1.5, oy: 4.3, oz: 0.4, seed: 22, squash: 0.8 }),
        _blob(1.6, 1, COL.oakLeaf, COL.oakLeafTop, { ox: -1.4, oy: 4.5, oz: -0.6, seed: 23, squash: 0.85 }),
-       _blob(1.5, 1, COL.oakLeaf, COL.oakLeafTop, { ox: 0.2, oy: 4.6, oz: 1.6, seed: 24, squash: 0.8 }),
-       _blob(1.5, 1, COL.oakLeaf, COL.oakLeafTop, { ox: -0.3, oy: 4.4, oz: -1.7, seed: 25, squash: 0.8 })], H);
+       _blob(1.5, 0, COL.oakLeaf, COL.oakLeafTop, { ox: 0.2, oy: 4.6, oz: 1.6, seed: 24, squash: 0.8, noise: 0.14 }),
+       _blob(1.5, 0, COL.oakLeaf, COL.oakLeafTop, { ox: -0.3, oy: 4.4, oz: -1.7, seed: 25, squash: 0.8, noise: 0.14 })], H);
     const l1 = tree([trunk(0.48, 0.2, -0.3, 3.7, 5, 1, 0, 0, 11, COL.oakBark, COL.oakBarkTop)],
       [_blob(2.5, 0, COL.oakLeaf, COL.oakLeafTop, { oy: 4.9, seed: 21, squash: 0.8, noise: 0.16 }),
        _blob(1.7, 0, COL.oakLeaf, COL.oakLeafTop, { ox: 1.6, oy: 4.2, oz: 0.5, seed: 26, squash: 0.85, noise: 0.16 }),
@@ -973,6 +978,7 @@
   let lastRebuildTime = -1e9, tAcc = 0;
   let wind = 1, windTarget = 1;
   let colliderCount = 0;
+  const prof = { genMs: 0, genMsMax: 0, genCount: 0, genMsTotal: 0 };
   const rebuild = { active: false, list: null, idx: 0, px: 0, pz: 0 };
   const _qd = [0, 0, 0, 0];
   const cellKey = (cx, cz) => cx + ',' + cz;
@@ -1003,7 +1009,11 @@
     const t0 = performance.now();
     while (genIdx < genQueue.length) {
       const c = genQueue[genIdx++];
-      if (!cells.has(c.key)) { cells.set(c.key, genCell(c.cx, c.cz)); dirty = true; physDirty = true; }
+      if (!cells.has(c.key)) {
+        const t1 = performance.now();
+        cells.set(c.key, genCell(c.cx, c.cz)); dirty = true; physDirty = true;
+        prof.genMs = performance.now() - t1; prof.genMsTotal += prof.genMs; prof.genCount++; if (prof.genMs > prof.genMsMax) prof.genMsMax = prof.genMs;
+      }
       if (performance.now() - t0 > budgetMs) break;
     }
     if (genIdx >= genQueue.length) { genQueue = []; genIdx = 0; }
@@ -1149,6 +1159,7 @@
     const ia = ring.rec.inst; ia[idx * 4] = tr; ia[idx * 4 + 1] = tg; ia[idx * 4 + 2] = tb; ia[idx * 4 + 3] = snow;
   }
   const _gc = [0, 0, 0], _zc = [0, 0, 0];
+  const _gc4 = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
   function groundRGB(T, x, z, zone, out) {
     let v = null;
     if (T.groundColor) v = T.groundColor(x, z);
@@ -1168,11 +1179,15 @@
     const gt = prof.grassTint || null;
     const hMul = (prof.grassH || 1) * (0.85 + 0.3 * clamp(fbm(x0 * 0.02, z0 * 0.02, 2) * 0.5 + 0.5, 0, 1));
     const n = Math.round(ring.perPatch * clamp(densityMult, 0.15, 1));
+    // ground colour sampled at the patch quarter points and bilinearly blended per blade (groundColor is not cheap)
+    groundRGB(T, x0 + P * 0.25, z0 + P * 0.25, zone, _gc4[0]); groundRGB(T, x0 + P * 0.75, z0 + P * 0.25, zone, _gc4[1]);
+    groundRGB(T, x0 + P * 0.25, z0 + P * 0.75, zone, _gc4[2]); groundRGB(T, x0 + P * 0.75, z0 + P * 0.75, zone, _gc4[3]);
     for (let k = 0; k < n; k++) {
       const x = x0 + rng() * P, z = z0 + rng() * P;
       if (!grassOK(T, x, z)) continue;
       const y = T.height(x, z);
-      groundRGB(T, x, z, zone, _gc);
+      const u = clamp((x - x0) / P, 0, 1), v = clamp((z - z0) / P, 0, 1);
+      for (let c = 0; c < 3; c++) _gc[c] = lerp(lerp(_gc4[0][c], _gc4[1][c], u), lerp(_gc4[2][c], _gc4[3][c], u), v);
       const j = 0.85 + rng() * 0.3;
       // ground colour × zone grass colour (normalised so mid-green ground stays mid-green), biome tint, jitter
       let r = _gc[0] * _zc[0] * 2.6 * j, g = _gc[1] * _zc[1] * 2.2 * j, b = _gc[2] * _zc[2] * 2.4 * j;
@@ -1273,13 +1288,13 @@
       dirty = true; forceRebuild = true; physDirty = true;
     }
     const localMissing = !cells.has(cellKey(pcx, pcz));     // first frame / teleport: spend more time now
-    if (genIdx < genQueue.length) generateSome(localMissing ? 40 : 1.0);
+    if (genIdx < genQueue.length) generateSome(localMissing ? 24 : 1.0);
     if (physDirty && !localMissing) { updatePhysics(px, pz); physDirty = false; }
     if (rebuild.active) stepRebuild(localMissing ? 1e9 : 160);
     else if (dirty && (forceRebuild || tAcc - lastRebuildTime > 0.35)) { startRebuild(px, pz); stepRebuild(localMissing ? 1e9 : 160); }
 
     uniforms.uPlayer.value.set(px, playerPos.y || 0, pz);
-    for (let i = 0; i < RINGS.length; i++) updateRing(RINGS[i], px, pz, localMissing ? 1e9 : (i === 0 ? 1.0 : 0.35));
+    for (let i = 0; i < RINGS.length; i++) updateRing(RINGS[i], px, pz, localMissing ? (i === 0 ? 10 : 3) : (i === 0 ? 1.0 : 0.35));
   }
   function setDensity(mult) {
     mult = +mult; if (!(mult === mult)) return;
@@ -1308,7 +1323,8 @@
     let grass = 0;
     for (const ring of RINGS) { const n = ring.used * ring.perPatch; _statsByType[ring.name] = n; if (ring.used) { drawCalls++; tris += n * ring.rec.tris; } if (ring.name === 'grass') grass = n; }
     for (const cell of cells.values()) { cellCount++; trees += cell.tx.length; }
-    return { cells: cellCount, trees, instances, triangles: tris, drawCalls, grass, colliders: colliderCount, wind, density: densityMult, pending: Math.max(0, genQueue.length - genIdx), rebuilding: rebuild.active, byType: _statsByType };
+    return { cells: cellCount, trees, instances, triangles: tris, drawCalls, grass, colliders: colliderCount, wind, density: densityMult, pending: Math.max(0, genQueue.length - genIdx), rebuilding: rebuild.active,
+      genMsAvg: prof.genCount ? Math.round(prof.genMsTotal / prof.genCount * 100) / 100 : 0, genMsMax: Math.round(prof.genMsMax * 100) / 100, byType: _statsByType };
   }
   const _nearBuf = [], _nearPool = [];
   function treesNear(x, z, r) {
