@@ -25,8 +25,8 @@
    * ---------------------------------------------------------------------------------------------- */
   const CELL = 64;                    // placement cell size (m)
   const VIS_FAR = 640;                // farthest tree distance (far LOD)
-  const LOD_NEAR = 90;                // < near: full LOD (cast shadows)
-  const LOD_MID = 250;                // near..mid: mid LOD; >= mid: far LOD (thinned)
+  const LOD_NEAR = 80;                // < near: full LOD (cast shadows)
+  const LOD_MID = 220;                // near..mid: mid LOD; >= mid: far LOD (thinned)
   const KEEP_MARGIN = CELL * 1.5;     // cells stay loaded a little beyond VIS_FAR
   const PHYS_RADIUS = 150;            // colliders registered for cells within this distance
   const FAR_KEEP = 0.45;              // fraction of trees kept in the far LOD
@@ -268,11 +268,11 @@
    * ---------------------------------------------------------------------------------------------- */
   const COL = {
     oakBark: hexRGB(0x584431), oakBarkTop: hexRGB(0x6e5a40), oakLeaf: hexRGB(0x36702a), oakLeafTop: hexRGB(0x86bb3e),
-    pineBark: hexRGB(0x4b3626), pineNeedle: hexRGB(0x22482a), pineNeedleTop: hexRGB(0x4f8d3c), pineUnder: hexRGB(0x1a3320),
+    pineBark: hexRGB(0x4b3626), pineNeedle: hexRGB(0x2c5c32), pineNeedleTop: hexRGB(0x6cab4c), pineUnder: hexRGB(0x1e3a24),
     birchBark: hexRGB(0xe9e5da), birchMark: hexRGB(0x2f2a26), birchLeaf: hexRGB(0x5f9c34), birchLeafTop: hexRGB(0xbfe063),
     willowBark: hexRGB(0x6a5738), willowLeaf: hexRGB(0x5f8f30), willowLeafTop: hexRGB(0xaac54f),
     deadBark: hexRGB(0x46403a), deadBarkTop: hexRGB(0x736a5f),
-    snowBark: hexRGB(0x3b2e25), snowNeedle: hexRGB(0x2a4f36), snowNeedleTop: hexRGB(0x4d7f4d),
+    snowBark: hexRGB(0x3b2e25), snowNeedle: hexRGB(0x31593c), snowNeedleTop: hexRGB(0x5f8f5a),
     malBark: hexRGB(0x9b9b96), malBarkTop: hexRGB(0xbdbbb1), malLeaf: hexRGB(0xc59a2e), malLeafTop: hexRGB(0xf5d867),
     bush: hexRGB(0x3a7529), bushTop: hexRGB(0x78b23c), shrub: hexRGB(0x6d7b44), shrubTop: hexRGB(0xa2a866),
     rock: hexRGB(0x75736c), rockTop: hexRGB(0x9d9b93), moss: hexRGB(0x5b7a37),
@@ -338,9 +338,10 @@
        _blob(1.6, 1, COL.oakLeaf, COL.oakLeafTop, { ox: -1.4, oy: 4.5, oz: -0.6, seed: 23, squash: 0.85 }),
        _blob(1.5, 1, COL.oakLeaf, COL.oakLeafTop, { ox: 0.2, oy: 4.6, oz: 1.6, seed: 24, squash: 0.8 }),
        _blob(1.5, 1, COL.oakLeaf, COL.oakLeafTop, { ox: -0.3, oy: 4.4, oz: -1.7, seed: 25, squash: 0.8 })], H);
-    const l1 = tree([trunk(0.48, 0.2, -0.3, 3.7, 5, 2, 0.1, 0, 11, COL.oakBark, COL.oakBarkTop)],
-      [_blob(2.7, 1, COL.oakLeaf, COL.oakLeafTop, { oy: 4.8, seed: 21, squash: 0.78, noise: 0.22 }),
-       _blob(1.4, 0, COL.oakLeaf, COL.oakLeafTop, { ox: 1.6, oy: 4.0, oz: -0.8, seed: 26, squash: 0.9 })], H);
+    const l1 = tree([trunk(0.48, 0.2, -0.3, 3.7, 5, 1, 0, 0, 11, COL.oakBark, COL.oakBarkTop)],
+      [_blob(2.5, 0, COL.oakLeaf, COL.oakLeafTop, { oy: 4.9, seed: 21, squash: 0.8, noise: 0.16 }),
+       _blob(1.7, 0, COL.oakLeaf, COL.oakLeafTop, { ox: 1.6, oy: 4.2, oz: 0.5, seed: 26, squash: 0.85, noise: 0.16 }),
+       _blob(1.6, 0, COL.oakLeaf, COL.oakLeafTop, { ox: -1.4, oy: 4.4, oz: -0.9, seed: 27, squash: 0.85, noise: 0.16 })], H);
     const l2 = tree([farTrunk(0.4, 3.7, COL.oakBark)], [_blob(2.8, 0, COL.oakLeaf, COL.oakLeafTop, { oy: 4.8, seed: 21, squash: 0.78, noise: 0.12 })], H);
     return { lods: [l0, l1, l2], H };
   }
@@ -353,8 +354,8 @@
       cone(5.5, 7.6, 1.5, 0.08, radial, nd, ndT, under && COL.pineUnder, wave, sd + 3),
       cone(6.9, 9.4, 1.0, 0.04, radial, nd, ndT, under && COL.pineUnder, wave, sd + 4)];
     const l0 = tree([trunk(0.34, 0.08, -0.3, 8.6, 6, 3, 0.03, 0.1, 31, bark, bark)], layers(9, true, 0.13, 31), H, 0.7, 0.4);
-    const l1 = tree([trunk(0.34, 0.08, -0.3, 8.6, 5, 1, 0, 0, 31, bark, bark)],
-      [cone(2.1, 5.0, 2.5, 0.1, 6, nd, ndT, null, 0, 32), cone(4.4, 7.2, 1.8, 0.08, 6, nd, ndT, null, 0, 33), cone(6.6, 9.4, 1.1, 0.04, 6, nd, ndT, null, 0, 34)], H, 0.7, 0.4);
+    const l1 = tree([trunk(0.34, 0.08, -0.3, 8.6, 4, 1, 0, 0, 31, bark, bark)],
+      [cone(2.1, 5.6, 2.5, 0.1, 6, nd, ndT, null, 0, 32), cone(5.0, 9.4, 1.7, 0.04, 6, nd, ndT, null, 0, 34)], H, 0.7, 0.4);
     const l2 = tree([farTrunk(0.3, 3, bark)], [cone(2.0, 9.4, 2.4, 0.05, 5, nd, ndT, null, 0, 35)], H, 0.7, 0.4);
     if (snow) [l0, l1, l2].forEach(g => snowPaint(g, 0.85));
     return { lods: [l0, l1, l2], H };
@@ -371,7 +372,8 @@
        _blob(1.2, 1, COL.birchLeaf, COL.birchLeafTop, { ox: -1.0, oy: 5.8, oz: -0.6, seed: 47, squash: 1.1, noise: 0.32, jitter: 0.08 }),
        _blob(1.1, 1, COL.birchLeaf, COL.birchLeafTop, { ox: 0.1, oy: 6.9, oz: -1.0, seed: 48, squash: 1.2, noise: 0.32, jitter: 0.08 })], H, 1.2);
     const tr1 = trunk(0.24, 0.07, -0.3, 7.2, 5, 2, 0.12, 0, 41, COL.birchBark, COL.birchBark); birchMarks(tr1, 41);
-    const l1 = tree([tr1], [_blob(1.95, 1, COL.birchLeaf, COL.birchLeafTop, { oy: 6.1, seed: 45, squash: 1.2, noise: 0.25 })], H, 1.2);
+    const l1 = tree([tr1], [_blob(1.6, 0, COL.birchLeaf, COL.birchLeafTop, { oy: 6.3, seed: 45, squash: 1.2, noise: 0.2 }),
+      _blob(1.3, 0, COL.birchLeaf, COL.birchLeafTop, { ox: 1.0, oy: 5.5, oz: 0.6, seed: 46, squash: 1.1, noise: 0.2 })], H, 1.2);
     const l2 = tree([farTrunk(0.22, 5, COL.birchBark)], [_blob(2.0, 0, COL.birchLeaf, COL.birchLeafTop, { oy: 6.1, seed: 45, squash: 1.2, noise: 0.15 })], H, 1.2);
     return { lods: [l0, l1, l2], H };
   }
@@ -429,9 +431,10 @@
        _blob(2.8, 1, COL.malLeaf, COL.malLeafTop, { ox: 0.6, oy: 12.0, oz: 3.2, seed: 84, squash: 0.8 }),
        _blob(2.7, 1, COL.malLeaf, COL.malLeafTop, { ox: -0.9, oy: 11.6, oz: -3.3, seed: 85, squash: 0.8 }),
        _blob(2.4, 1, COL.malLeaf, COL.malLeafTop, { ox: 2.4, oy: 14.6, oz: -1.4, seed: 86, squash: 0.8 })], H, 0.8, 0.3);
-    const l1 = tree([trunk(1.2, 0.5, -0.5, 11.5, 6, 2, 0.02, 0, 73, COL.malBark, COL.malBarkTop)],
-      [_blob(5.4, 1, COL.malLeaf, COL.malLeafTop, { oy: 12.8, seed: 81, squash: 0.75, noise: 0.2 }),
-       _blob(2.8, 0, COL.malLeaf, COL.malLeafTop, { ox: 3.4, oy: 11.4, oz: 2.0, seed: 82, squash: 0.8 })], H, 0.8, 0.3);
+    const l1 = tree([trunk(1.2, 0.5, -0.5, 11.5, 6, 1, 0, 0, 73, COL.malBark, COL.malBarkTop)],
+      [_blob(5.0, 0, COL.malLeaf, COL.malLeafTop, { oy: 12.9, seed: 81, squash: 0.75, noise: 0.16 }),
+       _blob(3.2, 0, COL.malLeaf, COL.malLeafTop, { ox: 3.4, oy: 11.6, oz: 2.0, seed: 82, squash: 0.8, noise: 0.16 }),
+       _blob(3.0, 0, COL.malLeaf, COL.malLeafTop, { ox: -3.0, oy: 11.9, oz: -2.2, seed: 83, squash: 0.8, noise: 0.16 })], H, 0.8, 0.3);
     const l2 = tree([farTrunk(1.1, 11, COL.malBark)], [_blob(5.6, 0, COL.malLeaf, COL.malLeafTop, { oy: 12.8, seed: 81, squash: 0.75, noise: 0.12 })], H, 0.8, 0.3);
     return { lods: [l0, l1, l2], H };
   }
@@ -509,10 +512,10 @@
     return finish(mergePlain(fronds), 0.9, true, 1.2, 0.1);
   }
   function buildGrass() {
-    const a = _plane2(1.0, 0.75, 2, COL.white, COL.white, { single: true });
-    const b = _plane2(1.0, 0.75, 2, COL.white, COL.white, { single: true }); b.rotateY(Math.PI / 2);
-    // blades bend a lot: sway weight ~ t^2 * 1.6 (plus tiny base wobble)
-    return finish(mergePlain([a, b]), 0.75, true, 1.6, 0.02);
+    const a = _plane2(0.8, 0.55, 2, COL.white, COL.white, { single: true });
+    const b = _plane2(0.8, 0.55, 2, COL.white, COL.white, { single: true }); b.rotateY(Math.PI / 2);
+    // blades bend a lot: sway weight ~ t^1.6 * 1.6 (plus tiny base wobble)
+    return finish(mergePlain([a, b]), 0.55, true, 1.6, 0.02);
   }
   function buildAllGeometry() {
     GEOMS.oak = buildOak(); GEOMS.pine = buildPine(false); GEOMS.snowpine = buildPine(true); GEOMS.birch = buildBirch();
@@ -530,14 +533,16 @@
    * aVeg  (per vertex, vec2): x = sway weight, y = canopy flag (tint + snow apply where 1)
    * aInst (per instance, vec4): rgb = canopy tint multiplier, w = snow amount
    * ---------------------------------------------------------------------------------------------- */
-  const uniforms = { uTime: { value: 0 }, uWind: { value: 1 } };
+  const uniforms = { uTime: { value: 0 }, uWind: { value: 1 }, uPlayer: { value: new THREE.Vector3() } };
   const WIND_PERIOD = Math.PI * 4 * 25;   // all wind frequencies are multiples of 0.5 → seamless wrap
-  function injectWind(shader) {
+  function injectWind(shader, uFade) {
     shader.uniforms.uTime = uniforms.uTime;
     shader.uniforms.uWind = uniforms.uWind;
+    shader.uniforms.uPlayer = uniforms.uPlayer;
+    shader.uniforms.uFade = uFade;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', [
-        'attribute vec2 aVeg;', 'attribute vec4 aInst;', 'uniform float uTime;', 'uniform float uWind;',
+        'attribute vec2 aVeg;', 'attribute vec4 aInst;', 'uniform float uTime;', 'uniform float uWind;', 'uniform vec3 uPlayer;', 'uniform vec2 uFade;',
         '#include <common>'].join('\n'))
       .replace('#include <color_vertex>', [
         '#include <color_vertex>',
@@ -550,8 +555,9 @@
         '#ifdef USE_INSTANCING',
         '{',
         '  float sw = aVeg.x;',
+        '  vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);',
+        '  if (uFade.x < 1.0e5) transformed *= 1.0 - smoothstep(uFade.x, uFade.y, distance(wp.xz, uPlayer.xz));',
         '  if (sw > 0.001) {',
-        '    vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);',
         '    float ph = wp.x * 0.1 + wp.z * 0.06;',
         '    float t = uTime;',
         '    float g = sin(t * 1.0 + ph) * 0.5 + sin(t * 2.5 + ph * 1.9 + 1.7) * 0.3 + sin(t * 4.0 + ph * 3.1 + 0.6) * 0.2;',
@@ -567,10 +573,12 @@
         '#endif'].join('\n'));
   }
   const MATS = {};
-  function makeMaterial(opts) {
+  function makeMaterial(opts, fadeNear, fadeFar) {
     const m = new THREE.MeshStandardMaterial(Object.assign({ vertexColors: true, roughness: 0.92, metalness: 0.0 }, opts));
-    m.onBeforeCompile = injectWind;
-    m.customProgramCacheKey = () => 'veg_wind_' + (opts.map ? 'a' : 'o') + (opts.flatShading ? 'f' : 's');
+    const uFade = { value: new THREE.Vector2(fadeNear == null ? 1e6 : fadeNear, fadeFar == null ? 1e6 + 1 : fadeFar) };
+    m.userData.uFade = uFade;
+    m.onBeforeCompile = (shader) => injectWind(shader, uFade);
+    m.customProgramCacheKey = () => 'veg_wind_' + (opts.map ? 'a' : 'o') + (opts.flatShading ? 'f' : 's') + (fadeNear == null ? '' : 'd');
     return m;
   }
   function paintGrassTexture(ctx, w, h) {
@@ -626,8 +634,9 @@
   function buildMaterials() {
     MATS.tree = makeMaterial({ side: THREE.FrontSide });
     MATS.rock = makeMaterial({ flatShading: true, roughness: 0.95 });
-    MATS.grass = makeMaterial({ map: makeTexture(128, 128, paintGrassTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 });
-    MATS.fern = makeMaterial({ map: makeTexture(128, 128, paintFernTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 });
+    MATS.grass = makeMaterial({ map: makeTexture(128, 128, paintGrassTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }, 33, 46);
+    MATS.fern = makeMaterial({ map: makeTexture(128, 128, paintFernTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }, 47, 62);
+    MATS.detail = makeMaterial({ side: THREE.FrontSide }, 38, 52);
   }
 
   /* ------------------------------------------------------------------------------------------------
@@ -693,7 +702,7 @@
     barren:   { types: { dead: 5, pine: 1 }, bush: 0, shrub: 9, rock: 8, boulder: 1.5, stump: 0.3, log: 0.3, flower: 0.08, fern: 0, mushroom: 0.1, grassH: 0.6, grassTint: [1.15, 1.0, 0.6], darkTint: [1, 0.95, 0.85] },
     lake:     { types: { willow: 3, birch: 2, oak: 2 }, bush: 5, shrub: 1, rock: 2, boulder: 0.3, stump: 0.3, log: 0.4, flower: 0.8, fern: 0.4, mushroom: 0.3, grassH: 1.0 },
     elven:    { types: { mallorn: 3, birch: 3, oak: 1 }, bush: 4, shrub: 0, rock: 1.5, boulder: 0.2, stump: 0, log: 0.2, flower: 1.2, fern: 0.5, mushroom: 0.4, grassH: 1.0 },
-    mountain: { types: { pine: 6, snowpine: 1, dead: 0.5 }, bush: 0.5, shrub: 4, rock: 12, boulder: 3, stump: 0.3, log: 0.3, flower: 0.2, fern: 0.1, mushroom: 0.1, grassH: 0.75, snow: true },
+    mountain: { types: { pine: 6, snowpine: 1, dead: 0.5 }, bush: 0.5, shrub: 4, rock: 7, boulder: 1.2, stump: 0.3, log: 0.3, flower: 0.2, fern: 0.1, mushroom: 0.1, grassH: 0.75, snow: true },
     dark:     { types: { dead: 5, pine: 2 }, bush: 0, shrub: 6, rock: 9, boulder: 2, stump: 0.5, log: 0.5, flower: 0, fern: 0.1, mushroom: 0.5, grassH: 0.6, grassTint: [0.8, 0.85, 0.7], darkTint: [0.55, 0.6, 0.55], paleMushroom: true },
     arctic:   { types: { snowpine: 6, dead: 1 }, treeMul: 0.6, bush: 0, shrub: 2, rock: 6, boulder: 2, stump: 0.1, log: 0.2, flower: 0, fern: 0, mushroom: 0, grassH: 0.6, grassTint: [1.0, 1.0, 0.8], snow: true, snowAll: true },
     island:   { types: { pine: 2, oak: 2, birch: 2, willow: 1 }, bush: 6, shrub: 2, rock: 6, boulder: 1, stump: 0.3, log: 0.5, flower: 0.6, fern: 0.3, mushroom: 0.2, grassH: 0.95 },
@@ -906,7 +915,7 @@
       const x = x0 + rng() * CELL, z = z0 + rng() * CELL;
       if (T.height(x, z) < SEA + 0.1 || (T.onRoad && T.onRoad(x, z) > 0.15) || townFactor(x, z, towns) < 1) continue;
       const sl = T.slope ? T.slope(x, z) : 0;
-      if (rng() > 0.2 + sl * 1.4 + mountainous * 0.4) continue;
+      if (rng() > Math.min(0.8, 0.12 + sl * 1.3 + mountainous * 0.2)) continue;
       addRock(cell, T, x, z, rng, prof, snowAt(T, prof, x, z), 1 + sl * 0.6);
     }
     const nbo = count(prof.boulder * (1 + mountainous));
@@ -1074,8 +1083,8 @@
     ring.slots.clear(); ring.free.length = 0; ring.next = 0; ring.queue = []; ring.qi = 0; ring.lastPx = Infinity; ring.used = 0;
     ring.rec.mats.fill(0); flagUpdate(ring.rec.mesh.instanceMatrix, 0, ring.rec.mats.length);
   }
-  function updateRing(ring, px, pz, budget) {
-    const P = ring.patch;
+  function updateRing(ring, px, pz, budgetMs) {
+    const P = ring.patch; const t0 = performance.now();
     if (Math.abs(px - ring.lastPx) > P * 0.5 || Math.abs(pz - ring.lastPz) > P * 0.5) {
       ring.lastPx = px; ring.lastPz = pz;
       const n = Math.ceil(ring.radius / P) + 1, pcx = Math.floor(px / P), pcz = Math.floor(pz / P);
@@ -1099,7 +1108,7 @@
       ring.queue = cand; ring.qi = 0;
     }
     let filled = 0;
-    while (ring.qi < ring.queue.length && filled < budget) {
+    while (ring.qi < ring.queue.length && (filled === 0 || performance.now() - t0 < budgetMs)) {
       const c = ring.queue[ring.qi++];
       if (ring.slots.has(c.key)) continue;
       let slot;
@@ -1211,10 +1220,10 @@
     }
   }
   function buildRings() {
-    makeRing('grass', DETAIL_GEOMS.grass, MATS.grass, 45, 8, 250, fillGrass);
-    makeRing('flower', DETAIL_GEOMS.flower, MATS.tree, 55, 16, 40, fillFlowers);
+    makeRing('grass', DETAIL_GEOMS.grass, MATS.grass, 45, 8, 210, fillGrass);
+    makeRing('flower', DETAIL_GEOMS.flower, MATS.detail, 52, 16, 40, fillFlowers);
     makeRing('fern', DETAIL_GEOMS.fern, MATS.fern, 60, 16, 16, fillFerns);
-    makeRing('mushroom', DETAIL_GEOMS.mushroom, MATS.tree, 45, 16, 12, fillMushrooms);
+    makeRing('mushroom', DETAIL_GEOMS.mushroom, MATS.detail, 50, 16, 12, fillMushrooms);
   }
 
   /* ------------------------------------------------------------------------------------------------
@@ -1249,12 +1258,13 @@
       dirty = true; forceRebuild = true; physDirty = true;
     }
     const localMissing = !cells.has(cellKey(pcx, pcz));     // first frame / teleport: spend more time now
-    if (genIdx < genQueue.length) generateSome(localMissing ? 40 : 2.5);
+    if (genIdx < genQueue.length) generateSome(localMissing ? 40 : 1.5);
     if (physDirty && !localMissing) { updatePhysics(px, pz); physDirty = false; }
     if (rebuild.active) stepRebuild(localMissing ? 1e9 : 160);
     else if (dirty && (forceRebuild || tAcc - lastRebuildTime > 0.35)) { startRebuild(px, pz); stepRebuild(forceRebuild || localMissing ? 1e9 : 160); }
 
-    for (let i = 0; i < RINGS.length; i++) updateRing(RINGS[i], px, pz, localMissing ? 1e9 : (i === 0 ? 6 : 3));
+    uniforms.uPlayer.value.set(px, playerPos.y || 0, pz);
+    for (let i = 0; i < RINGS.length; i++) updateRing(RINGS[i], px, pz, localMissing ? 1e9 : (i === 0 ? 1.2 : 0.5));
   }
   function setDensity(mult) {
     mult = +mult; if (!(mult === mult)) return;
@@ -1276,9 +1286,9 @@
   function stats() {
     let instances = 0, tris = 0, drawCalls = 0, trees = 0, cellCount = 0;
     for (const type in MESHES) {
-      let n = 0;
-      for (const rec of MESHES[type]) { n += rec.mesh.count; if (rec.mesh.count > 0) { drawCalls++; tris += rec.mesh.count * rec.tris; } }
-      _statsByType[type] = n; instances += n;
+      let n = 0; const lods = [];
+      for (const rec of MESHES[type]) { n += rec.mesh.count; lods.push(rec.mesh.count); if (rec.mesh.count > 0) { drawCalls++; tris += rec.mesh.count * rec.tris; } }
+      _statsByType[type] = lods.length > 1 ? lods : n; instances += n;
     }
     let grass = 0;
     for (const ring of RINGS) { const n = ring.used * ring.perPatch; _statsByType[ring.name] = n; if (ring.used) { drawCalls++; tris += n * ring.rec.tris; } if (ring.name === 'grass') grass = n; }

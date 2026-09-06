@@ -42,3 +42,10 @@
 ## 01_audio.js
 - Listener = `G.state.player.pos`; panning uses `G.Player.cam.yaw`. Audio self-subscribes to `weatherChanged` and `dayPhase` for rain/ambient mixes; main must still call `G.Audio.music(zone.music)` on zone change and `G.Audio.ambient(biome, phase)`.
 - Extras: `footstep(groundType, opts)` (handles all G.Terrain.groundType values), `stopLoop(name, fade)`, `setAmbientRain(bool)`, `stopAmbient()`, `duck(bool)`, `has(name)`, `hasTheme(id)`, `stats`, `stopAll()`, `suspend/resume`. Emits `audioReady`, `musicEnded(id)`. `victory`/`death` themes are one-shots (currentTheme clears when done — main should restore the zone theme on `musicEnded`).
+
+## 03_data_items.js
+- 1,918 templates, 29 sets. `G.Data.lostKingdom = {armour:{light,medium,heavy}, weapons:{subtype:tid}, jewellery:[8 tids], sets:[5 ids], mount:'mount_lostkingdom'}`; `G.Items.lostKingdomSet(cls)` → 18 instances; `G.Items.starterGear(cls)`.
+- Ranged-slot subtypes: bow, crossbow, javelin, throwing, staff, runestone, instrument → `R` reads `player.equipment.ranged`. Extra subtypes `throwing`, `talisman` (off-hand focus). Only halberd is two-handed. Dual-wield: one-handed weapons may go in offhand via `equip(player, i, 'offhand')`.
+- `lootFor(type, level)` → array with `.gold` (copper). `setBonuses(ent)` → `{stats, sets:[...]}`. `use(player, slotIndex)` calls `G.Combat.heal/addEffect`, `G.Player.teleport` when present.
+- Helpers: `template(tid)`, `all()`, `bySlot`, `tierFor`, `typeLabel`, `slotsFor(inst)`, `rarityOf`, `rarityColor`, `isEquippable`, `isUsable`, `isTwoHanded`, `dps`, `classCanWield`, `classOk`, `findInInventory`, `freeSlots`, `usedSlots`, `destroy`, `equipDirect(player, inst|tid, slot?)`, `buyValue`, `sellValue`, `iconHTML(inst, size)`, `tooltipHTML(inst, player)`, `compare`.
+- Generated gear instances carry overrides over hidden `gen_*` base templates; save as plain JSON.
