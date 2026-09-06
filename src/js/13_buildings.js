@@ -380,3 +380,495 @@
   }
   function latheGeo(points, seg) { return new T.LatheGeometry(points.map(p => new T.Vector2(p[0], p[1])), seg || 12); }
   function domeGeo(r, wseg, hseg) { return new T.SphereGeometry(r, wseg || 24, hseg || 12, 0, TAU, 0, HPI); }
+
+  /* ------------------------------------------------------------------------------------------------ */
+  /* Builder — accumulates vertex-coloured pieces into (group × material) buckets + placement metadata  */
+  /* Local frame: building centre at origin on the ground (y=0), FRONT/door side = -z (yaw 0 = facing -Z). */
+  /* ------------------------------------------------------------------------------------------------ */
+  class Builder {
+    constructor(key, seed) {
+      this.key = key; this.rng = rngOf(seed); this.buckets = {}; this.cur = null; this.stack = [];
+      this.meta = { walls: [], boxes: [], cyls: [], doors: [], lights: [], hearths: [], smokes: [], spots: [], signs: [], horses: [], interior: null, ceilings: [], radius: 0, minY: 0, maxY: 0 };
+      this._min = new T.Vector3(Infinity, Infinity, Infinity); this._max = new T.Vector3(-Infinity, -Infinity, -Infinity);
+    }
+    at(x, z, ry, y) {
+      this.stack.push(this.cur);
+      const p = this.xf(x || 0, y || 0, z || 0);
+      const r = this.yaw(ry || 0);
+      this.cur = { x: p.x, y: p.y, z: p.z, ry: r, c: Math.cos(r), s: Math.sin(r) };
+      return this;
+    }
+    end() { this.cur = this.stack.length ? this.stack.pop() : null; }
+    xf(x, y, z) { const c = this.cur; if (!c) return { x, y, z }; return { x: x * c.c + z * c.s + c.x, y: y + c.y, z: -x * c.s + z * c.c + c.z }; }
+    yaw(ry) { return this.cur ? ry + this.cur.ry : ry; }
+    _expand(geo) {
+      geo.computeBoundingBox(); const bb = geo.boundingBox;
+      this._min.min(bb.min); this._max.max(bb.max);
+    }
+    piece(grp, mat, geo, x, y, z, hex, o) {
+      o = o || {};
+      if (o.sx !== undefined || o.sy !== undefined || o.sz !== undefined) geo.scale(o.sx === undefined ? 1 : o.sx, o.sy === undefined ? 1 : o.sy, o.sz === undefined ? 1 : o.sz);
+      if (o.rx) geo.rotateX(o.rx);
+      if (o.rz) geo.rotateZ(o.rz);
+      if (o.ry) geo.rotateY(o.ry);
+      geo.translate(x, y, z);
+      const c = this.cur;
+      if (c) { if (c.ry) geo.rotateY(c.ry); geo.translate(c.x, c.y, c.z); }
+      if (geo.index) geo = geo.toNonIndexed();
+      if (!geo.attributes.normal) geo.computeVertexNormals();
+      tintGeo(geo, hex === undefined ? 0xffffff : hex, o.jit === undefined ? 0.05 : o.jit, this.rng, o.faceJit !== false);
+      if (TEXTURED[mat]) boxUV(geo, (o.uv || 1) * UV_SCALE[mat]);
+      this._expand(geo);
+      const bk = this.buckets[grp] || (this.buckets[grp] = {});
+      (bk[mat] || (bk[mat] = [])).push(geo);
+      return geo;
+    }
+    box(grp, mat, w, h, d, x, y, z, hex, o) { return this.piece(grp, mat, new T.BoxGeometry(w, h, d), x, y, z, hex, o); }
+    cyl(grp, mat, rt, rb, h, seg, x, y, z, hex, o) { o = o || {}; return this.piece(grp, mat, new T.CylinderGeometry(rt, rb, h, seg || 12, 1, !!o.open, o.ts || 0, o.tl === undefined ? TAU : o.tl), x, y, z, hex, o); }
+    sph(grp, mat, r, x, y, z, hex, o) { return this.piece(grp, mat, new T.SphereGeometry(r, 10, 7), x, y, z, hex, o); }
+    cone(grp, mat, r, h, seg, x, y, z, hex, o) { o = o || {}; return this.piece(grp, mat, new T.ConeGeometry(r, h, seg || 12, 1, !!o.open, o.ts || 0, o.tl === undefined ? TAU : o.tl), x, y, z, hex, o); }
+    torus(grp, mat, R, r, x, y, z, hex, o) { return this.piece(grp, mat, new T.TorusGeometry(R, r, 7, 22), x, y, z, hex, o); }
+    plane(grp, mat, w, h, x, y, z, hex, o) { return this.piece(grp, mat, new T.PlaneGeometry(w, h), x, y, z, hex, o); }
+    lathe(grp, mat, pts, seg, x, y, z, hex, o) { return this.piece(grp, mat, latheGeo(pts, seg), x, y, z, hex, o); }
+    // metadata (all transformed through the cursor)
+    wallCol(x1, z1, x2, z2, h, t) { const a = this.xf(x1, 0, z1), b = this.xf(x2, 0, z2); this.meta.walls.push({ x1: a.x, z1: a.z, x2: b.x, z2: b.z, h: h || 3, t: t || 0.3 }); }
+    boxCol(minx, miny, minz, maxx, maxy, maxz, floor) {
+      const p1 = this.xf(minx, miny, minz), p2 = this.xf(maxx, miny, maxz), p3 = this.xf(minx, miny, maxz), p4 = this.xf(maxx, miny, minz);
+      const cy = this.cur ? this.cur.y : 0;
+      this.meta.boxes.push({ minx: Math.min(p1.x, p2.x, p3.x, p4.x), maxx: Math.max(p1.x, p2.x, p3.x, p4.x), minz: Math.min(p1.z, p2.z, p3.z, p4.z), maxz: Math.max(p1.z, p2.z, p3.z, p4.z), miny: miny + cy, maxy: maxy + cy, floor: !!floor });
+    }
+    cylCol(x, z, r, h) { const p = this.xf(x, 0, z); this.meta.cyls.push({ x: p.x, z: p.z, r, h, y: p.y }); }
+    ringCol(x, z, r, h, n, gapAngle, gapWidth) {   // polygonal ring of wall colliders, optional gap centred at gapAngle (0 = -z)
+      n = n || 12;
+      for (let i = 0; i < n; i++) {
+        const a0 = (i / n) * TAU, a1 = ((i + 1) / n) * TAU, am = (a0 + a1) / 2;
+        if (gapWidth) { let d = Math.atan2(Math.sin(am - gapAngle), Math.cos(am - gapAngle)); if (Math.abs(d) * r < gapWidth / 2 + 0.3) continue; }
+        this.wallCol(x - Math.sin(a0) * r, z - Math.cos(a0) * r, x - Math.sin(a1) * r, z - Math.cos(a1) * r, h, 0.3);
+      }
+    }
+    floor(minx, minz, maxx, maxz, y, mat, hex, grp, th) {
+      th = th || 0.12;
+      this.box(grp || 'int', mat || 'planks', maxx - minx, th, maxz - minz, (minx + maxx) / 2, y - th / 2, (minz + maxz) / 2, hex === undefined ? 0x9a6f48 : hex, { jit: 0.04 });
+      this.boxCol(minx, y - th, minz, maxx, y, maxz, true);
+    }
+    door(d) { const p = this.xf(d.x, d.y || 0, d.z); this.meta.doors.push(Object.assign({}, d, { x: p.x, y: p.y, z: p.z, ry: this.yaw(d.ry || 0) })); }
+    light(x, y, z, o) {
+      o = o || {}; const p = this.xf(x, y, z);
+      this.meta.lights.push({ x: p.x, y: p.y, z: p.z, color: o.color || 0xffa040, intensity: o.intensity || 40, dist: o.dist || 12, kind: o.kind || 'fire', flicker: o.flicker === undefined ? (o.kind === 'fire' || !o.kind) : o.flicker });
+    }
+    hearth(x, y, z, scale, kind) { const p = this.xf(x, y, z); this.meta.hearths.push({ x: p.x, y: p.y, z: p.z, scale: scale || 1, kind: kind || 'fire_static' }); }
+    smoke(x, y, z) { this.meta.smokes.push(this.xf(x, y, z)); }
+    spot(x, z, ry, role, y) { const p = this.xf(x, y || 0, z); this.meta.spots.push({ x: p.x, y: p.y, z: p.z, yaw: this.yaw(ry || 0), role: role || 'idle' }); }
+    interior(minx, miny, minz, maxx, maxy, maxz) { this.meta.interior = { minx, miny, minz, maxx, maxy, maxz }; }
+    ceiling(grp, y) { this.meta.ceilings.push({ grp, y }); }
+    sign(x, y, z, ry, w, h) { const p = this.xf(x, y, z); this.meta.signs.push({ x: p.x, y: p.y, z: p.z, ry: this.yaw(ry || 0), w: w || 1.4, h: h || 0.45 }); }
+    horse(x, z, ry) { const p = this.xf(x, 0, z); this.meta.horses.push({ x: p.x, z: p.z, yaw: this.yaw(ry || 0) }); }
+    build() {
+      const groups = {};
+      for (const grp in this.buckets) {
+        const list = [];
+        for (const mat in this.buckets[grp]) { const geo = mergeGeos(this.buckets[grp][mat]); if (geo) list.push({ mat, geo }); }
+        groups[grp] = list;
+      }
+      const m = this.meta;
+      if (this._min.x < Infinity) {
+        m.radius = Math.max(Math.abs(this._min.x), Math.abs(this._max.x), Math.abs(this._min.z), Math.abs(this._max.z)) * 1.05 + 0.5;
+        m.minY = this._min.y; m.maxY = this._max.y;
+      }
+      this.buckets = null;
+      return { groups, meta: m };
+    }
+  }
+
+  /* ------------------------------------------------------------------------------------------------ */
+  /* House shell: 4 walls with door/window holes (+gables), plinth, timber framing, roof, chimney       */
+  /* holes: { side:'f'|'b'|'l'|'r', u (along wall), y (bottom), w, h | r (round), arch, door, kind, hinge, leaves } */
+  /* ------------------------------------------------------------------------------------------------ */
+  const SIDE = {
+    f: (W, D) => ({ x: 0, z: -D / 2, ry: 0, mir: 1 }),
+    b: (W, D) => ({ x: 0, z: D / 2, ry: PI, mir: -1 }),
+    l: (W, D) => ({ x: -W / 2, z: 0, ry: HPI, mir: -1 }),
+    r: (W, D) => ({ x: W / 2, z: 0, ry: -HPI, mir: 1 }),
+  };
+  function sideMap(side, W, D, u) {
+    switch (side) { case 'f': return { x: u, z: -D / 2 }; case 'b': return { x: u, z: D / 2 }; case 'l': return { x: -W / 2, z: u }; default: return { x: W / 2, z: u }; }
+  }
+  function shell(b, o) {
+    const W = o.W, D = o.D, H = o.h, t = o.t || 0.35, skirt = o.skirt === undefined ? 1.0 : o.skirt;
+    const wallMat = o.wallMat || 'plaster', wallHex = o.wallHex === undefined ? 0xe6dcc4 : o.wallHex;
+    const woodHex = o.woodHex === undefined ? 0x5a3c25 : o.woodHex;
+    const ridgeX = o.ridge !== 'z';
+    const bySide = { f: [], b: [], l: [], r: [] };
+    for (const h of (o.holes || [])) bySide[h.side].push(h);
+    for (const side of ['f', 'b', 'l', 'r']) {
+      const c = SIDE[side](W, D);
+      const L = (side === 'f' || side === 'b') ? W : D;
+      const list = bySide[side];
+      const gable = (o.peak && ((ridgeX && (side === 'l' || side === 'r')) || (!ridgeX && (side === 'f' || side === 'b')))) ? o.peak : 0;
+      const holes = list.map(h => Object.assign({}, h, { s: c.mir * h.u }));
+      const g = wallGeo(L, H, t, holes, gable, skirt);
+      b.piece('ext', wallMat, g, c.x, 0, c.z, wallHex, { ry: c.ry, jit: o.wallJit === undefined ? 0.02 : o.wallJit, faceJit: false });
+      const doors = list.filter(h => h.door).sort((p, q) => p.u - q.u);
+      const segCol = (ua, ub) => { if (ub - ua < 0.05) return; const p = sideMap(side, W, D, ua), q = sideMap(side, W, D, ub); b.wallCol(p.x, p.z, q.x, q.z, gable || H, Math.max(0.3, t)); };
+      let u0 = -L / 2;
+      for (const d of doors) { segCol(u0, d.u - (d.r ? d.r : d.w / 2)); u0 = d.u + (d.r ? d.r : d.w / 2); }
+      segCol(u0, L / 2);
+      b.at(c.x, c.z, c.ry);
+      for (const h of list) {
+        const s = c.mir * h.u;
+        if (h.door) {
+          const fw = 0.14;
+          if (h.r) {
+            b.torus('ext', h.frameMat || 'brick', h.r + 0.1, 0.13, s, h.y, -t / 2 + 0.02, h.frameHex || 0xa8694a, { jit: 0.08 });
+          } else {
+            b.box('ext', 'wood', fw, h.h + 0.1, t + 0.16, s - h.w / 2 - fw / 2 + 0.02, (h.h + 0.1) / 2, 0, woodHex);
+            b.box('ext', 'wood', fw, h.h + 0.1, t + 0.16, s + h.w / 2 + fw / 2 - 0.02, (h.h + 0.1) / 2, 0, woodHex);
+            if (h.arch) b.torus('ext', 'wood', h.w / 2 + 0.05, 0.08, s, h.y + h.h - h.w / 2, 0, woodHex, { sz: (t + 0.16) / 0.16 });
+            else b.box('ext', 'wood', h.w + fw * 2, fw + 0.04, t + 0.16, s, h.h + 0.06, 0, woodHex);
+          }
+          b.box('ext', 'stone', (h.r ? h.r * 2 : h.w) + 0.5, 0.12, 0.9, s, -0.02, -t / 2 - 0.4, 0x8d8579, { jit: 0.06 });
+          const dp = sideMap(side, W, D, h.u);
+          b.end();
+          b.door({ x: dp.x, z: dp.z, ry: c.ry, w: h.r ? h.r * 2 : h.w, h: h.r ? h.r * 2 : h.h, kind: h.kind || (h.r ? 'round' : h.arch ? 'arch' : 'plain'), hinge: h.hinge || -1, leaves: h.leaves || 1, hex: h.doorHex, y: h.r ? h.y - h.r : 0, t });
+          b.at(c.x, c.z, c.ry);
+        } else if (h.r) {
+          b.cyl('ext', 'glass', h.r - 0.02, h.r - 0.02, 0.05, 16, s, h.y, 0, 0xffffff, { rx: HPI });
+          b.torus('ext', h.frameMat || 'brick', h.r + 0.08, 0.1, s, h.y, -t / 2 - 0.01, h.frameHex || 0xa8694a, { jit: 0.08 });
+          b.box('ext', 'wood', 0.05, h.r * 2 - 0.04, 0.08, s, h.y, 0, woodHex); b.box('ext', 'wood', h.r * 2 - 0.04, 0.05, 0.08, s, h.y, 0, woodHex);
+        } else {
+          const cy = h.y + h.h / 2;
+          b.box('ext', 'glass', h.w - 0.02, h.h - 0.02, 0.05, s, cy, 0, 0xffffff);
+          const fh = h.arch ? h.h - h.w / 2 : h.h;
+          b.box('ext', 'wood', 0.08, fh, t + 0.1, s - h.w / 2 - 0.03, h.y + fh / 2, 0, woodHex);
+          b.box('ext', 'wood', 0.08, fh, t + 0.1, s + h.w / 2 + 0.03, h.y + fh / 2, 0, woodHex);
+          if (h.arch) b.torus('ext', 'wood', h.w / 2 + 0.03, 0.05, s, h.y + fh, 0, woodHex, { sz: (t + 0.1) / 0.1 });
+          else b.box('ext', 'wood', h.w + 0.14, 0.08, t + 0.1, s, h.y + h.h + 0.03, 0, woodHex);
+          b.box('ext', 'wood', 0.06, h.h - 0.04, 0.08, s, cy, 0, woodHex);
+          b.box('ext', 'wood', h.w - 0.04, 0.06, 0.08, s, cy, 0, woodHex);
+          b.box('ext', o.sillMat || 'stone', h.w + 0.3, 0.1, t + 0.3, s, h.y - 0.04, 0, o.sillHex || 0x9a9285, { jit: 0.05 });
+          if (o.shutters) {
+            b.box('ext', 'wood', 0.32, h.h - 0.05, 0.05, s - h.w / 2 - 0.25, cy, -t / 2 - 0.04, o.shutterHex || 0x6b4a2a);
+            b.box('ext', 'wood', 0.32, h.h - 0.05, 0.05, s + h.w / 2 + 0.25, cy, -t / 2 - 0.04, o.shutterHex || 0x6b4a2a);
+          }
+        }
+      }
+      if (o.timber) {
+        const zo = -(t / 2 + 0.055), bw = 0.13, y0 = (o.baseH || 0) + 0.05;
+        const hexT = o.timberHex || 0x4a3220;
+        b.box('ext', 'wood', L + 0.1, bw, 0.11, 0, y0 + bw / 2, zo, hexT);
+        b.box('ext', 'wood', L + 0.1, bw, 0.11, 0, H - bw / 2, zo, hexT);
+        const n = Math.max(2, Math.round(L / 1.5));
+        for (let i = 0; i <= n; i++) {
+          const s = clamp(-L / 2 + (L / n) * i, -L / 2 + bw / 2, L / 2 - bw / 2);
+          const clash = list.some(h => Math.abs(c.mir * h.u - s) < (h.r ? h.r : h.w / 2) + 0.2);
+          if (clash) continue;
+          b.box('ext', 'wood', bw, H - y0, 0.11, s, y0 + (H - y0) / 2, zo, hexT);
+        }
+        const bl = Math.min(1.5, (H - y0) * 0.55);
+        for (const sg of [-1, 1]) {
+          const s = sg * (L / 2 - 0.5);
+          const clash = list.some(h => Math.abs(c.mir * h.u - s) < (h.r ? h.r : h.w / 2) + 0.6);
+          if (!clash) b.box('ext', 'wood', bw * 0.9, bl, 0.1, s, y0 + bl * 0.5 + 0.1, zo, hexT, { rz: sg * 0.7 });
+        }
+        if (gable) {
+          const gh = gable - H;
+          for (const s of [-L / 4, 0, L / 4]) { const hh = gh * (1 - Math.abs(s) / (L / 2)) - 0.08; if (hh > 0.3) b.box('ext', 'wood', bw, hh, 0.11, s, H + hh / 2, zo, hexT); }
+        }
+      }
+      b.end();
+    }
+    if (o.baseH) {
+      const e = 0.12, bh = o.baseH + skirt, cy = (o.baseH - skirt) / 2, hexS = o.baseHex || 0x8f887c;
+      b.box('ext', 'stone', W + 2 * e + t, bh, e + t / 2, 0, cy, -(D / 2 + e / 2 + t / 4), hexS, { jit: 0.08 });
+      b.box('ext', 'stone', W + 2 * e + t, bh, e + t / 2, 0, cy, (D / 2 + e / 2 + t / 4), hexS, { jit: 0.08 });
+      b.box('ext', 'stone', e + t / 2, bh, D + t, -(W / 2 + e / 2 + t / 4), cy, 0, hexS, { jit: 0.08 });
+      b.box('ext', 'stone', e + t / 2, bh, D + t, (W / 2 + e / 2 + t / 4), cy, 0, hexS, { jit: 0.08 });
+    }
+    if (o.floor !== false) b.floor(-W / 2 - t / 2, -D / 2 - t / 2, W / 2 + t / 2, D / 2 + t / 2, 0.05, o.floorMat || 'planks', o.floorHex === undefined ? 0x9a6f48 : o.floorHex);
+    b.interior(-W / 2 + t / 2, -0.5, -D / 2 + t / 2, W / 2 - t / 2, (o.peak || H) + 0.5, D / 2 - t / 2);
+    if (o.roof !== false && o.peak) {
+      const ov = o.overhang === undefined ? 0.5 : o.overhang, th = o.roofTh || 0.3;
+      const across = ridgeX ? D : W, along = ridgeX ? W : D;
+      const span = across + 2 * ov, len = along + 2 * ov;
+      const k = (o.peak - H) / (across / 2);
+      const ye = H - k * ov;
+      const g = chevronRoofGeo(span, ye, o.peak, th, len, !!o.curvedRoof);
+      b.piece('roof', o.roofMat || 'thatch', g, 0, 0, 0, o.roofHex === undefined ? 0xb8944f : o.roofHex, { ry: ridgeX ? -HPI : 0, jit: 0.04, faceJit: false });
+      const capHex = o.capHex === undefined ? 0x8a6a36 : o.capHex;
+      b.cyl('roof', o.roofMat || 'thatch', 0.2, 0.2, len + 0.1, 8, 0, o.peak - 0.02, 0, capHex, ridgeX ? { rz: HPI } : { rx: HPI });
+    }
+    if (o.chimney) {
+      const ch = o.chimney, cs = sideMap(ch.side, W, D, ch.u);
+      const out = { f: [0, -1], b: [0, 1], l: [-1, 0], r: [1, 0] }[ch.side];
+      const cx = cs.x + out[0] * 0.3, cz = cs.z + out[1] * 0.3, top = (o.peak || H) + 0.9;
+      b.box('ext', 'stone', 1.0, top + 1, 1.0, cx, top / 2 - 0.5, cz, o.chimneyHex || 0x8b8377, { jit: 0.08 });
+      b.box('ext', 'stone', 1.25, 0.25, 1.25, cx, top + 0.1, cz, 0x7d766b, { jit: 0.05 });
+      b.box('ext', 'flat', 0.5, 0.06, 0.5, cx, top + 0.25, cz, 0x151210, { jit: 0 });
+      b.smoke(cx, top + 0.35, cz);
+    }
+    return { W, D, H, t };
+  }
+
+  /* ------------------------------------------------------------------------------------------------ */
+  /* Furniture library (built in the current cursor frame; origin on the floor, front = -z)             */
+  /* ------------------------------------------------------------------------------------------------ */
+  const WOOD_F = 0x7d5433, WOOD_D = 0x4f3420, WOOD_L = 0xa87a4e, STONE_I = 0x8a8378, CREAM = 0xe9dfc8;
+  const BLANKETS = [0x8c3a32, 0x3e6a44, 0x3a5a8c, 0x8a6a2a, 0x6a3a6a];
+  const F = {
+    table(b, g, w, d, hex) {
+      hex = hex || WOOD_F;
+      b.box(g, 'wood', w, 0.07, d, 0, 0.77, 0, hex);
+      b.box(g, 'wood', w - 0.3, 0.1, d - 0.3, 0, 0.68, 0, hex);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box(g, 'wood', 0.09, 0.72, 0.09, sx * (w / 2 - 0.14), 0.36, sz * (d / 2 - 0.14), WOOD_D);
+    },
+    bench(b, g, len, hex) {
+      hex = hex || WOOD_F;
+      b.box(g, 'wood', len, 0.06, 0.34, 0, 0.46, 0, hex);
+      for (const s of [-1, 1]) b.box(g, 'wood', 0.08, 0.44, 0.3, s * (len / 2 - 0.2), 0.22, 0, WOOD_D);
+    },
+    stool(b, g) {
+      b.cyl(g, 'wood', 0.19, 0.17, 0.05, 10, 0, 0.45, 0, WOOD_F);
+      for (let i = 0; i < 3; i++) { const a = i * TAU / 3; b.cyl(g, 'wood', 0.025, 0.03, 0.44, 5, Math.sin(a) * 0.12, 0.22, Math.cos(a) * 0.12, WOOD_D, { rz: Math.cos(a) * 0.12, rx: -Math.sin(a) * 0.12 }); }
+    },
+    chair(b, g, hex) {
+      hex = hex || WOOD_F;
+      b.box(g, 'wood', 0.46, 0.05, 0.46, 0, 0.46, 0, hex);
+      b.box(g, 'wood', 0.46, 0.5, 0.05, 0, 0.75, 0.2, hex);
+      b.box(g, 'wood', 0.36, 0.08, 0.04, 0, 0.88, 0.2, WOOD_D);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box(g, 'wood', 0.05, 0.46, 0.05, sx * 0.19, 0.23, sz * 0.19, WOOD_D);
+    },
+    bed(b, g, w, len, bl) {
+      w = w || 1.1; len = len || 2.1; bl = bl === undefined ? BLANKETS[0] : bl;
+      b.box(g, 'wood', w, 0.3, len, 0, 0.25, 0, WOOD_F);
+      b.box(g, 'wood', w, 0.95, 0.07, 0, 0.6, len / 2 - 0.03, WOOD_F);
+      b.box(g, 'wood', w, 0.55, 0.07, 0, 0.4, -len / 2 + 0.03, WOOD_F);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box(g, 'wood', 0.09, 0.4, 0.09, sx * (w / 2 - 0.05), 0.2, sz * (len / 2 - 0.05), WOOD_D);
+      b.box(g, 'flat', w - 0.1, 0.16, len - 0.14, 0, 0.48, 0, CREAM, { jit: 0.02 });
+      b.box(g, 'flat', w - 0.06, 0.08, len * 0.62, 0, 0.6, -len * 0.14, bl, { jit: 0.04 });
+      b.box(g, 'flat', w * 0.62, 0.13, 0.36, 0, 0.62, len / 2 - 0.35, 0xf3ecdc, { jit: 0.02 });
+    },
+    shelf(b, g, w, kind, h) {
+      h = h || 2.0;
+      const n = Math.max(2, Math.round(h / 0.5));
+      for (const s of [-1, 1]) b.box(g, 'wood', 0.06, h, 0.32, s * (w / 2 - 0.03), h / 2, 0, WOOD_F);
+      b.box(g, 'wood', w, h, 0.03, 0, h / 2, 0.15, WOOD_D, { jit: 0.03 });
+      for (let i = 0; i < n; i++) {
+        const y = 0.3 + i * ((h - 0.4) / (n - 1));
+        b.box(g, 'wood', w - 0.1, 0.04, 0.32, 0, y, 0, WOOD_F);
+        F.shelfItems(b, g, w - 0.2, y + 0.02, kind, i);
+      }
+    },
+    shelfItems(b, g, w, y, kind, row) {
+      const r = b.rng;
+      if (kind === 'books') {
+        let x = -w / 2 + 0.05;
+        while (x < w / 2 - 0.08) { const bw = 0.04 + r() * 0.05, bh = 0.18 + r() * 0.1; b.box(g, 'flat', bw, bh, 0.16 + r() * 0.06, x + bw / 2, y + bh / 2, 0, [0x7a2a2a, 0x2a4a7a, 0x4a6a2a, 0x8a6a2a, 0x5a3a6a, 0xd8c8a8][Math.floor(r() * 6)], { jit: 0.06 }); x += bw + 0.012; if (r() < 0.15) x += 0.12; }
+      } else if (kind === 'bottles') {
+        for (let x = -w / 2 + 0.1; x < w / 2 - 0.05; x += 0.13) { if (r() < 0.2) continue; const hx = [0x2f6a3a, 0x6a3a1a, 0x3a5a7a, 0x7a7a5a][Math.floor(r() * 4)]; b.cyl(g, 'flat', 0.04, 0.045, 0.24, 7, x, y + 0.12, 0, hx, { jit: 0.04 }); b.cyl(g, 'flat', 0.016, 0.02, 0.09, 6, x, y + 0.28, 0, hx, { jit: 0.04 }); }
+      } else if (kind === 'goods') {
+        for (let x = -w / 2 + 0.15; x < w / 2 - 0.1; x += 0.3) {
+          const k = Math.floor(r() * 4);
+          if (k === 0) b.cyl(g, 'flat', 0.08, 0.07, 0.2, 8, x, y + 0.1, 0, 0xc8b48a, { jit: 0.05 });
+          else if (k === 1) b.sph(g, 'flat', 0.11, x, y + 0.09, 0, 0xb9a070, { sy: 0.8, jit: 0.05 });
+          else if (k === 2) b.cyl(g, 'flat', 0.07, 0.07, 0.26, 8, x, y + 0.07, 0, [0x8a2a2a, 0x2a4a8a, 0x5a7a2a, 0xe8dcc8][Math.floor(r() * 4)], { rz: HPI, jit: 0.04 });
+          else b.box(g, 'wood', 0.22, 0.14, 0.18, x, y + 0.07, 0, WOOD_L, { jit: 0.05 });
+        }
+      } else { // crockery
+        for (let x = -w / 2 + 0.12; x < w / 2 - 0.08; x += 0.24) {
+          const k = (row + Math.floor(r() * 3)) % 4;
+          if (k === 0) { b.cyl(g, 'flat', 0.11, 0.11, 0.015, 12, x, y + 0.11, 0.04, 0xece4d2, { rx: HPI - 0.2, jit: 0.02 }); }
+          else if (k === 1) { b.cyl(g, 'flat', 0.045, 0.04, 0.11, 8, x, y + 0.055, 0, 0x9ca3a8, { jit: 0.04 }); }
+          else if (k === 2) { b.lathe(g, 'flat', [[0.02, 0], [0.07, 0.02], [0.08, 0.1], [0.05, 0.18], [0.05, 0.22], [0.06, 0.24]], 10, x, y, 0, 0xb8865a, { jit: 0.04 }); }
+          else { b.lathe(g, 'flat', [[0.02, 0], [0.09, 0.02], [0.11, 0.07], [0.1, 0.08]], 10, x, y, 0, 0xd9c9a8, { jit: 0.04 }); }
+        }
+      }
+    },
+    cupboard(b, g, w, h) {
+      w = w || 1.1; h = h || 1.9;
+      b.box(g, 'wood', w, h, 0.5, 0, h / 2, 0, WOOD_F);
+      b.box(g, 'wood', w + 0.08, 0.06, 0.56, 0, h + 0.03, 0, WOOD_D);
+      for (const s of [-1, 1]) { b.box(g, 'wood', w / 2 - 0.08, h - 0.16, 0.03, s * (w / 4), h / 2, -0.26, WOOD_L, { jit: 0.03 }); b.sph(g, 'metal', 0.025, s * 0.06, h / 2, -0.29, 0xc8a850); }
+    },
+    chest(b, g, hex) {
+      hex = hex || WOOD_F;
+      b.box(g, 'wood', 0.9, 0.48, 0.52, 0, 0.24, 0, hex);
+      b.box(g, 'wood', 0.94, 0.16, 0.56, 0, 0.56, 0, hex);
+      b.cyl(g, 'wood', 0.28, 0.28, 0.94, 10, 0, 0.5, 0, hex, { rz: HPI, ts: 0, tl: PI, open: true });
+      for (const s of [-1, 1]) b.box(g, 'metal', 0.05, 0.66, 0.58, s * 0.28, 0.33, 0, 0x4a4a52);
+      b.box(g, 'metal', 0.1, 0.12, 0.04, 0, 0.45, -0.28, 0x6a6a72);
+    },
+    barrel(b, g, r, h, hex) {
+      r = r || 0.32; h = h || 0.85; hex = hex || 0x8a5f3a;
+      b.lathe(g, 'wood', [[r * 0.82, 0], [r * 0.98, h * 0.2], [r * 1.04, h * 0.5], [r * 0.98, h * 0.8], [r * 0.82, h], [0, h]], 14, 0, 0, 0, hex, { jit: 0.05 });
+      for (const y of [h * 0.18, h * 0.82]) b.torus(g, 'wood', r * 0.98, 0.028, 0, y, 0, 0x3a3a3c, { rx: HPI, jit: 0 });
+    },
+    keg(b, g) {
+      b.lathe(g, 'wood', [[0.3, 0], [0.34, 0.2], [0.36, 0.45], [0.34, 0.7], [0.3, 0.9], [0, 0.9]], 14, 0, 0.36, -0.45, 0x7a5232, { rx: HPI, jit: 0.05 });
+      b.cyl(g, 'wood', 0.3, 0.3, 0.02, 14, 0, 0.36, -0.45, 0x8a6a45, { rx: HPI });
+      for (const z of [-0.65, -0.25]) b.torus(g, 'wood', 0.345, 0.025, 0, 0.36, z, 0x3a3a3c, { jit: 0 });
+      for (const s of [-1, 1]) b.box(g, 'wood', 0.7, 0.1, 0.12, 0, 0.05, s * 0.3 - 0.45, WOOD_D);
+      b.cyl(g, 'metal', 0.03, 0.03, 0.12, 6, 0, 0.2, -0.95, 0x8a7a50, { rx: HPI });
+    },
+    rug(b, g, w, d, kind) { b.plane(g, kind === 'elf' ? 'rug_elf' : kind === 'dwarf' ? 'rug_dwarf' : 'rug', w, d, 0, 0.075, 0, 0xffffff, { rx: -HPI, jit: 0 }); },
+    hearth(b, g, w, o) {
+      o = o || {}; w = w || 1.8;
+      const hs = o.hex || STONE_I, H = o.h || 2.6;
+      b.box(g, 'stone', w, 1.9, 0.3, 0, 0.95, 0.4, hs, { jit: 0.08 });                     // back
+      for (const s of [-1, 1]) b.box(g, 'stone', 0.34, 1.65, 0.62, s * (w / 2 - 0.17), 0.82, 0.12, hs, { jit: 0.08 });
+      b.box(g, 'stone', w + 0.2, 0.28, 0.75, 0, 1.78, 0.1, hs, { jit: 0.06 });               // lintel
+      b.box(g, 'wood', w + 0.36, 0.07, 0.85, 0, 1.95, 0.05, WOOD_D);                        // mantel
+      b.box(g, 'stone', w, H - 1.9, 0.62, 0, 1.9 + (H - 1.9) / 2, 0.15, hs, { jit: 0.06 });   // chimney breast
+      b.box(g, 'stone', w + 0.3, 0.06, 1.1, 0, 0.03, -0.2, 0x5f5a54, { jit: 0.05 });          // hearth stone
+      b.box(g, 'flat', w - 0.7, 1.5, 0.06, 0, 0.8, 0.22, 0x1a1512, { jit: 0.05 });            // sooty back
+      for (const s of [-1, 1]) b.box(g, 'flat', 0.06, 1.5, 0.5, s * (w / 2 - 0.37), 0.8, 0.0, 0x1a1512, { jit: 0.05 });
+      b.cyl(g, 'wood', 0.09, 0.1, 0.62, 7, -0.05, 0.12, -0.02, 0x3d2a18, { rz: HPI, ry: 0.4, jit: 0.06 });
+      b.cyl(g, 'wood', 0.08, 0.09, 0.6, 7, 0.06, 0.2, 0.04, 0x4a3320, { rz: HPI, ry: -0.5, jit: 0.06 });
+      b.cyl(g, 'wood', 0.07, 0.08, 0.5, 7, 0.0, 0.3, 0.0, 0x33241a, { rz: HPI, ry: 1.2, jit: 0.06 });
+      for (let i = 0; i < 6; i++) b.sph(g, 'ember', 0.07 + b.rng() * 0.05, (b.rng() - 0.5) * 0.7, 0.06, (b.rng() - 0.5) * 0.35, 0xff7a20, { sy: 0.5, jit: 0.2 });
+      b.cyl(g, 'metal', 0.016, 0.016, 0.9, 5, 0, 1.3, 0.1, 0x2a2a2e);                        // hook chain
+      b.lathe(g, 'metal', [[0.05, 0], [0.19, 0.04], [0.21, 0.24], [0.17, 0.3]], 10, 0, 0.55, 0.1, 0x2b2b2f, { jit: 0.05 });
+      F.candle(b, g, -w / 2 + 0.3, 1.99, 0.05); F.candle(b, g, w / 2 - 0.3, 1.99, 0.05);
+      b.lathe(g, 'flat', [[0.03, 0], [0.09, 0.02], [0.1, 0.12], [0.06, 0.22], [0.07, 0.26]], 10, 0, 1.99, 0.0, 0x7b8a97, { jit: 0.04 });
+      b.light(0, 0.9, -0.35, { kind: 'fire', color: 0xffa040, intensity: 40, dist: 12 });
+      b.hearth(0, 0.22, -0.02, o.fxScale || 0.9);
+    },
+    candle(b, g, x, y, z) {
+      b.cyl(g, 'flat', 0.024, 0.026, 0.15, 7, x, y + 0.075, z, 0xf0e8d0, { jit: 0.02 });
+      b.cone(g, 'ember', 0.02, 0.07, 6, x, y + 0.18, z, 0xffcc60, { jit: 0.1 });
+      b.cyl(g, 'metal', 0.05, 0.05, 0.015, 8, x, y + 0.007, z, 0xb59a4a);
+    },
+    counter(b, g, len, hex) {
+      hex = hex || WOOD_F;
+      b.box(g, 'wood', len, 1.0, 0.08, 0, 0.5, -0.38, hex);
+      b.box(g, 'wood', len + 0.1, 0.08, 0.86, 0, 1.03, 0, WOOD_D);
+      for (const s of [-1, 1]) b.box(g, 'wood', 0.08, 1.0, 0.8, s * (len / 2 - 0.04), 0.5, 0, hex);
+      b.box(g, 'wood', len - 0.2, 0.05, 0.6, 0, 0.5, 0.1, WOOD_L);
+      const n = Math.max(1, Math.round(len / 0.55));
+      for (let i = 0; i <= n; i++) b.box(g, 'wood', 0.06, 0.9, 0.04, -len / 2 + (len / n) * i, 0.5, -0.4, WOOD_D);
+    },
+    stairs(b, g, n, rise, run, w, o) {
+      o = o || {};
+      for (let i = 0; i < n; i++) {
+        const top = (i + 1) * rise, z = (i + 0.5) * run;
+        b.box(g, 'wood', w, Math.min(top, rise * 2.2), run, 0, top - Math.min(top, rise * 2.2) / 2, z, WOOD_F, { jit: 0.04 });
+        b.boxCol(-w / 2, top - rise * 2.2, z - run / 2, w / 2, top, z + run / 2, true);
+      }
+      const L = n * run, H = n * rise;
+      for (const s of (o.stringers || [-1, 1])) b.box(g, 'wood', 0.08, 0.34, L, s * (w / 2 + 0.03), H / 2 - 0.05, L / 2, WOOD_D, { rx: -Math.atan2(H, L) });
+      if (o.rail) {
+        const s = o.rail;
+        for (let i = 0; i <= n; i += 3) { const z = (i + 0.5) * run, y = (i + 1) * rise; b.box(g, 'wood', 0.07, 0.95, 0.07, s * (w / 2 + 0.06), y + 0.45, z, WOOD_D); }
+        b.box(g, 'wood', 0.08, 0.08, L + 0.3, s * (w / 2 + 0.06), H / 2 + 0.95, L / 2, WOOD_F, { rx: -Math.atan2(H, L) });
+      }
+    },
+    railing(b, g, len, hex) {
+      hex = hex || WOOD_F;
+      const n = Math.max(1, Math.round(len / 0.8));
+      for (let i = 0; i <= n; i++) b.box(g, 'wood', 0.08, 1.0, 0.08, -len / 2 + (len / n) * i, 0.5, 0, WOOD_D);
+      b.box(g, 'wood', len + 0.08, 0.08, 0.1, 0, 1.02, 0, hex);
+      b.box(g, 'wood', len, 0.05, 0.05, 0, 0.55, 0, hex);
+    },
+    pillar(b, g, style, h, hex) {
+      if (style === 'elf') {
+        hex = hex || 0xeceef2;
+        b.cyl(g, 'stone', 0.3, 0.36, h - 0.6, 10, 0, (h - 0.6) / 2 + 0.3, 0, hex, { jit: 0.03, faceJit: false });
+        b.cyl(g, 'stone', 0.44, 0.34, 0.3, 10, 0, 0.15, 0, hex, { jit: 0.03 });
+        b.cyl(g, 'stone', 0.5, 0.3, 0.32, 10, 0, h - 0.16, 0, hex, { jit: 0.03 });
+        b.torus(g, 'metal', 0.36, 0.035, 0, h - 0.34, 0, 0xd8c070, { rx: HPI, jit: 0 });
+      } else if (style === 'dwarf') {
+        hex = hex || 0x5e5a5e;
+        b.box(g, 'stone', 1.0, h - 1.2, 1.0, 0, (h - 1.2) / 2 + 0.6, 0, hex, { jit: 0.05 });
+        b.box(g, 'stone', 1.3, 0.6, 1.3, 0, 0.3, 0, hex, { jit: 0.05 });
+        b.box(g, 'stone', 1.4, 0.35, 1.4, 0, h - 0.17, 0, hex, { jit: 0.05 });
+        b.box(g, 'stone', 1.2, 0.3, 1.2, 0, h - 0.5, 0, hex, { jit: 0.05 });
+        b.box(g, 'metal', 0.6, 0.6, 0.06, 0, h * 0.55, -0.52, 0xb08040, { ry: 0, rz: PI / 4, jit: 0.05 });
+      } else {
+        hex = hex || WOOD_F;
+        b.box(g, 'wood', 0.28, h, 0.28, 0, h / 2, 0, hex, { jit: 0.04 });
+        b.box(g, 'wood', 0.5, 0.2, 0.5, 0, h - 0.1, 0, WOOD_D);
+      }
+    },
+    brazier(b, g, scale) {
+      scale = scale || 1;
+      b.lathe(g, 'metal', [[0.1, 0], [0.4, 0.06], [0.44, 0.35], [0.36, 0.5], [0.3, 0.52]], 12, 0, 0.55 * scale, 0, 0x3a3a40, { sx: scale, sy: scale, sz: scale, jit: 0.05 });
+      for (let i = 0; i < 3; i++) { const a = i * TAU / 3; b.cyl(g, 'metal', 0.03, 0.04, 0.6 * scale, 6, Math.sin(a) * 0.22 * scale, 0.3 * scale, Math.cos(a) * 0.22 * scale, 0x3a3a40, { rz: Math.cos(a) * 0.18, rx: -Math.sin(a) * 0.18 }); }
+      for (let i = 0; i < 5; i++) b.sph(g, 'ember', 0.09 * scale, (b.rng() - 0.5) * 0.4 * scale, 0.95 * scale, (b.rng() - 0.5) * 0.4 * scale, 0xff7a20, { sy: 0.6, jit: 0.2 });
+      b.light(0, 1.4 * scale, 0, { kind: 'fire', color: 0xffa040, intensity: 30 * scale, dist: 10 * scale });
+      b.hearth(0, 0.95 * scale, 0, 0.55 * scale);
+    },
+    lantern(b, g, x, y, z, o) {
+      o = o || {};
+      const glow = o.elf ? 'elfglow' : 'lampglow', hexF = o.elf ? 0xd8dce6 : 0x2c2c30;
+      const s = o.scale || 1;
+      b.box(g, 'metal', 0.26 * s, 0.05, 0.26 * s, x, y + 0.02, z, hexF);
+      b.box(g, 'metal', 0.24 * s, 0.05, 0.24 * s, x, y + 0.36 * s, z, hexF);
+      b.cone(g, 'metal', 0.18 * s, 0.12 * s, 4, x, y + 0.44 * s, z, hexF, { ry: PI / 4 });
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box(g, 'metal', 0.025, 0.34 * s, 0.025, x + sx * 0.11 * s, y + 0.19 * s, z + sz * 0.11 * s, hexF);
+      b.box(g, glow, 0.17 * s, 0.28 * s, 0.17 * s, x, y + 0.19 * s, z, 0xffffff, { jit: 0 });
+      if (o.chain) b.cyl(g, 'metal', 0.015, 0.015, o.chain, 5, x, y + 0.5 * s + o.chain / 2, z, hexF);
+      if (o.hook) b.torus(g, 'metal', 0.05, 0.012, x, y + 0.53 * s, z, hexF);
+      b.light(x, y + 0.2 * s, z, { kind: o.elf ? 'elf' : 'lamp', color: o.elf ? 0xbfd8ff : 0xffc070, intensity: o.intensity || 22, dist: o.dist || 11, flicker: !o.elf });
+    },
+    anvil(b, g) {
+      b.cyl(g, 'wood', 0.3, 0.34, 0.55, 9, 0, 0.27, 0, 0x4a3420, { jit: 0.05 });
+      b.box(g, 'metal', 0.36, 0.14, 0.26, 0, 0.62, 0, 0x4a4b52);
+      b.box(g, 'metal', 0.44, 0.16, 0.3, 0, 0.77, 0, 0x55565e);
+      b.cone(g, 'metal', 0.13, 0.4, 8, 0.4, 0.78, 0, 0x55565e, { rz: -HPI });
+      b.box(g, 'metal', 0.16, 0.12, 0.22, -0.3, 0.77, 0, 0x55565e);
+    },
+    forge(b, g) {
+      b.box(g, 'stone', 2.2, 1.0, 1.4, 0, 0.5, 0.2, 0x5c5658, { jit: 0.07 });
+      b.box(g, 'stone', 2.4, 0.12, 1.6, 0, 1.06, 0.2, 0x4a4648, { jit: 0.05 });
+      b.box(g, 'flat', 1.4, 0.1, 0.9, 0, 1.12, 0.05, 0x1a1210, { jit: 0.1 });
+      for (let i = 0; i < 9; i++) b.sph(g, 'ember', 0.1 + b.rng() * 0.05, (b.rng() - 0.5) * 1.1, 1.18, (b.rng() - 0.5) * 0.6, 0xff8020, { sy: 0.6, jit: 0.2 });
+      b.box(g, 'stone', 2.2, 0.5, 1.4, 0, 2.4, 0.2, 0x5c5658, { jit: 0.06 });
+      for (const s of [-1, 1]) b.box(g, 'stone', 0.3, 1.3, 1.3, s * 0.95, 1.75, 0.25, 0x5c5658, { jit: 0.06 });
+      b.box(g, 'stone', 2.2, 1.3, 0.3, 0, 1.75, 0.85, 0x5c5658, { jit: 0.06 });
+      b.box(g, 'stone', 1.2, 4.0, 1.2, 0, 4.6, 0.3, 0x55505a, { jit: 0.06 });
+      b.box(g, 'wood', 0.5, 0.2, 0.9, 1.5, 1.05, 0.3, WOOD_F, { ry: 0.3 });
+      b.box(g, 'flat', 0.44, 0.1, 0.6, 1.5, 1.18, 0.3, 0x5a3a2a, { ry: 0.3 });
+      b.light(0, 1.6, -0.3, { kind: 'fire', color: 0xffa040, intensity: 45, dist: 13 });
+      b.hearth(0, 1.2, 0.05, 0.75);
+    },
+    fountain(b, g, r) {
+      r = r || 1.8;
+      b.lathe(g, 'stone', [[r * 0.75, 0], [r * 1.02, 0.02], [r * 1.05, 0.5], [r * 0.98, 0.62], [r * 0.88, 0.62], [r * 0.9, 0.16], [r * 0.4, 0.14], [0.2, 0.14]], 20, 0, 0, 0, 0xe4e6ea, { jit: 0.02 });
+      b.cyl(g, 'water', r * 0.89, r * 0.89, 0.02, 20, 0, 0.5, 0, 0x4d8cc0, { jit: 0.02 });
+      b.lathe(g, 'stone', [[0.16, 0.1], [0.14, 1.0], [0.22, 1.1], [0.55, 1.15], [0.6, 1.28], [0.5, 1.3], [0.12, 1.32], [0.1, 1.34], [0.08, 1.7], [0.14, 1.72], [0.16, 1.9], [0.1, 1.98], [0, 2.0]], 14, 0, 0, 0, 0xe4e6ea, { jit: 0.02 });
+      b.cyl(g, 'water', 0.49, 0.49, 0.02, 14, 0, 1.24, 0, 0x5b9bd0, { jit: 0.02 });
+      b.light(0, 2.2, 0, { kind: 'elf', color: 0xbfd8ff, intensity: 18, dist: 12, flicker: false });
+    },
+    bedroll(b, g, hex) {
+      hex = hex || 0x6a5a4a;
+      b.box(g, 'cloth', 0.8, 0.14, 1.9, 0, 0.07, 0, hex, { jit: 0.05 });
+      b.cyl(g, 'cloth', 0.13, 0.13, 0.7, 8, 0, 0.16, 0.75, 0xa89880, { rz: HPI, jit: 0.04 });
+      b.box(g, 'cloth', 0.6, 0.06, 1.0, 0, 0.16, -0.2, [0x8c3a32, 0x3e6a44, 0x3a5a8c][Math.floor(b.rng() * 3)], { jit: 0.05 });
+    },
+    coffin(b, g) {
+      b.box(g, 'stone', 1.5, 0.5, 2.8, 0, 0.25, 0, 0x6f6a64, { jit: 0.06 });
+      b.box(g, 'stone', 1.0, 0.7, 2.3, 0, 0.85, 0, 0x7e7871, { jit: 0.05 });
+      b.box(g, 'stone', 1.08, 0.14, 2.4, 0, 1.27, 0, 0x8a847c, { jit: 0.05 });
+      b.box(g, 'stone', 0.14, 0.06, 1.5, 0, 1.37, 0.1, 0x9a948c);
+      b.box(g, 'stone', 0.5, 0.06, 0.14, 0, 1.37, 0.6, 0x9a948c);
+    },
+    crate(b, g, s, hex) {
+      s = s || 0.8; hex = hex || 0x9a7048;
+      b.box(g, 'wood', s, s, s, 0, s / 2, 0, hex, { jit: 0.05 });
+      for (const k of [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+        if (k[1]) continue;
+        const cx = k[0] * s / 2, cz = k[2] * s / 2;
+        b.box(g, 'wood', k[0] ? 0.04 : s + 0.02, 0.09, k[2] ? 0.04 : s + 0.02, cx, s * 0.5, cz, WOOD_D);
+        b.box(g, 'wood', k[0] ? 0.04 : 0.09, s, k[2] ? 0.04 : 0.09, cx + (k[2] ? s * 0.42 : 0), s / 2, cz + (k[0] ? s * 0.42 : 0), WOOD_D);
+        b.box(g, 'wood', k[0] ? 0.04 : 0.09, s, k[2] ? 0.04 : 0.09, cx - (k[2] ? s * 0.42 : 0), s / 2, cz - (k[0] ? s * 0.42 : 0), WOOD_D);
+      }
+    },
+    sack(b, g, hex) { hex = hex || 0xc4ac7c; b.sph(g, 'cloth', 0.36, 0, 0.3, 0, hex, { sy: 0.85, jit: 0.05 }); b.cyl(g, 'cloth', 0.12, 0.2, 0.2, 8, 0, 0.62, 0, hex, { jit: 0.05 }); },
+    hayBale(b, g) { b.box(g, 'thatch', 1.1, 0.6, 0.65, 0, 0.3, 0, 0xc9a85a, { jit: 0.05 }); for (const x of [-0.3, 0.3]) b.box(g, 'wood', 0.03, 0.63, 0.68, x, 0.3, 0, 0x6a5030); },
+    hayPile(b, g, r) { r = r || 1.2; b.sph(g, 'thatch', r, 0, 0, 0, 0xcdaa5c, { sy: 0.45, jit: 0.06 }); },
+    trough(b, g) { b.box(g, 'wood', 1.6, 0.45, 0.55, 0, 0.22, 0, WOOD_F); b.box(g, 'water', 1.5, 0.05, 0.45, 0, 0.4, 0, 0x4a7a9a, { jit: 0.03 }); },
+    banner(b, g, w, h, hex, hex2) {
+      b.plane(g, 'cloth', w, h, 0, -h / 2, 0, hex, { jit: 0.03 });
+      b.plane(g, 'cloth', w * 0.6, h * 0.5, 0, -h * 0.45, 0.005, hex2 || 0xd8c060, { jit: 0.02 });
+      b.cyl(g, 'wood', 0.03, 0.03, w + 0.2, 6, 0, 0, 0, WOOD_D, { rz: HPI });
+    },
+  };

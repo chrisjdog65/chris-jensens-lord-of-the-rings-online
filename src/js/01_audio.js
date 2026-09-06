@@ -796,3 +796,140 @@
     v.lfo({ t: t, type: 'sine', rate: 3.3, depth: 0.25, param: g.gain, stop: t + 4.5 });
     v.noise({ t: t + 0.6, kind: 'brown', filter: { type: 'lowpass', f: 220, q: 1 }, dur: 0.6, a: 0.3, r: 1.5, vol: 0.5 });
   }, { pv: 0.1, vol: 1.1, verb: 0.35, hall: true });
+
+  // ================================================================================================
+  // AMBIENT BEDS — builders take a Voice (routed to ambientGain or to an sfx Voice) and fill it.
+  // ================================================================================================
+  // short-lived sub voice inside a long-running bed (so per-event nodes get released)
+  function sub(parent, life, pan) {
+    const s = new Voice(parent.name + ':e', parent.out);
+    if (s.pan && pan != null) s.pan.pan.value = pan;
+    setTimeout(function () { s.kill(); }, (life + 0.3) * 1000);
+    return s;
+  }
+  function addGen(v, next, fn) {
+    const g = { next: next, tick: function (now, until) { while (g.next < until) { if (v.dead) { generators.delete(g); return; } fn(g.next); g.next += g.gap(); } }, gap: function () { return 0.5; } };
+    generators.add(g); v.gen = g;
+    const oldKill = v.kill; v.kill = function () { generators.delete(g); oldKill.call(this); };
+    return g;
+  }
+  function bedWind(v, t) {
+    const src = v.track(bufN(noiseBuf('pink'), 1, true));
+    const bp = v.filter('bandpass', 420, 0.7), lp = v.filter('lowpass', 1100, 0.5), g = v.gain(0.5);
+    src.connect(bp); bp.connect(lp); lp.connect(g); g.connect(v.out);
+    v.lfo({ t: t, rate: 0.071, depth: 240, param: bp.frequency });
+    v.lfo({ t: t, rate: 0.113, depth: 0.2, param: g.gain });
+    v.lfo({ t: t, rate: 0.037, depth: 300, param: lp.frequency });
+    const src2 = v.track(bufN(noiseBuf('white'), 1, true));
+    const bp2 = v.filter('bandpass', 1500, 3), g2 = v.gain(0.06);
+    src2.connect(bp2); bp2.connect(g2); g2.connect(v.out);
+    v.lfo({ t: t, rate: 0.19, depth: 0.05, param: g2.gain });
+    v.lfo({ t: t, rate: 0.083, depth: 600, param: bp2.frequency });
+    src.start(t, _rand()); src2.start(t, _rand());
+  }
+  function chirp(v, t) {
+    const s = sub(v, 0.8, _rr(-0.75, 0.75));
+    const base = _rr(2200, 4200), n = 2 + Math.floor(_rand() * 3), gap = _rr(0.07, 0.16);
+    for (let i = 0; i < n; i++) {
+      const f0 = base * _rr(0.85, 1.15), up = _rand() < 0.5, dur = _rr(0.04, 0.1);
+      s.osc({ t: t + i * gap, type: 'sine', f: f0, fenv: [[dur * 0.5, f0 * (up ? 1.3 : 0.75), 'e'], [dur, f0 * (up ? 1.1 : 0.9), 'e']], dur: dur, a: 0.01, r: 0.03, vol: _rr(0.05, 0.1) });
+    }
+  }
+  function bedBirds(v, t) {
+    const g = addGen(v, t + 0.3, function (tt) { chirp(v, tt); if (_rand() < 0.3) chirp(v, tt + _rr(0.2, 0.5)); });
+    g.gap = function () { return _rr(0.6, 2.8); };
+    // faint distant bird bed so it is never fully silent
+    const src = v.track(bufN(noiseBuf('pink'), 1, true)); const bp = v.filter('bandpass', 3800, 6), gg = v.gain(0.012);
+    src.connect(bp); bp.connect(gg); gg.connect(v.out); v.lfo({ t: t, rate: 0.3, depth: 0.008, param: gg.gain }); src.start(t, _rand());
+  }
+  function cricket(v, t, f, rate, burstRate, pan) {
+    const src = v.track(bufN(noiseBuf('white'), 1, true));
+    const bp = v.filter('bandpass', f, 22), am = v.gain(0.5), burst = v.gain(0.5), pn = v.track(panN(pan)) || v.gain(1);
+    src.connect(bp); bp.connect(am); am.connect(burst); burst.connect(pn); pn.connect(v.out);
+    v.lfo({ t: t, type: 'square', rate: rate, depth: 0.5, param: am.gain });
+    v.lfo({ t: t, type: 'square', rate: burstRate, depth: 0.5, param: burst.gain });
+    src.start(t, _rand());
+  }
+  function bedCrickets(v, t) {
+    cricket(v, t, 4300, 24, 0.71, -0.5); cricket(v, t, 5200, 31, 0.43, 0.55); cricket(v, t, 3700, 19, 0.29, 0.1);
+    const g = v.gain(0.18); v.out.connect(g); // crickets are quiet; scale whole bed
+  }
+  function bedWaves(v, t) {
+    const src = v.track(bufN(noiseBuf('brown'), 1, true));
+    const lp = v.filter('lowpass', 600, 0.7), g = v.gain(0.5);
+    src.connect(lp); lp.connect(g); g.connect(v.out);
+    v.lfo({ t: t, rate: 0.09, depth: 380, param: lp.frequency });
+    v.lfo({ t: t, rate: 0.093, depth: 0.38, param: g.gain });
+    const foam = v.track(bufN(noiseBuf('white'), 1, true)); const bp = v.filter('bandpass', 2600, 0.5), fg = v.gain(0.1);
+    foam.connect(bp); bp.connect(fg); fg.connect(v.out);
+    v.lfo({ t: t, rate: 0.093, depth: 0.09, param: fg.gain });
+    v.lfo({ t: t, rate: 0.041, depth: 900, param: bp.frequency });
+    src.start(t, _rand()); foam.start(t, _rand());
+  }
+  function bedFire(v, t) {
+    const src = v.track(bufN(noiseBuf('brown'), 1, true)); const lp = v.filter('lowpass', 380, 0.8), g = v.gain(0.45);
+    src.connect(lp); lp.connect(g); g.connect(v.out);
+    v.lfo({ t: t, rate: 0.6, depth: 0.12, param: g.gain }); v.lfo({ t: t, rate: 2.3, depth: 0.07, param: g.gain });
+    const hiss = v.track(bufN(noiseBuf('pink'), 1, true)); const bp = v.filter('bandpass', 1100, 1), hg = v.gain(0.1);
+    hiss.connect(bp); bp.connect(hg); hg.connect(v.out); v.lfo({ t: t, rate: 7.1, depth: 0.06, param: hg.gain });
+    src.start(t, _rand()); hiss.start(t, _rand());
+    const gen = addGen(v, t + 0.1, function (tt) {
+      const s = sub(v, 0.3, _rr(-0.3, 0.3));
+      s.noise({ t: tt, filter: { type: 'highpass', f: _rr(2000, 5000), q: 1 }, dur: _rr(0.004, 0.014), r: _rr(0.01, 0.03), vol: _rr(0.1, 0.35) });
+      if (_rand() < 0.25) s.noise({ t: tt + 0.02, filter: { type: 'bandpass', f: _rr(800, 1600), q: 2 }, dur: 0.01, r: 0.03, vol: 0.2 });
+    });
+    gen.gap = function () { return _rr(0.04, 0.3); };
+  }
+  function bedRain(v, t) {
+    const src = v.track(bufN(noiseBuf('white'), 1, true)); const bp = v.filter('bandpass', 2400, 0.4), lp = v.filter('lowpass', 6500, 0.5), g = v.gain(0.3);
+    src.connect(bp); bp.connect(lp); lp.connect(g); g.connect(v.out);
+    v.lfo({ t: t, rate: 0.21, depth: 0.05, param: g.gain });
+    const rum = v.track(bufN(noiseBuf('pink'), 1, true)); const lp2 = v.filter('lowpass', 450, 0.7), g2 = v.gain(0.16);
+    rum.connect(lp2); lp2.connect(g2); g2.connect(v.out);
+    src.start(t, _rand()); rum.start(t, _rand());
+    const gen = addGen(v, t + 0.1, function (tt) {
+      const s = sub(v, 0.3, _rr(-0.8, 0.8)); const f = _rr(1600, 3400);
+      s.osc({ t: tt, type: 'sine', f: f, fenv: [[0.05, f * 0.6, 'e']], dur: 0.015, a: 0.002, r: 0.04, vol: _rr(0.02, 0.05) });
+    });
+    gen.gap = function () { return _rr(0.06, 0.35); };
+  }
+  const BEDS = { wind: bedWind, birds: bedBirds, crickets: bedCrickets, waves: bedWaves, fire: bedFire, rain: bedRain };
+  for (const k in BEDS) def(k + '_loop', (function (fn) { return function (v, t) { fn(v, t); }; })(BEDS[k]), { loop: true, pv: 0 });
+
+  const amb = { beds: {}, biome: 'shire', phase: 'day', rain: false, levels: {} };
+  function setBed(name, level) {
+    if (!ctx) return;
+    let b = amb.beds[name];
+    if (level <= 0.001) {
+      if (b) { b.target = 0; b.voice.out.gain.setTargetAtTime(0, nowT(), 0.8); if (!b.retire) b.retire = setTimeout(function () { if (b.target === 0) { b.voice.kill(); delete amb.beds[name]; } }, 5000); }
+      return;
+    }
+    if (!b) {
+      const v = new Voice('amb:' + name, ambientGain); v.loop = true; v.out.gain.value = 0;
+      try { BEDS[name](v, nowT() + 0.02); } catch (e) { v.kill(); return; }
+      b = amb.beds[name] = { voice: v, target: 0, retire: null };
+    }
+    if (b.retire) { clearTimeout(b.retire); b.retire = null; }
+    b.target = level;
+    b.voice.out.gain.setTargetAtTime(level, nowT(), 1.2);
+  }
+  const WIND = { mountain: 0.9, arctic: 1.0, barren: 0.7, downs: 0.55, dark: 0.6, island: 0.6, lake: 0.4, shire: 0.28, breeland: 0.3, forest: 0.24, elven: 0.3 };
+  const BIRDS = { shire: 0.8, breeland: 0.7, forest: 0.75, elven: 0.6, lake: 0.5, island: 0.45, downs: 0.3, breelandnight: 0 };
+  const CRICKETS = { shire: 0.7, breeland: 0.7, forest: 0.85, lake: 0.7, island: 0.6, downs: 0.5, barren: 0.4, elven: 0.5 };
+  const WAVES = { island: 0.85, lake: 0.45 };
+  A.ambient = function (biome, phase) {
+    biome = biome || amb.biome || 'shire'; phase = phase || amb.phase || 'day';
+    amb.biome = biome; amb.phase = phase; wantAmbient = { biome: biome, phase: phase };
+    if (!ctx) return;
+    const night = phase === 'night', dusk = phase === 'dusk', dawn = phase === 'dawn';
+    const L = amb.levels;
+    L.wind = (WIND[biome] == null ? 0.35 : WIND[biome]) + (night ? 0.08 : 0);
+    L.birds = (BIRDS[biome] || 0) * (night ? 0 : dusk ? 0.3 : dawn ? 1.1 : 1) * (amb.rain ? 0.35 : 1);
+    L.crickets = (CRICKETS[biome] || 0) * (night ? 1 : dusk ? 0.55 : 0) * (amb.rain ? 0.4 : 1);
+    L.waves = WAVES[biome] || 0;
+    L.rain = amb.rain ? 0.9 : 0;
+    for (const k in L) setBed(k, L[k]);
+  };
+  A.setAmbientRain = function (on) { amb.rain = !!on; wantRain = amb.rain; if (ctx) A.ambient(amb.biome, amb.phase); };
+  A.stopAmbient = function () { for (const k in amb.beds) setBed(k, 0); };
+  A.ambientState = amb;

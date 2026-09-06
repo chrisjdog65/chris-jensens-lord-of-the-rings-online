@@ -284,9 +284,11 @@
     '  if ( horzSpan) posF.y += pixelOffsetSubpix * lengthSign;',
     '  return texture2D(tLDR, posF).rgb;',
     '}',
-    'float grainNoise(vec2 p) {',
+    'float grainNoise(vec2 p) {',                 // white-noise hash (no sin → stable on all GPUs), time-shifted per frame
     '  p += vec2(uTime * 37.0, uTime * 91.0);',
-    '  return fract(52.9829189 * fract(0.06711056 * p.x + 0.00583715 * p.y));',
+    '  vec3 p3 = fract(vec3(p.x, p.y, p.x) * 0.1031);',
+    '  p3 += dot(p3, p3.yzx + 33.33);',
+    '  return fract((p3.x + p3.y) * p3.z);',
     '}',
     'void main() {',
     '  vec4 M = texture2D(tLDR, vUv);',

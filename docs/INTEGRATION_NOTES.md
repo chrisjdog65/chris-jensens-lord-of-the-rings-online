@@ -13,3 +13,13 @@
 - Main loop must call: `G.Input.beginFrame()`, `G.tweenUpdate(dt)`, `G.timersUpdate(dt)`, advance `G.time.now/dt/frame`, `G.Input.endFrame()`.
 - Extras: `G.ease.{linear,in,out,inOut,cubic*,sine*,back*,elastic*,bounce*}`, `G.tween(obj, props, dur, ease, onDone)`, `G.timers.after/every/cancel/clear`, `G.throttle`, `G.debounce`, `G.escapeHTML`, `G.fmtMoneyHTML`, `G.fmtCompact`, `G.plural`, `G.pad2`, `G.hexStr`, `G.damp`, `G.remap`, `G.saturate`, `G.noiseSeeded(seed)`, `G.rng(seed)` returns fn with `.int/.range/.pick/.chance/.shuffle`. `G.ridged` returns 0..1. `G.tmpV3(0..15)`.
 - `G.el(tag, attrs, children)` supports `class` arrays, `style` objects, `data:{}`, `on:{}`, `onClick`-style handlers, `text`, `html`.
+
+## 02_data_races_classes.js
+- Racial/class trait effects land on `ent.stats` as keys other modules must honour: `stealth` (0..1, reduces monster aggro range), `fishingLuck`, `healOnKillPct`, `mountSpeedMult`, `swimSpeedMult`, `fallDamageMult`, `knockbackResist`, `lightDamageMult`. `stats.compute` also writes `mitigation/critChance/blockChance/parryChance/evadeChance/resistChance` percentages, `moraleRegenCombat/powerRegenCombat`, `stunned/rooted`, `speed` (multiplier).
+- `ent.statBonus` (admin overrides, additive) and `ent.statOverride` (absolute) are honoured by `compute`.
+- Effects on `ent.effects`: `stat` + `amount` (additive) or `pct` (≤1 fraction, >1 percent); debuffs (`kind:'debuff'`) are applied as reductions regardless of sign.
+- `G.Data.randomName(race, gender)` → single word 3–16 letters; `randomFullName(race, gender)` adds surname (man/hobbit only). `G.Data.titles` (50), `titleName(id, gender)`.
+- `G.Data.startPosFor(raceId)` → {x,z,town,zone}. `G.Data.difficultyColor(entLevel, playerLevel)` → hex; `conLabel`.
+- `G.Data.xp`: `forLevel(L)`, `needFor(L)`, `levelForXP(xp)`, `progress(xp)`, `questXP(level, type)`, `killXP(mobLevel, playerLevel, mult?)`, `goldReward(level, type)`, `abilityCost(level)`, `storyLevel(i)` (recommended level of story quest i), `sideLevel(i)`. Quest authors MUST use `questXP`/`goldReward` for rewards. total80 = 1,813,050 XP.
+- `G.Data.classTraits[cls]` 8 traits (L10..80); `G.Data.traitsFor(cls, L)`, `nextTrait`, `describeBonus`. `G.Data.stats.preview(cls, race, level)` for char-create.
+- Minstrel `rangedWeapon` is 'staff'.

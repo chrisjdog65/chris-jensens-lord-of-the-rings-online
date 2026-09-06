@@ -73,15 +73,15 @@
       },
       namesM: [
         ['Bar', 'Har', 'Wil', 'Rob', 'Tom', 'Wat', 'Ned', 'Hob', 'Ed', 'Al', 'Os', 'Ber', 'Gil', 'Ran', 'Ald', 'Wal', 'Hen', 'Ger', 'Ar', 'Ord', 'Cal', 'Ead', 'Wig', 'Hum', 'Sig', 'Cuth', 'Bald', 'Ulf', 'Row', 'Mat', 'Ham', 'Jas', 'Ren', 'Tam', 'Dun', 'Col', 'Ash', 'Bran', 'Cor', 'Ev', 'Fal', 'Gar', 'Hal', 'Jor', 'Lam', 'Mar', 'Nor', 'Pet', 'Rad', 'Ter', 'Web', 'Wes', 'Ott', 'Godd', 'Herb', 'Tob'],
-        ['', '', '', '', '', 'a', 'e', 'i', 'o', 'el', 'er', 'en', 'ar'],
-        ['liman', 'ry', 'fred', 'bert', 'wald', 'win', 'ric', 'mund', 'ward', 'ley', 'cott', 'son', 'kin', 'ard', 'oth', 'ert', 'ald', 'ulf', 'bald', 'stan', 'ton', 'ith', 'iam', 'vin', 'tin', 'dric', 'red', 'lin', 'bin', 'nard', 'dan', 'mon', 'ric', 'wick', 'ham'],
+        ['', '', '', '', '', '', '', 'a', 'e', 'o', 'el', 'er', 'en', 'ar'],
+        ['ry', 'fred', 'bert', 'wald', 'win', 'ric', 'mund', 'ward', 'ley', 'cott', 'son', 'kin', 'ard', 'oth', 'ert', 'ald', 'ulf', 'bald', 'stan', 'ton', 'ith', 'iam', 'vin', 'tin', 'dric', 'red', 'lin', 'bin', 'nard', 'dan', 'mon', 'ric', 'wick', 'ham'],
       ],
       namesF: [
         ['Ma', 'El', 'Ro', 'Be', 'Hil', 'Ag', 'Win', 'Ed', 'Al', 'Mar', 'Til', 'Sar', 'Cor', 'Jes', 'Fay', 'Ide', 'Mil', 'Gwen', 'Ceo', 'Aud', 'Eth', 'Ber', 'Ann', 'Bri', 'Cat', 'Dor', 'Em', 'Fen', 'Gis', 'Hen', 'Is', 'Jon', 'Kat', 'Lin', 'Mor', 'Nel', 'Or', 'Pen', 'Ros', 'Sel', 'Tam', 'Ver', 'Wen', 'Yol', 'Mab', 'Hol', 'Ell', 'Ad'],
-        ['', '', '', '', 'a', 'e', 'i', 'o', 'el', 'er', 'an', 'il'],
-        ['ry', 'sa', 'lind', 'da', 'wyn', 'ith', 'a', 'bel', 'sy', 'na', 'ette', 'ie', 'is', 'en', 'ora', 'eth', 'ina', 'ella', 'ia', 'ene', 'lee', 'cy', 'ny', 'ily', 'ise', 'dith', 'beth', 'gard', 'rid', 'win', 'elle', 'ot', 'wen', 'da'],
+        ['', '', '', '', '', '', 'a', 'e', 'el', 'er', 'an', 'il'],
+        ['ry', 'sa', 'lind', 'da', 'wyn', 'ith', 'a', 'bel', 'sy', 'na', 'ette', 'ie', 'is', 'en', 'ora', 'eth', 'ina', 'ella', 'ia', 'ene', 'lee', 'cy', 'ny', 'ily', 'ise', 'dith', 'beth', 'rid', 'win', 'elle', 'wen', 'da'],
       ],
-      exemplarsM: ['Barliman', 'Harry', 'Rowlie', 'Wilfred', 'Osric', 'Aldric', 'Ranulf', 'Edwald', 'Gerard', 'Cuthbert', 'Baldwin', 'Halbert', 'Mattock', 'Herbert', 'Tobias', 'Ordric'],
+      exemplarsM: ['Barliman', 'Harry', 'Rowlie', 'Wilfred', 'Osric', 'Aldric', 'Ranulf', 'Edwald', 'Gerard', 'Cuthbert', 'Baldwin', 'Halbert', 'Matlock', 'Herbert', 'Tobias', 'Ordric'],
       exemplarsF: ['Marigold', 'Elsa', 'Rosalind', 'Bethany', 'Hilda', 'Agnes', 'Winifred', 'Edith', 'Alwen', 'Tilda', 'Corliss', 'Fayre', 'Idelle', 'Gwendolyn', 'Audrey', 'Ethelinda'],
       surnames: ['Butterbur', 'Ferny', 'Goatleaf', 'Appledore', 'Heathertoes', 'Pickthorn', 'Thistlewool', 'Mugwort', 'Rushlight', 'Underhill', 'Longholes', 'Brockhouse', 'Hedgerow', 'Fernbrake', 'Dogwood', 'Oakenshaw', 'Sandybanks', 'Hayward', 'Mossfoot', 'Marshbottom', 'Thornbush', 'Whitecliff', 'Ashdown', 'Greenway', 'Milburn', 'Stonehewer', 'Fletcher', 'Cooper', 'Thatcher', 'Wainwright', 'Fowler', 'Smallwood', 'Bramblecote', 'Woodward', 'Chubb', 'Tunnelly', 'Rushey', 'Ashcombe', 'Bracken', 'Holloway'],
     },
@@ -107,10 +107,10 @@
       namesF: [
         ['Gal', 'Cel', 'Ar', 'Nim', 'Ith', 'Mith', 'Ael', 'Ear', 'Luth', 'Nien', 'Sil', 'Tin', 'Idr', 'Fin', 'Lal', 'Gwen', 'Mel', 'Nel', 'Nar', 'Ost', 'El', 'Ind', 'Mir', 'Lin', 'Aer', 'Bel', 'Dae', 'Eir', 'Gil', 'Hir', 'Lor', 'Mael', 'Ner', 'Rin', 'Sael', 'Tath', 'Thal', 'Uin', 'Vor', 'Edh', 'Mor', 'Nith', 'Aeg', 'Cal'],
         ['', '', '', '', 'a', 'e', 'i', 'o', 'ad', 'or', 'en', 'il', 'ar', 'eb', 'em'],
-        ['iel', 'wen', 'eth', 'ril', 'dis', 'ien', 'ith', 'ian', 'riel', 'lith', 'neth', 'reth', 'wing', 'gwen', 'uil', 'iant', 'loth', 'laith', 'ariel', 'oriel', 'ethel', 'is', 'os', 'ael', 'ien', 'wen', 'iel'],
+        ['iel', 'wen', 'eth', 'ril', 'dis', 'ien', 'ith', 'ian', 'riel', 'lith', 'neth', 'reth', 'wing', 'gwen', 'uil', 'iant', 'loth', 'laith', 'ariel', 'oriel', 'ethel', 'is', 'ael', 'ien', 'wen', 'iel'],
       ],
       exemplarsM: ['Legolin', 'Galdor', 'Thandir', 'Elrohir', 'Glorendil', 'Halmir', 'Celebros', 'Amdir', 'Belegorn', 'Cirion', 'Daeron', 'Egalmoth', 'Finduilas', 'Gilrond', 'Hirgon', 'Maelros', 'Nimrodel', 'Orophin', 'Saelon', 'Tathar'],
-      exemplarsF: ['Galadwen', 'Celebrian', 'Arwen', 'Nimloth', 'Ithilwen', 'Mithrellas', 'Aelinel', 'Eariel', 'Luthien', 'Nienor', 'Silmariel', 'Tinuviel', 'Idril', 'Findis', 'Lalaith', 'Gwenniel', 'Meleth', 'Nellas', 'Narwen', 'Ostoriel'],
+      exemplarsF: ['Galadwen', 'Celebrian', 'Nimloth', 'Ithilwen', 'Mithrellas', 'Aelinel', 'Eariel', 'Nienor', 'Silmariel', 'Findis', 'Lalaith', 'Gwenniel', 'Meleth', 'Nellas', 'Narwen', 'Ostoriel'],
       surnames: [],
     },
     {
@@ -129,7 +129,7 @@
       },
       namesM: [
         ['Thor', 'Dwal', 'Bal', 'Kil', 'Fil', 'Glo', 'Dor', 'Nor', 'Bif', 'Bof', 'Bomb', 'Dain', 'Nain', 'Thra', 'Gim', 'Far', 'Frer', 'Frar', 'Lon', 'Nar', 'Grim', 'Hal', 'Bru', 'Skar', 'Vig', 'Hrol', 'Sig', 'Ulf', 'Bran', 'Thur', 'Dur', 'Ag', 'Hak', 'Sten', 'Orv', 'Brok', 'Rag', 'Ket', 'Aud', 'Bjar', 'Har', 'Kol', 'Mog', 'Snor', 'Tof', 'Vest', 'Yng', 'Thrain', 'Gror', 'Flo', 'Ori', 'Lofn', 'Bal', 'Dvar', 'Ein'],
-        ['', '', '', '', '', 'a', 'i', 'o', 'ar', 'or', 'ul', 'un'],
+        ['', '', '', '', '', '', '', 'a', 'i', 'o', 'ar', 'or', 'ul'],
         ['in', 'ur', 'or', 'li', 'ri', 'ain', 'mir', 'grim', 'ar', 'mund', 'vald', 'bur', 'din', 'ni', 'bek', 'ulf', 'mar', 'rak', 'nor', 'fur', 'vi', 'gar', 'sten', 'brand', 'thor', 'kel', 'di', 'ir', 'un', 'rin', 'bor', 'dur', 'lin'],
       ],
       namesF: [
@@ -156,13 +156,13 @@
         stats: { evade: 10 }, perLevel: { evade: 1 }, pct: { moraleRegen: 30 }, special: { stealth: 0.25 },
       },
       namesM: [
-        ['Bil', 'Fro', 'Mer', 'Per', 'Fal', 'Fol', 'Dro', 'Bun', 'Bal', 'Mun', 'Lar', 'Lon', 'Pol', 'Pos', 'Pon', 'Rol', 'Mil', 'Min', 'Mos', 'Ham', 'Hal', 'Hob', 'Hol', 'Tol', 'And', 'Wil', 'Fil', 'Fer', 'Isen', 'Hild', 'Adal', 'Reg', 'Ever', 'Pal', 'Sar', 'Mar', 'Ser', 'Dod', 'Ilb', 'Tob', 'Rud', 'Sig', 'Fas', 'Ban', 'Gor', 'Hug', 'Ot', 'Lot', 'Bod', 'Nob', 'Rob', 'Wist', 'Fred'],
+        ['Bil', 'Fro', 'Mer', 'Per', 'Fal', 'Fol', 'Dro', 'Bun', 'Bal', 'Mun', 'Lar', 'Lon', 'Pol', 'Pos', 'Pon', 'Rol', 'Mil', 'Min', 'Mos', 'Ham', 'Hal', 'Hob', 'Hol', 'Tol', 'And', 'Wil', 'Fil', 'Fer', 'Isen', 'Hild', 'Adal', 'Reg', 'Ever', 'Pal', 'Sar', 'Mar', 'Ser', 'Dod', 'Ilb', 'Tob', 'Rud', 'Sig', 'Fas', 'Ban', 'Gor', 'Hug', 'Nob', 'Rob', 'Wist', 'Fred', 'Ted', 'Bert', 'Wig'],
         ['', '', '', '', '', 'i', 'o', 'a', 'di', 'li'],
         ['bo', 'do', 'go', 'co', 'fo', 'mo', 'ro', 'wise', 'fast', 'fred', 'man', 'son', 'ric', 'bert', 'grim', 'ard', 'adoc', 'egrin', 'imac', 'edic', 'eric', 'old', 'bard', 'bras', 'olph', 'ibald', 'igar', 'ismond', 'ias', 'win', 'inard', 'ho', 'to', 'mund', 'ibert'],
       ],
       namesF: [
         ['Bel', 'Prim', 'Ros', 'Lob', 'Pim', 'Per', 'Esme', 'Egl', 'Dai', 'Mari', 'Lil', 'Pop', 'Rub', 'Amar', 'Asph', 'Cam', 'Cel', 'Dia', 'Donna', 'Dor', 'Est', 'Gil', 'Han', 'Hil', 'Lal', 'Laur', 'Lin', 'Mel', 'Men', 'Mim', 'Mira', 'Myr', 'Peo', 'Pris', 'Row', 'Sal', 'Tan', 'Ang', 'Pearl', 'May', 'Pet', 'Ivy', 'Bry', 'Cor', 'Tul', 'Prim', 'Lav'],
-        ['', '', '', '', 'a', 'i', 'e', 'la', 'li', 'ra'],
+        ['', '', '', '', '', '', 'a', 'i', 'e', 'la', 'li', 'ra'],
         ['a', 'ia', 'ella', 'ina', 'ilda', 'y', 'ie', 'wyn', 'inca', 'ula', 'anna', 'lot', 'bella', 'ony', 'osa', 'dora', 'ily', 'erly', 'odel', 'antha', 'ilot', 'na', 'sa', 'ma', 'sy', 'dy', 'andine', 'tle', 'rose', 'belle', 'vender'],
       ],
       exemplarsM: ['Tobold', 'Andwise', 'Hamson', 'Halfast', 'Fastolph', 'Marroc', 'Wilibald', 'Rudigar', 'Hildibrand', 'Sigismond', 'Bandobras', 'Ferumbras', 'Isengrim', 'Adalgrim', 'Reginard', 'Everard', 'Gorbadoc', 'Dodinas', 'Ilberic', 'Falco', 'Ponto', 'Hobson', 'Wiseman', 'Tolman'],
@@ -194,7 +194,7 @@
         ['adriel', 'edhel', 'ril', 'enwe', 'aire', 'wen', 'arie', 'danel', 'iel', 'dis', 'ime', 'brian', 'loth', 'ien', 'inde', 'is', 'ire', 'mire', 'na', 'wende', 'anna', 'iel', 'wen', 'ie', 'lime', 'rian', 'diel'],
       ],
       exemplarsM: ['Findarato', 'Glorindir', 'Feanaro', 'Maedhil', 'Maglorion', 'Celegil', 'Carandir', 'Curumo', 'Amrothion', 'Turgonil', 'Ecthelas', 'Elemmir', 'Egalion', 'Galdorion', 'Duilinor', 'Penlodir', 'Ingwion', 'Voronwe', 'Aegnorion', 'Angrodil'],
-      exemplarsF: ['Galadhriel', 'Aredhil', 'Idrilwen', 'Elenwe', 'Anaire', 'Earwen', 'Amarie', 'Nerdanel', 'Miriel', 'Indis', 'Findis', 'Irime', 'Elemmire', 'Celebrindal', 'Lalwende', 'Nimrodel', 'Silmarien', 'Tindomiel', 'Vanimelde', 'Varda'],
+      exemplarsF: ['Galadhriel', 'Aredhil', 'Idrilwen', 'Elenwe', 'Anaire', 'Earwen', 'Amarie', 'Nerdanel', 'Miriel', 'Indis', 'Findis', 'Irime', 'Elemmire', 'Celebrindal', 'Lalwende', 'Nimrodel', 'Silmarien', 'Tindomiel', 'Vanimelde', 'Istarnie'],
       surnames: [],
     },
     {
@@ -298,15 +298,15 @@
       namesM: [
         ['Ar', 'Ara', 'Hal', 'El', 'Isil', 'Val', 'Eld', 'Tar', 'Aml', 'Bel', 'Mal', 'Cel', 'Arg', 'Arv', 'Cand', 'Saer', 'Rad', 'Cal', 'Am', 'Tor', 'Cor', 'Gil', 'Nar', 'Ost', 'Edh', 'Hir', 'Lang', 'Men', 'Ang', 'Bar', 'Dir', 'For', 'Gol', 'Ith', 'Len', 'Mor', 'Orn', 'Pel', 'Ran', 'Thar', 'Ven', 'Dun'],
         ['', '', '', '', 'a', 'e', 'i', 'o', 'an', 'en', 'ar', 'el', 'or'],
-        ['gorn', 'barad', 'thorn', 'dor', 'nui', 'suil', 'had', 'vir', 'narth', 'dui', 'dil', 'dur', 'car', 'tar', 'cil', 'don', 'mir', 'laith', 'eg', 'lor', 'pharn', 'leb', 'phor', 'phant', 'aith', 'adan', 'nir', 'glad', 'linn', 'thir', 'gil', 'dain', 'ion', 'rod'],
+        ['gorn', 'barad', 'thorn', 'dor', 'nui', 'suil', 'had', 'vir', 'narth', 'dui', 'dil', 'dur', 'car', 'tar', 'cil', 'don', 'mir', 'laith', 'eg', 'lor', 'pharn', 'leb', 'aith', 'adan', 'nir', 'glad', 'linn', 'thir', 'gil', 'dain', 'ion', 'rod'],
       ],
       namesF: [
         ['Gil', 'Ivor', 'Fir', 'El', 'Silm', 'Tind', 'Anc', 'Van', 'Alm', 'Nim', 'Ar', 'Mor', 'Cel', 'Ith', 'Lin', 'Mel', 'Nar', 'Ost', 'Bel', 'Dir', 'Ear', 'Hal', 'Idh', 'Lor', 'Mir', 'Nien', 'Ril', 'Sael', 'Tar', 'Vor', 'Aer', 'Cal', 'Edh', 'Ind'],
-        ['', '', '', '', 'a', 'e', 'i', 'an', 'en', 'ar', 'el', 'em'],
+        ['', '', '', '', '', '', 'a', 'e', 'an', 'en', 'ar', 'el', 'em'],
         ['raen', 'wen', 'iel', 'ien', 'mien', 'miel', 'ime', 'elde', 'ian', 'eth', 'ril', 'wing', 'indis', 'loth', 'dis', 'neth', 'ariel', 'is', 'wen', 'iel', 'reth', 'ith'],
       ],
       exemplarsM: ['Halbarad', 'Arathorn', 'Arador', 'Argonui', 'Aravir', 'Aranarth', 'Elendur', 'Valandil', 'Eldacar', 'Tarcil', 'Amlaith', 'Beleg', 'Mallor', 'Celepharn', 'Argeleb', 'Arveleg', 'Candaith', 'Saeradan', 'Radanir', 'Calenglad', 'Lenglinn', 'Torthann', 'Corunir', 'Golodir'],
-      exemplarsF: ['Gilraen', 'Ivorwen', 'Firiel', 'Elwen', 'Silmarien', 'Tindomiel', 'Ancalime', 'Vanimelde', 'Almarian', 'Nimloth', 'Arwen', 'Morwen', 'Celebrindis', 'Ithilwen', 'Lindis', 'Meldis', 'Narwen', 'Ostoriel', 'Belwen', 'Diriel'],
+      exemplarsF: ['Gilraen', 'Ivorwen', 'Firiel', 'Elwen', 'Silmarien', 'Tindomiel', 'Ancalime', 'Vanimelde', 'Almarian', 'Nimloth', 'Morwen', 'Celebrindis', 'Ithilwen', 'Lindis', 'Meldis', 'Narwen', 'Ostoriel', 'Belwen', 'Diriel'],
       surnames: [],
     },
     {
@@ -325,16 +325,16 @@
       },
       namesM: [
         ['Eo', 'Theo', 'Ha', 'Gam', 'Erk', 'Grim', 'Elf', 'Dun', 'Deor', 'Here', 'Heru', 'Fast', 'Guth', 'Hard', 'Wal', 'Fol', 'Fen', 'Bryt', 'Ald', 'Frea', 'Gold', 'Gram', 'Helm', 'Leof', 'Then', 'Wid', 'Ceor', 'Ead', 'Wulf', 'Sig', 'Os', 'Cyne', 'Beorht', 'Aethel', 'Ecg', 'Frith', 'Wig', 'Hun', 'Ord', 'Sae', 'Hroth', 'Ead', 'God', 'Beorn', 'Aelf'],
-        ['', '', '', '', '', 'a', 'e', 'o', 'el', 'er', 'en'],
+        ['', '', '', '', '', '', '', 'a', 'e', 'el', 'er', 'en'],
         ['mer', 'den', 'mund', 'ma', 'ling', 'brand', 'bold', 'helm', 'here', 'wine', 'fara', 'red', 'laf', 'ing', 'da', 'ca', 'gel', 'ta', 'dor', 'wald', 'ric', 'stan', 'noth', 'weard', 'frith', 'gar', 'wulf', 'heah', 'hild', 'sig', 'wig', 'thain', 'bald', 'nard', 'lac'],
       ],
       namesF: [
         ['Eo', 'Theod', 'Elf', 'Hild', 'Ald', 'Cyne', 'Ead', 'Frith', 'God', 'Here', 'Leof', 'Wyn', 'Aethel', 'Os', 'Wulf', 'Sae', 'Ethel', 'Mild', 'Bur', 'Ceol', 'Eal', 'Aelf', 'Ead', 'Gyth', 'Wil', 'Sig', 'Ecg', 'Hroth', 'Beorht', 'Eor'],
-        ['', '', '', '', 'a', 'e', 'el', 'en', 'ar'],
+        ['', '', '', '', '', '', 'a', 'e', 'el', 'en'],
         ['wyn', 'hild', 'gifu', 'swith', 'run', 'flaed', 'gyth', 'burg', 'thryth', 'wen', 'frith', 'ith', 'leofu', 'wynn', 'gard', 'lind', 'wara', 'hild', 'wyn'],
       ],
       exemplarsM: ['Eomund', 'Theodred', 'Hama', 'Gamling', 'Erkenbrand', 'Grimbold', 'Elfhelm', 'Dunhere', 'Deorwine', 'Herefara', 'Herubrand', 'Fastred', 'Guthlaf', 'Harding', 'Walda', 'Folca', 'Fengel', 'Brytta', 'Aldor', 'Freawine', 'Goldwine', 'Gram', 'Frealaf', 'Leofa', 'Thengel', 'Widfara', 'Ceorl', 'Eothain', 'Elfwine'],
-      exemplarsF: ['Eowyn', 'Theodwyn', 'Elfhild', 'Hild', 'Aldwyn', 'Cynewyn', 'Eadgyth', 'Frithswith', 'Godgifu', 'Hereswith', 'Leofrun', 'Wynflaed', 'Aethelflaed', 'Osgyth', 'Wulfrun', 'Saewyn', 'Ethelburg', 'Mildthryth', 'Burgwyn', 'Ceolwen'],
+      exemplarsF: ['Eoswith', 'Theodwyn', 'Elfhild', 'Hild', 'Aldwyn', 'Cynewyn', 'Eadgyth', 'Frithswith', 'Godgifu', 'Hereswith', 'Leofrun', 'Wynflaed', 'Aethelflaed', 'Osgyth', 'Wulfrun', 'Saewyn', 'Ethelburg', 'Mildthryth', 'Burgwyn', 'Ceolwen'],
       surnames: [],
     },
   ];
@@ -618,30 +618,51 @@
   /* ------------------------------------------------------------------------------------------------
    * Name generator
    * ---------------------------------------------------------------------------------------------- */
-  const _BAD = ['sambo', 'nigg', 'fag', 'cunt', 'shit', 'fuck', 'dick', 'cock', 'twat', 'rape', 'nazi', 'kike', 'spic', 'coon', 'wank', 'slut', 'whore', 'anus', 'piss', 'arse', 'boob', 'penis', 'vagin', 'porn', 'sex'];
+  const _BAD = ['sambo', 'nigg', 'fag', 'cunt', 'shit', 'fuck', 'dick', 'cock', 'twat', 'rape', 'nazi', 'kike', 'spic', 'coon', 'wank', 'slut', 'whore', 'anus', 'piss', 'arse', 'boob', 'penis', 'vagin', 'porn', 'sex', 'death', 'dead', 'fart', 'poop', 'crap', 'damn', 'turd', 'hell'];
   const _VOWELS = 'aeiouy';
+  // consonant clusters that may straddle a syllable junction (3+ consonants in a row)
+  const _CLUSTERS_OK = ['ndr', 'ldr', 'rth', 'lth', 'nth', 'sth', 'str', 'ngr', 'ndl', 'rdr', 'thr', 'ldw', 'rdw', 'lfw', 'lfr', 'rgr', 'mbr', 'ngw', 'lch', 'rch', 'ght', 'nch', 'rst', 'lst', 'nst', 'ngl', 'mbl', 'ndw', 'rthr', 'ldh', 'rdh', 'ndh', 'lfh', 'nthr', 'rdl', 'rgl', 'lbr', 'lgr', 'rbr', 'ndg', 'rsw', 'lsw', 'thw', 'dhr', 'ndt', 'lft', 'rft', 'nkr', 'skr', 'spr', 'thl', 'lmr'];
+  // vowel pairs that read well across a junction (anything else drops the first vowel)
+  const _VPAIRS_OK = ['ae', 'ea', 'eo', 'ai', 'ei', 'ie', 'io', 'ua', 'ue', 'ui', 'ay', 'ey', 'oy', 'oa', 'au', 'eu', 'ia'];
   function _isVowel(ch) { return _VOWELS.indexOf(ch.toLowerCase()) >= 0; }
   function _joinSyllables(parts) {
     let out = '';
     for (let i = 0; i < parts.length; i++) {
-      let s = parts[i];
+      let s = (parts[i] || '').toLowerCase();
       if (!s) continue;
-      if (out.length) {
-        const a = out[out.length - 1].toLowerCase(), b = s[0].toLowerCase();
-        if (a === b && _isVowel(a)) s = s.slice(1);                       // "Fro" + "o..." → drop duplicate vowel
-        else if (a === b && !_isVowel(a) && out.length > 1 && out[out.length - 2].toLowerCase() === a) s = s.slice(1); // avoid triple consonant
-        else if (!_isVowel(a) && !_isVowel(b) && out.length > 1 && !_isVowel(out[out.length - 2]) && s.length > 1 && !_isVowel(s[1])) {
-          // four consonants in a row (e.g. "Thran" + "dr") → add a soft vowel
-          s = 'a' + s;
+      if (!out) { out = s; continue; }
+      const a = out[out.length - 1], b = s[0];
+      const av = _isVowel(a), bv = _isVowel(b);
+      if (av && bv) {
+        if (a === b) s = s.slice(1);                                   // "fro" + "o…" → drop the duplicate
+        else if (_VPAIRS_OK.indexOf(a + b) < 0) out = out.slice(0, -1); // "ivy" + "e…" → "iv" + "e…"
+      } else if (!av && !bv) {
+        let ra = 0; for (let j = out.length - 1; j >= 0 && !_isVowel(out[j]); j--) ra++;
+        let rb = 0; for (let j = 0; j < s.length && !_isVowel(s[j]); j++) rb++;
+        if (ra + rb >= 3) {
+          const cluster = out.slice(out.length - ra) + s.slice(0, rb);
+          if (a === b) s = s.slice(1);                                 // "bomb" + "bur" → "bombur"
+          else if (_CLUSTERS_OK.indexOf(cluster) < 0) {
+            // soften an unpronounceable cluster with a vowel that echoes the previous one ("cal" + "ndil" → "calandil")
+            let lastV = 'a';
+            for (let j = out.length - 1; j >= 0; j--) if (_isVowel(out[j])) { lastV = out[j]; break; }
+            s = (lastV === 'a' || lastV === 'o' || lastV === 'u' ? 'a' : (lastV === 'i' ? 'i' : 'e')) + s;
+          }
         }
       }
+      if (!s) continue;
       out += s;
     }
     if (!out.length) return '';
-    return out[0].toUpperCase() + out.slice(1).toLowerCase();
+    out = out.replace(/([aeiouy])([aeiouy])[aeiouy]+/g, '$1$2');       // no runs of 3+ vowels
+    out = out.replace(/([^aeiouy])\1\1+/g, '$1$1');                   // no triple consonants
+    return out[0].toUpperCase() + out.slice(1);
   }
   function _clean(name) {
-    return /^[A-Za-z]{3,16}$/.test(name) && !_BAD.some(function (b) { return name.toLowerCase().indexOf(b) >= 0; });
+    if (!/^[A-Za-z]{3,16}$/.test(name)) return false;
+    const low = name.toLowerCase();
+    if (/([a-z]{2,})\1/.test(low)) return false;                       // "gwenwen", "golgol", "vidararric"
+    return !_BAD.some(function (b) { return low.indexOf(b) >= 0; });
   }
   function randomName(raceId, gender, rng) {
     const race = raceById[raceId] || RACES[0];
@@ -651,7 +672,7 @@
     const exemplars = fem ? race.exemplarsF : race.exemplarsM;
     for (let attempt = 0; attempt < 14; attempt++) {
       let name;
-      if (exemplars && exemplars.length && r() < 0.22) name = _pick(exemplars, r);
+      if (exemplars && exemplars.length && r() < 0.15) name = _pick(exemplars, r);
       else {
         const parts = [];
         for (let i = 0; i < lists.length; i++) parts.push(_pick(lists[i], r));
@@ -1013,14 +1034,14 @@
    *   need(1) = 200 · need(10) = 1,550 · need(40) = 17,750 · need(79) = 65,720
    *   total to 80 = Σ need(1..79) = 150·79 + 40·3160 + 10·167,480 = 1,813,050  (G.Data.xp.total80)
    *
-   * Quest reward:  questXP(L,'story') = 0.45·need(L) = round(67.5 + 18·L + 4.5·L²);  side = 0.6× story.
+   * Quest reward:  questXP(L,'story') = 0.47·need(L) = round(70.5 + 18.8·L + 4.7·L²);  side = 0.6× story.
    * Kill reward:   killXP(m, p) = base(m)·f(m−p),  base(m) = 4 + 0.7·m + 0.16·m²  (≈ 1.4 % of need(m)),
    *                f = 0 at −8 levels or lower (grey), rising linearly to 1 at even level, +8 % per level above (max +40 %).
    *
    * Budget (simulated in tools/scratch/check_data.js with the §9 level flow: story quests s001–s100 spread over
    * the eight Books, side quests q001–q050 spread over levels 2–78, and ≈ 10 same-level kills per quest):
-   *   story quests ≈ 1,167,000 · side quests ≈ 274,000 · kills ≈ 380,000  →  ≈ 1,821,000 ≥ 1,813,050
-   * so the hero reaches level 80 while finishing s099/s100 (any additional exploration kills only add slack).
+   *   story quests = 1,026,468 · side quests = 320,666 · kills ≈ 492,000  →  ≈ 1,839,000 ≥ 1,813,050
+   * so the hero reaches level 80 on completing s100 (quests alone reach L72; 14 kills/quest reaches 80 at s098).
    * ---------------------------------------------------------------------------------------------- */
   const XP_TABLE = [0, 0];       // XP_TABLE[L] = cumulative XP required to *reach* level L (L=1 → 0)
   function _need(L) { return 150 + 40 * L + 10 * L * L; }
@@ -1051,7 +1072,7 @@
   function questXP(level, type) {
     const L = _clamp(Math.round(_num(level, 1)), 1, LEVEL_CAP);
     const m = QUEST_TYPE_MULT[type] != null ? QUEST_TYPE_MULT[type] : QUEST_TYPE_MULT.side;
-    return Math.round(0.45 * _need(L) * m);
+    return Math.round(0.47 * _need(L) * m);
   }
   function killXP(mobLevel, playerLevel, mult) {
     const m = Math.max(1, _num(mobLevel, 1)), pl = Math.max(1, _num(playerLevel, 1));
