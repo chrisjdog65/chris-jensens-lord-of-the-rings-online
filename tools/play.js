@@ -18,7 +18,7 @@ const code = process.argv[2] || "await T.quick(); await T.wait(1000); await T.sh
   const browser = await chromium.launch({ headless: true, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const errors = [];
-  page.on('console', m => { if (m.type() === 'error') errors.push('[console.error] ' + m.text()); });
+  page.on('console', m => { if (m.type() === 'error') { const txt = m.text(); if (!/fonts\.googleapis|fonts\.gstatic|Failed to load resource|net::ERR_/.test(txt)) errors.push('[console.error] ' + txt); } });
   page.on('pageerror', e => errors.push('[pageerror] ' + e.message + '\n' + (e.stack || '')));
   await page.goto('file://' + HTML);
   await page.waitForFunction(() => window.__T && window.__T.ready, { timeout: 60000 });

@@ -28,7 +28,8 @@
  *              timersUpdate(dt) (called by main loop);
  *              addEntity(ent) / removeEntity(entOrId) / getEntity(id) — maintain G.state.entities, G.state.byId and G.Spatial together;
  *              uidBump(id) (raise the uid counter above a loaded id); reportError(err, where) (record a caught exception);
- *              warn(msg) (console.warn, deduplicated); errorLocation(src, line, col) → 'module.js:line:col' (maps built-HTML lines to modules).
+ *              warn(msg) (console.warn, deduplicated); errorLocation(src, line, col) → 'module.js:line:col' (maps built-HTML lines to modules);
+ *              errorsDropped (count beyond the 200 cap). G.debug is also switched on by '#debug' in the URL or localStorage 'cj_lotro_debug'='1'.
  *   Input:     released(code), anyPressed(), mouseDown(b), mousePressed(b), mouseReleased(b) (b: 0 left, 1 middle, 2 right; canvas-origin),
  *              mouse.nx/ny (NDC −1..1), mouse.overCanvas, bound (Set of codes that get preventDefault) + bind(code)/unbind(code),
  *              codeOf(label) ('1'→'Digit1', 'G'→'KeyG'), reset(), frame, lockSupported, onSequence() returns an unsubscribe fn,

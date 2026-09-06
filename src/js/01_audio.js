@@ -371,6 +371,7 @@
       return { src: s, gain: g };
     },
     filter: function (type, f, q, gainDb) { return this.track(filtN(type, f, q, gainDb)); },
+    lpOut: function (f, q) { const fl = this.track(filtN('lowpass', f, q)); fl.connect(this.out); return fl; },
     gain: function (v) { return this.track(gainN(v)); },
     shaper: function (amt) { return this.track(shaperN(amt)); },
     lfo: function (o) { const l = this.track(oscN(o.type || 'sine', o.rate, o.t)); const g = this.track(gainN(o.depth)); l.connect(g); g.connect(o.param); l.start(o.t); if (o.stop) l.stop(o.stop); return l; },
@@ -444,3 +445,354 @@
     return A.sfx(map[ground] || 'footstep_grass', o);
   };
   let wantTheme = null, wantAmbient = null, wantRain = false;
+
+  // ================================================================================================
+  // SFX LIBRARY — every name from SPEC §5.9 (+ footstep_dirt/sand/road variants)
+  // ================================================================================================
+  // ---- UI ----
+  def('ui_click', function (v, t, p) {
+    v.osc({ t: t, type: 'sine', f: 1300 * p, fenv: [[0.04, 820 * p, 'e']], dur: 0.03, r: 0.03, vol: 0.35 });
+    v.noise({ t: t, filter: { type: 'highpass', f: 3000 }, dur: 0.012, r: 0.01, vol: 0.12 });
+  }, { pv: 0.03 });
+  def('ui_open', function (v, t, p) {
+    v.osc({ t: t, type: 'sine', f: 660 * p, dur: 0.09, a: 0.01, r: 0.12, vol: 0.28 });
+    v.osc({ t: t + 0.09, type: 'sine', f: 990 * p, dur: 0.12, a: 0.01, r: 0.2, vol: 0.26 });
+    v.noise({ t: t, kind: 'pink', filter: { type: 'bandpass', f: 1800, q: 0.8, fenv: [[0.18, 3500]] }, dur: 0.15, a: 0.03, r: 0.08, vol: 0.06 });
+  }, { pv: 0.02, verb: 0.15 });
+  def('ui_close', function (v, t, p) {
+    v.osc({ t: t, type: 'sine', f: 880 * p, dur: 0.08, a: 0.01, r: 0.1, vol: 0.24 });
+    v.osc({ t: t + 0.08, type: 'sine', f: 590 * p, dur: 0.12, a: 0.01, r: 0.18, vol: 0.2 });
+    v.noise({ t: t, kind: 'pink', filter: { type: 'bandpass', f: 3200, q: 0.8, fenv: [[0.16, 1200]] }, dur: 0.14, a: 0.02, r: 0.06, vol: 0.05 });
+  }, { pv: 0.02, verb: 0.1 });
+  def('ui_error', function (v, t, p) {
+    const fl = v.lpOut(1200, 1);
+    for (let i = 0; i < 2; i++) v.osc({ t: t + i * 0.13, type: 'square', f: 175 * p, dur: 0.08, a: 0.005, r: 0.04, vol: 0.12, dest: fl });
+  }, { pv: 0.01 });
+  def('chat_ping', function (v, t, p) {
+    v.osc({ t: t, type: 'sine', f: 880 * p, dur: 0.05, a: 0.005, r: 0.08, vol: 0.2 });
+    v.osc({ t: t + 0.07, type: 'sine', f: 1175 * p, dur: 0.06, a: 0.005, r: 0.12, vol: 0.18 });
+  }, { pv: 0.01 });
+
+  // ---- weapons ----
+  function whoosh(v, t, p, f0, f1, f2, dur, vol, q) {
+    v.noise({ t: t, kind: 'white', filter: { type: 'bandpass', f: f0 * p, q: q || 1.2, fenv: [[dur * 0.45, f1 * p], [dur, f2 * p]] }, dur: dur * 0.6, a: dur * 0.3, r: dur * 0.4, vol: vol });
+  }
+  def('sword_swing', function (v, t, p) { whoosh(v, t, p, 500, 2600, 700, 0.24, 0.5); whoosh(v, t + 0.02, p, 900, 4000, 1500, 0.2, 0.15, 2); }, { pv: 0.1 });
+  def('sword_hit', function (v, t, p) {
+    v.fm({ t: t, f: 920 * p, ratio: 2.76, idx: 3.5, idxDecay: 0.08, dur: 0.05, r: 0.28, vol: 0.32 });
+    v.fm({ t: t, f: 1480 * p, ratio: 1.41, idx: 2, idxDecay: 0.05, dur: 0.03, r: 0.18, vol: 0.16 });
+    v.noise({ t: t, filter: { type: 'bandpass', f: 3200, q: 0.6 }, dur: 0.02, r: 0.07, vol: 0.45 });
+    v.osc({ t: t, type: 'sine', f: 140 * p, fenv: [[0.08, 55 * p, 'e']], dur: 0.04, r: 0.1, vol: 0.4 });
+  }, { pv: 0.08, verb: 0.25 });
+  def('axe_hit', function (v, t, p) {
+    v.osc({ t: t, type: 'sine', f: 120 * p, fenv: [[0.1, 45 * p, 'e']], dur: 0.06, r: 0.14, vol: 0.55 });
+    v.noise({ t: t, filter: { type: 'lowpass', f: 900, q: 1 }, dur: 0.05, r: 0.12, vol: 0.5 });
+    v.fm({ t: t, f: 620 * p, ratio: 2.4, idx: 2.5, idxDecay: 0.06, dur: 0.03, r: 0.16, vol: 0.18 });
+    v.noise({ t: t + 0.01, filter: { type: 'bandpass', f: 2200, q: 2 }, dur: 0.015, r: 0.05, vol: 0.25 });
+  }, { pv: 0.08, verb: 0.2 });
+  def('blunt_hit', function (v, t, p) {
+    v.osc({ t: t, type: 'sine', f: 95 * p, fenv: [[0.12, 38 * p, 'e']], dur: 0.08, r: 0.2, vol: 0.7 });
+    v.noise({ t: t, kind: 'brown', filter: { type: 'lowpass', f: 500 }, dur: 0.07, r: 0.15, vol: 0.6 });
+    v.noise({ t: t, filter: { type: 'bandpass', f: 1500, q: 1 }, dur: 0.012, r: 0.04, vol: 0.2 });
+  }, { pv: 0.08, verb: 0.15 });
+  def('bow_shoot', function (v, t, p) {
+    v.pluck({ t: t, f: 105 * p, dur: 0.6, bright: 1, decay: 0.35, vol: 0.5 });
+    v.pluck({ t: t + 0.004, f: 158 * p, dur: 0.4, bright: 0.9, decay: 0.2, vol: 0.25 });
+    whoosh(v, t + 0.015, p, 700, 3200, 5000, 0.28, 0.32, 1.5);
+    v.noise({ t: t, filter: { type: 'bandpass', f: 4000, q: 1 }, dur: 0.01, r: 0.03, vol: 0.2 });
+  }, { pv: 0.06 });
+  def('arrow_hit', function (v, t, p) {
+    v.noise({ t: t, filter: { type: 'bandpass', f: 1700 * p, q: 2.5 }, dur: 0.015, r: 0.05, vol: 0.6 });
+    v.osc({ t: t, type: 'sine', f: 420 * p, fenv: [[0.06, 150 * p, 'e']], dur: 0.03, r: 0.07, vol: 0.35 });
+    v.pluck({ t: t + 0.005, f: 760 * p, dur: 0.3, bright: 0.9, decay: 0.12, vol: 0.2 });
+  }, { pv: 0.1, verb: 0.15 });
+
+  // ---- magic ----
+  def('spell_cast', function (v, t, p) {
+    const lp = v.filter('lowpass', 900, 2); lp.frequency.setValueAtTime(600, t); lp.frequency.exponentialRampToValueAtTime(5000, t + 0.5); lp.connect(v.out);
+    for (let i = 0; i < 3; i++) v.osc({ t: t, type: i === 1 ? 'triangle' : 'sine', f: [300, 450, 600][i] * p, fenv: [[0.5, [1200, 1800, 2400][i] * p, 'e']], dur: 0.35, a: 0.05, r: 0.3, vol: 0.12, vib: { rate: 7, cents: 25, delay: 0.1 }, dest: lp });
+    v.noise({ t: t, kind: 'pink', filter: { type: 'bandpass', f: 1500, q: 1, fenv: [[0.5, 6000]] }, dur: 0.35, a: 0.15, r: 0.25, vol: 0.14 });
+  }, { pv: 0.04, verb: 0.35 });
+  def('spell_hit', function (v, t, p) {
+    v.fm({ t: t, f: 520 * p, ratio: 1.5, idx: 4, idxDecay: 0.12, dur: 0.05, r: 0.35, vol: 0.32 });
+    v.noise({ t: t, filter: { type: 'bandpass', f: 2200, q: 0.7, fenv: [[0.25, 500]] }, dur: 0.04, r: 0.22, vol: 0.4 });
+    v.osc({ t: t, type: 'sine', f: 110 * p, fenv: [[0.15, 40 * p, 'e']], dur: 0.06, r: 0.15, vol: 0.45 });
+  }, { pv: 0.06, verb: 0.3 });
+  def('fire_hit', function (v, t, p) {
+    v.noise({ t: t, kind: 'pink', filter: { type: 'lowpass', f: 300, q: 1, fenv: [[0.12, 2600], [0.5, 500]] }, dur: 0.25, a: 0.03, r: 0.3, vol: 0.55 });
+    v.osc({ t: t, type: 'sawtooth', f: 70 * p, fenv: [[0.4, 40 * p, 'e']], dur: 0.2, a: 0.02, r: 0.25, vol: 0.18, dest: v.lpOut(250, 1) });
+    for (let i = 0; i < 5; i++) v.noise({ t: t + 0.04 + _rand() * 0.35, filter: { type: 'highpass', f: 2500 + _rand() * 2000, q: 1 }, dur: 0.006, r: 0.015, vol: 0.28 });
+  }, { pv: 0.05, verb: 0.2 });
+  def('frost_hit', function (v, t, p) {
+    const fs = [2400, 3150, 4700, 5900];
+    for (let i = 0; i < fs.length; i++) v.osc({ t: t + i * 0.035, type: 'sine', f: fs[i] * p, dur: 0.04, a: 0.002, r: 0.3 + i * 0.05, vol: 0.14 });
+    v.noise({ t: t, filter: { type: 'highpass', f: 5500, q: 0.5 }, dur: 0.05, a: 0.005, r: 0.4, vol: 0.22 });
+    for (let i = 0; i < 6; i++) v.fm({ t: t + 0.08 + i * 0.045, f: (3000 + _rand() * 3000) * p, ratio: 3.7, idx: 1.5, idxDecay: 0.03, dur: 0.01, r: 0.12, vol: 0.08 });
+    v.osc({ t: t, type: 'triangle', f: 220 * p, fenv: [[0.2, 90 * p, 'e']], dur: 0.05, r: 0.2, vol: 0.2 });
+  }, { pv: 0.05, verb: 0.4 });
+  def('light_hit', function (v, t, p) {
+    for (let i = 0; i < 4; i++) v.osc({ t: t, type: i < 2 ? 'sine' : 'triangle', f: [660, 990, 1320, 1980][i] * p, dur: 0.12, a: 0.008, r: 0.35, vol: 0.12 - i * 0.02 });
+    v.noise({ t: t, kind: 'white', filter: { type: 'highpass', f: 4000 }, dur: 0.1, a: 0.01, r: 0.3, vol: 0.18 });
+    v.osc({ t: t, type: 'sine', f: 165 * p, dur: 0.15, a: 0.01, r: 0.3, vol: 0.2 });
+  }, { pv: 0.03, verb: 0.35 });
+  def('heal', function (v, t, p) {
+    const ns = [523, 659, 784, 1047];
+    for (let i = 0; i < ns.length; i++) v.osc({ t: t + i * 0.09, type: 'sine', f: ns[i] * p, dur: 0.25, a: 0.02, r: 0.4, vol: 0.16, vib: { rate: 5, cents: 6, delay: 0.1 } });
+    v.osc({ t: t, type: 'triangle', f: 262 * p, dur: 0.5, a: 0.2, r: 0.5, vol: 0.08, dest: v.lpOut(900, 0.7) });
+    v.noise({ t: t + 0.1, kind: 'pink', filter: { type: 'highpass', f: 5000 }, dur: 0.3, a: 0.2, r: 0.3, vol: 0.05 });
+  }, { pv: 0.02, verb: 0.4, hall: true });
+  def('buff', function (v, t, p) {
+    const ns = [587, 740, 880];
+    for (let i = 0; i < 3; i++) v.fm({ t: t + i * 0.07, f: ns[i] * p, ratio: 2, idx: 1.2, idxDecay: 0.1, dur: 0.08, r: 0.35, vol: 0.18 });
+    v.noise({ t: t + 0.05, filter: { type: 'highpass', f: 6000 }, dur: 0.15, a: 0.1, r: 0.2, vol: 0.06 });
+  }, { pv: 0.02, verb: 0.3 });
+
+  // ---- footsteps & body ----
+  function step(v, t, p, o) {
+    v.noise({ t: t, kind: o.kind || 'white', filter: { type: 'lowpass', f: o.lp * p, q: o.q || 0.8 }, dur: o.dur, a: 0.004, r: o.r, vol: o.vol });
+    if (o.thud) v.osc({ t: t, type: 'sine', f: o.thud * p, fenv: [[0.05, o.thud * 0.5 * p, 'e']], dur: 0.02, r: 0.05, vol: o.thudVol || 0.25 });
+  }
+  def('footstep_grass', function (v, t, p) {
+    step(v, t, p, { kind: 'pink', lp: 600, dur: 0.05, r: 0.06, vol: 0.4, thud: 90, thudVol: 0.18 });
+    v.noise({ t: t + 0.01, filter: { type: 'bandpass', f: 3200, q: 1.5 }, dur: 0.03, a: 0.01, r: 0.05, vol: 0.09 });
+  }, { pv: 0.15, vol: 0.8 });
+  def('footstep_dirt', function (v, t, p) {
+    step(v, t, p, { kind: 'pink', lp: 900, dur: 0.045, r: 0.05, vol: 0.4, thud: 100, thudVol: 0.16 });
+    v.noise({ t: t + 0.008, filter: { type: 'bandpass', f: 2000, q: 1 }, dur: 0.02, r: 0.03, vol: 0.1 });
+  }, { pv: 0.15, vol: 0.8 });
+  def('footstep_sand', function (v, t, p) {
+    step(v, t, p, { kind: 'pink', lp: 1400, dur: 0.07, r: 0.08, vol: 0.32 });
+    v.noise({ t: t + 0.02, kind: 'white', filter: { type: 'bandpass', f: 2600, q: 0.8 }, dur: 0.05, a: 0.02, r: 0.05, vol: 0.1 });
+  }, { pv: 0.15, vol: 0.8 });
+  def('footstep_stone', function (v, t, p) {
+    v.noise({ t: t, filter: { type: 'bandpass', f: 2400 * p, q: 2 }, dur: 0.008, r: 0.03, vol: 0.5 });
+    step(v, t + 0.002, p, { lp: 700, dur: 0.02, r: 0.04, vol: 0.28, thud: 140, thudVol: 0.12 });
+  }, { pv: 0.12, vol: 0.85, verb: 0.15 });
+  def('footstep_road', function (v, t, p) {
+    v.noise({ t: t, filter: { type: 'bandpass', f: 1900 * p, q: 1.5 }, dur: 0.01, r: 0.03, vol: 0.35 });
+    step(v, t + 0.002, p, { kind: 'pink', lp: 800, dur: 0.03, r: 0.045, vol: 0.3, thud: 110, thudVol: 0.14 });
+  }, { pv: 0.12, vol: 0.85 });
+  def('footstep_wood', function (v, t, p) {
+    v.osc({ t: t, type: 'sine', f: 230 * p, fenv: [[0.05, 115 * p, 'e']], dur: 0.02, r: 0.07, vol: 0.4 });
+    step(v, t, p, { lp: 1300, dur: 0.02, r: 0.03, vol: 0.3 });
+    v.pluck({ t: t, f: 180 * p, dur: 0.15, bright: 0.4, decay: 0.06, vol: 0.15 });
+  }, { pv: 0.12, vol: 0.85, verb: 0.1 });
+  def('footstep_water', function (v, t, p) {
+    v.noise({ t: t, filter: { type: 'bandpass', f: 1100 * p, q: 1, fenv: [[0.12, 3200 * p]] }, dur: 0.08, a: 0.01, r: 0.1, vol: 0.4 });
+    v.osc({ t: t + 0.02, type: 'sine', f: 450 * p, fenv: [[0.08, 180 * p, 'e']], dur: 0.04, r: 0.06, vol: 0.12 });
+    v.noise({ t: t + 0.06, kind: 'pink', filter: { type: 'highpass', f: 3000 }, dur: 0.06, a: 0.02, r: 0.08, vol: 0.1 });
+  }, { pv: 0.12, vol: 0.85 });
+  def('footstep_snow', function (v, t, p) {
+    for (let i = 0; i < 4; i++) v.noise({ t: t + i * 0.022 + _rand() * 0.01, kind: 'white', filter: { type: 'lowpass', f: (1500 - i * 200) * p, q: 0.7 }, dur: 0.012, r: 0.02, vol: 0.3 - i * 0.04 });
+    step(v, t, p, { kind: 'pink', lp: 500, dur: 0.06, r: 0.05, vol: 0.25, thud: 80, thudVol: 0.12 });
+  }, { pv: 0.12, vol: 0.85 });
+  def('jump', function (v, t, p) {
+    whoosh(v, t, p, 350, 1600, 2200, 0.16, 0.22, 1);
+    v.osc({ t: t, type: 'triangle', f: 170 * p, fenv: [[0.07, 240 * p]], dur: 0.05, a: 0.01, r: 0.04, vol: 0.08, dest: v.lpOut(800, 1) });
+  }, { pv: 0.08 });
+  def('land', function (v, t, p) {
+    v.osc({ t: t, type: 'sine', f: 85 * p, fenv: [[0.09, 38 * p, 'e']], dur: 0.05, r: 0.12, vol: 0.5 });
+    v.noise({ t: t, kind: 'pink', filter: { type: 'lowpass', f: 700 }, dur: 0.04, r: 0.08, vol: 0.4 });
+    v.noise({ t: t + 0.01, filter: { type: 'bandpass', f: 2400, q: 1 }, dur: 0.02, r: 0.03, vol: 0.08 });
+  }, { pv: 0.1 });
+  def('roll', function (v, t, p) {
+    for (let i = 0; i < 2; i++) v.osc({ t: t + i * 0.16, type: 'sine', f: 90 * p, fenv: [[0.08, 45 * p, 'e']], dur: 0.04, r: 0.1, vol: 0.3 });
+    v.noise({ t: t, kind: 'pink', filter: { type: 'lowpass', f: 800, q: 0.8, fenv: [[0.35, 300]] }, dur: 0.28, a: 0.02, r: 0.12, vol: 0.35 });
+    v.noise({ t: t + 0.03, filter: { type: 'bandpass', f: 2000, q: 0.8 }, dur: 0.25, a: 0.05, r: 0.1, vol: 0.08 });
+  }, { pv: 0.08 });
+  function voiceSaw(v, t, p, f0, f1, dur, vol, lp, form) {
+    const fl = v.filter('lowpass', lp, 1.5); const bp = v.filter('bandpass', form, 2.5); const mix = v.gain(1);
+    fl.connect(mix); bp.connect(mix); mix.connect(v.out);
+    v.osc({ t: t, type: 'sawtooth', f: f0 * p, fenv: [[dur, f1 * p, 'e']], dur: dur * 0.7, a: 0.02, r: dur * 0.3, vol: vol, dest: fl, vib: { rate: 6, cents: 20, delay: 0.05 } });
+    v.osc({ t: t, type: 'sawtooth', f: f0 * p * 1.005, fenv: [[dur, f1 * p, 'e']], dur: dur * 0.7, a: 0.02, r: dur * 0.3, vol: vol * 0.6, dest: bp });
+    v.noise({ t: t, kind: 'pink', filter: { type: 'bandpass', f: form, q: 1 }, dur: dur * 0.6, a: 0.03, r: dur * 0.3, vol: vol * 0.35 });
+  }
+  def('hurt', function (v, t, p) { voiceSaw(v, t, p, 175, 120, 0.18, 0.2, 1000, 800); }, { pv: 0.12 });
+  def('death', function (v, t, p) {
+    voiceSaw(v, t, p, 150, 70, 0.75, 0.2, 800, 650);
+    v.osc({ t: t + 0.55, type: 'sine', f: 80 * p, fenv: [[0.1, 35 * p, 'e']], dur: 0.06, r: 0.15, vol: 0.4 });
+    v.noise({ t: t + 0.55, kind: 'pink', filter: { type: 'lowpass', f: 600 }, dur: 0.05, r: 0.1, vol: 0.35 });
+  }, { pv: 0.08, verb: 0.2 });
+
+  // ---- progression / rewards ----
+  function bell(v, t, f, dur, vol, ratio, idx) { return v.fm({ t: t, f: f, ratio: ratio || 3.5, idx: idx == null ? 1.6 : idx, idxDecay: dur * 0.5, dur: dur * 0.25, a: 0.003, r: dur, vol: vol }); }
+  function padChord(v, t, fs, dur, vol, a, r, lp) {
+    const fl = v.lpOut(lp || 1500, 0.6);
+    for (const f of fs) { v.osc({ t: t, type: 'sawtooth', f: f, detune: -7, dur: dur, a: a, r: r, vol: vol, dest: fl }); v.osc({ t: t, type: 'sawtooth', f: f, detune: 7, dur: dur, a: a, r: r, vol: vol, dest: fl }); }
+  }
+  def('level_up', function (v, t, p) {
+    const ns = [523, 659, 784, 1047, 1319, 1568];
+    for (let i = 0; i < ns.length; i++) { v.osc({ t: t + i * 0.085, type: 'triangle', f: ns[i] * p, dur: 0.12, a: 0.01, r: 0.6, vol: 0.14 }); v.osc({ t: t + i * 0.085, type: 'sine', f: ns[i] * 2 * p, dur: 0.1, a: 0.01, r: 0.5, vol: 0.05 }); }
+    padChord(v, t + 0.3, [262 * p, 330 * p, 392 * p, 523 * p], 0.9, 0.05, 0.35, 0.9, 1800);
+    bell(v, t + 0.55, 2093 * p, 1.4, 0.12);
+    v.noise({ t: t + 0.2, kind: 'pink', filter: { type: 'highpass', f: 5000 }, dur: 0.7, a: 0.35, r: 0.6, vol: 0.09 });
+  }, { pv: 0.01, verb: 0.45, hall: true });
+  def('quest_accept', function (v, t, p) {
+    bell(v, t, 784 * p, 0.6, 0.22, 2); bell(v, t + 0.14, 1047 * p, 0.9, 0.22, 2);
+    v.noise({ t: t, kind: 'pink', filter: { type: 'bandpass', f: 1200, q: 0.8, fenv: [[0.3, 2600]] }, dur: 0.25, a: 0.05, r: 0.15, vol: 0.07 });
+  }, { pv: 0.01, verb: 0.3 });
+  def('quest_progress', function (v, t, p) {
+    bell(v, t, 1319 * p, 0.5, 0.2, 2);
+    v.noise({ t: t, filter: { type: 'highpass', f: 4000 }, dur: 0.01, r: 0.02, vol: 0.08 });
+  }, { pv: 0.01, verb: 0.25 });
+  function horn(v, t, f, dur, vol, dest) {
+    return v.fm({ t: t, f: f, ratio: 1, idx: 0.35, idxEnd: 1.4, idxHold: 0.02, idxDecay: 0.18, type: 'sine', dur: dur, a: 0.06, d: 0.1, s: 0.85, r: 0.25, vol: vol, dest: dest });
+  }
+  def('quest_complete', function (v, t, p) {
+    const fl = v.lpOut(2600, 0.7);
+    horn(v, t, 523 * p, 0.16, 0.3, fl); horn(v, t + 0.2, 784 * p, 0.16, 0.3, fl); horn(v, t + 0.4, 1047 * p, 0.75, 0.34, fl);
+    horn(v, t + 0.4, 659 * p, 0.75, 0.16, fl);
+    padChord(v, t + 0.38, [262 * p, 392 * p, 523 * p, 659 * p], 0.8, 0.045, 0.2, 0.9, 1600);
+    v.noise({ t: t + 0.4, kind: 'pink', filter: { type: 'highpass', f: 6000 }, dur: 0.5, a: 0.2, r: 0.5, vol: 0.06 });
+  }, { pv: 0.005, verb: 0.45, hall: true });
+  def('coin', function (v, t, p) {
+    const n = 2 + Math.floor(_rand() * 2);
+    for (let i = 0; i < n; i++) bell(v, t + i * 0.065, (2300 + _rand() * 900) * p, 0.35, 0.16, 3.7, 1.2);
+    v.noise({ t: t, filter: { type: 'highpass', f: 5000 }, dur: 0.008, r: 0.02, vol: 0.12 });
+  }, { pv: 0.04 });
+  def('loot', function (v, t, p) {
+    const g = v.noise({ t: t, kind: 'pink', filter: { type: 'bandpass', f: 1800 * p, q: 0.9 }, dur: 0.18, a: 0.02, r: 0.08, vol: 0.28 });
+    v.lfo({ t: t, rate: 22, depth: 0.15, param: g.gain, stop: t + 0.4 });
+    bell(v, t + 0.14, 1568 * p, 0.5, 0.12, 2);
+  }, { pv: 0.08 });
+  def('equip', function (v, t, p) {
+    v.fm({ t: t, f: 760 * p, ratio: 2.9, idx: 2, idxDecay: 0.05, dur: 0.03, r: 0.14, vol: 0.2 });
+    v.noise({ t: t, filter: { type: 'bandpass', f: 4000, q: 1 }, dur: 0.01, r: 0.03, vol: 0.2 });
+    v.noise({ t: t + 0.06, kind: 'pink', filter: { type: 'bandpass', f: 1500, q: 0.8 }, dur: 0.12, a: 0.03, r: 0.08, vol: 0.14 });
+  }, { pv: 0.08 });
+  def('achievement', function (v, t, p) {
+    const ns = [1047, 1319, 1568, 2093];
+    for (let i = 0; i < 4; i++) bell(v, t + i * 0.11, ns[i] * p, 1.1 + i * 0.2, 0.16, 2, 1.4);
+    padChord(v, t + 0.2, [262 * p, 392 * p, 659 * p], 0.9, 0.04, 0.3, 0.9, 1400);
+    v.noise({ t: t + 0.3, kind: 'pink', filter: { type: 'highpass', f: 6000 }, dur: 0.5, a: 0.25, r: 0.5, vol: 0.07 });
+  }, { pv: 0.005, verb: 0.5, hall: true });
+  def('admin_open', function (v, t, p) {
+    const fl = v.lpOut(500, 3); fl.frequency.setValueAtTime(300, t); fl.frequency.exponentialRampToValueAtTime(3500, t + 0.7);
+    for (const f of [110, 165, 220, 311]) { v.osc({ t: t, type: 'sawtooth', f: f * p, detune: -9, dur: 0.6, a: 0.08, r: 0.5, vol: 0.07, dest: fl }); v.osc({ t: t, type: 'sawtooth', f: f * p, detune: 9, dur: 0.6, a: 0.08, r: 0.5, vol: 0.07, dest: fl }); }
+    const ns = [440, 523, 622, 880];
+    for (let i = 0; i < 4; i++) bell(v, t + 0.25 + i * 0.1, ns[i] * p, 0.9, 0.12, 3.01, 1.6);
+  }, { pv: 0.01, verb: 0.5, hall: true });
+
+  // ---- doors, mounts, boats ----
+  function creak(v, t, p, f0, dur, vol, bpf, q, walk) {
+    const bp = v.filter('bandpass', bpf, q || 3); bp.connect(v.out);
+    const fenv = []; let f = f0; const steps = Math.max(4, Math.floor(dur / 0.06));
+    for (let i = 1; i <= steps; i++) { f *= 1 + (_rand() * 2 - 1) * (walk || 0.12); f = _clamp(f, f0 * 0.6, f0 * 1.7); fenv.push([(dur * i) / steps, f * p]); }
+    v.osc({ t: t, type: 'sawtooth', f: f0 * p, fenv: fenv, dur: dur * 0.8, a: dur * 0.15, r: dur * 0.2, vol: vol, dest: bp });
+    v.osc({ t: t, type: 'square', f: f0 * p * 0.5, fenv: fenv.map(function (e) { return [e[0], e[1] * 0.5]; }), dur: dur * 0.8, a: dur * 0.15, r: dur * 0.2, vol: vol * 0.3, dest: bp });
+  }
+  def('door_open', function (v, t, p) {
+    v.noise({ t: t, filter: { type: 'bandpass', f: 2200, q: 1.5 }, dur: 0.012, r: 0.04, vol: 0.3 });
+    v.osc({ t: t, type: 'sine', f: 300 * p, fenv: [[0.03, 120 * p, 'e']], dur: 0.02, r: 0.05, vol: 0.15 });
+    creak(v, t + 0.06, p, 110, 0.75, 0.16, 650, 3, 0.14);
+  }, { pv: 0.1, verb: 0.2 });
+  def('door_close', function (v, t, p) {
+    creak(v, t, p, 130, 0.3, 0.1, 600, 3, 0.1);
+    v.osc({ t: t + 0.3, type: 'sine', f: 110 * p, fenv: [[0.08, 50 * p, 'e']], dur: 0.05, r: 0.15, vol: 0.5 });
+    v.noise({ t: t + 0.3, kind: 'pink', filter: { type: 'lowpass', f: 900 }, dur: 0.04, r: 0.1, vol: 0.4 });
+    v.noise({ t: t + 0.34, filter: { type: 'bandpass', f: 2600, q: 2 }, dur: 0.01, r: 0.04, vol: 0.25 });
+  }, { pv: 0.1, verb: 0.2 });
+  def('horse_mount', function (v, t, p) {
+    creak(v, t, p, 180, 0.28, 0.08, 1200, 2, 0.1);
+    v.osc({ t: t + 0.22, type: 'sine', f: 90 * p, fenv: [[0.08, 45 * p, 'e']], dur: 0.05, r: 0.12, vol: 0.4 });
+    v.noise({ t: t + 0.22, kind: 'pink', filter: { type: 'lowpass', f: 600 }, dur: 0.05, r: 0.1, vol: 0.35 });
+    for (let i = 0; i < 3; i++) v.noise({ t: t + 0.32 + i * 0.09, kind: 'pink', filter: { type: 'lowpass', f: 500 }, dur: 0.03, r: 0.05, vol: 0.2 });
+  }, { pv: 0.08 });
+  function gallopBuffer() {
+    const hoof = function (t, vol) { return { t: t, len: 0.11, f0: 140, f1: 55, tone: 0.8, noise: 0.5, lp: 0.08, k: 9, vol: vol }; };
+    return hitsBuf('gallop', 0.66, [hoof(0, 1), hoof(0.115, 0.8), hoof(0.235, 0.9), hoof(0.4, 1.05), { t: 0.4, len: 0.08, f0: 600, f1: 300, tone: 0, noise: 0.25, lp: 0.3, k: 12, vol: 0.5 }]);
+  }
+  def('horse_gallop', function (v, t, p, o) {
+    v.buf({ t: t, buffer: gallopBuffer(), rate: p, loop: !!(o && o.loop), vol: 0.6, a: 0.05, filter: { type: 'lowpass', f: 1800, q: 0.7 } });
+  }, { pv: 0.03 });
+  def('horse_neigh', function (v, t, p) {
+    const f1 = v.filter('bandpass', 1000, 2), f2 = v.filter('bandpass', 2400, 3), mix = v.gain(1); f1.connect(mix); f2.connect(mix); mix.connect(v.out);
+    const fenv = [[0.12, 780], [0.35, 640], [0.5, 720], [0.7, 480], [0.85, 380]];
+    v.osc({ t: t, type: 'sawtooth', f: 480 * p, fenv: fenv.map(function (e) { return [e[0], e[1] * p]; }), dur: 0.65, a: 0.04, r: 0.2, vol: 0.2, dest: f1, vib: { rate: 11, cents: 60, delay: 0.05 } });
+    v.osc({ t: t, type: 'sawtooth', f: 483 * p, fenv: fenv.map(function (e) { return [e[0], e[1] * p]; }), dur: 0.65, a: 0.04, r: 0.2, vol: 0.14, dest: f2, vib: { rate: 11, cents: 60, delay: 0.05 } });
+    v.noise({ t: t, kind: 'pink', filter: { type: 'bandpass', f: 1800, q: 1 }, dur: 0.6, a: 0.05, r: 0.25, vol: 0.09 });
+  }, { pv: 0.08, verb: 0.25 });
+  def('boat_creak', function (v, t, p) { creak(v, t, p, 70, 1.0, 0.16, 320, 5, 0.09); creak(v, t + 0.5, p * 1.2, 95, 0.6, 0.08, 500, 4, 0.1); }, { pv: 0.1, verb: 0.15 });
+  def('boat_bell', function (v, t, p) {
+    for (let i = 0; i < 2; i++) { const tt = t + i * 0.55; bell(v, tt, 880 * p, 1.6, 0.22, 2.0, 1.3); bell(v, tt, 880 * p, 1.2, 0.12, 3.01, 1); v.noise({ t: tt, filter: { type: 'highpass', f: 3000 }, dur: 0.006, r: 0.02, vol: 0.15 }); }
+  }, { pv: 0.01, verb: 0.5, hall: true });
+
+  // ---- fishing / water ----
+  function plop(v, t, p, vol) { v.osc({ t: t, type: 'sine', f: 560 * p, fenv: [[0.05, 160 * p, 'e']], dur: 0.02, r: 0.05, vol: vol }); v.noise({ t: t, filter: { type: 'bandpass', f: 1600, q: 1, fenv: [[0.08, 600]] }, dur: 0.03, r: 0.06, vol: vol * 0.7 }); }
+  def('fish_cast', function (v, t, p) {
+    whoosh(v, t, p, 400, 2000, 3000, 0.22, 0.25, 1);
+    const g = v.noise({ t: t + 0.08, filter: { type: 'bandpass', f: 3000, q: 2 }, dur: 0.35, a: 0.02, r: 0.05, vol: 0.12 });
+    v.lfo({ t: t, type: 'square', rate: 34, depth: 0.12, param: g.gain, stop: t + 0.6 });
+    plop(v, t + 0.5, p, 0.25);
+  }, { pv: 0.06 });
+  def('fish_bite', function (v, t, p) { plop(v, t, p, 0.35); plop(v, t + 0.11, p * 1.15, 0.3); v.noise({ t: t + 0.05, kind: 'pink', filter: { type: 'highpass', f: 2500 }, dur: 0.15, a: 0.03, r: 0.1, vol: 0.1 }); }, { pv: 0.1 });
+  def('fish_catch', function (v, t, p) {
+    v.noise({ t: t, filter: { type: 'bandpass', f: 900 * p, q: 0.8, fenv: [[0.2, 3000 * p]] }, dur: 0.16, a: 0.01, r: 0.2, vol: 0.4 });
+    for (let i = 0; i < 4; i++) v.osc({ t: t + 0.05 + i * 0.05, type: 'sine', f: (300 + i * 120) * p, fenv: [[0.06, (600 + i * 200) * p]], dur: 0.03, r: 0.04, vol: 0.08 });
+    bell(v, t + 0.3, 1047 * p, 0.5, 0.16, 2); bell(v, t + 0.42, 1319 * p, 0.8, 0.16, 2);
+  }, { pv: 0.03, verb: 0.25 });
+  def('fish_fail', function (v, t, p) {
+    v.osc({ t: t, type: 'triangle', f: 420 * p, fenv: [[0.25, 300 * p]], dur: 0.2, a: 0.01, r: 0.1, vol: 0.18 });
+    v.osc({ t: t + 0.28, type: 'triangle', f: 300 * p, fenv: [[0.3, 200 * p]], dur: 0.25, a: 0.01, r: 0.15, vol: 0.16 });
+    plop(v, t + 0.1, p, 0.2);
+  }, { pv: 0.03 });
+  def('splash', function (v, t, p) {
+    v.noise({ t: t, filter: { type: 'bandpass', f: 700 * p, q: 0.7, fenv: [[0.25, 2800 * p]] }, dur: 0.22, a: 0.012, r: 0.35, vol: 0.55 });
+    v.noise({ t: t + 0.1, kind: 'pink', filter: { type: 'highpass', f: 2000 }, dur: 0.35, a: 0.1, r: 0.3, vol: 0.2 });
+    for (let i = 0; i < 6; i++) v.osc({ t: t + 0.12 + _rand() * 0.35, type: 'sine', f: (250 + _rand() * 300) * p, fenv: [[0.06, (700 + _rand() * 600) * p]], dur: 0.03, r: 0.04, vol: 0.07 });
+    v.osc({ t: t, type: 'sine', f: 120 * p, fenv: [[0.12, 50 * p, 'e']], dur: 0.06, r: 0.15, vol: 0.25 });
+  }, { pv: 0.08, verb: 0.15 });
+  def('swim', function (v, t, p) {
+    v.noise({ t: t, kind: 'pink', filter: { type: 'bandpass', f: 600 * p, q: 0.9, fenv: [[0.2, 1600 * p], [0.45, 500 * p]] }, dur: 0.3, a: 0.08, r: 0.15, vol: 0.3 });
+    for (let i = 0; i < 3; i++) v.osc({ t: t + 0.1 + _rand() * 0.25, type: 'sine', f: (350 + _rand() * 250) * p, fenv: [[0.05, 800 * p]], dur: 0.02, r: 0.03, vol: 0.05 });
+  }, { pv: 0.1 });
+  def('eat', function (v, t, p) {
+    for (let i = 0; i < 3; i++) { const tt = t + i * 0.19; v.noise({ t: tt, kind: 'pink', filter: { type: 'lowpass', f: (1400 - i * 200) * p, q: 1 }, dur: 0.04, r: 0.06, vol: 0.3 }); v.noise({ t: tt + 0.02, filter: { type: 'bandpass', f: 2600, q: 1.5 }, dur: 0.03, r: 0.04, vol: 0.12 }); }
+    v.osc({ t: t + 0.62, type: 'sine', f: 240 * p, fenv: [[0.15, 110 * p, 'e']], dur: 0.1, a: 0.02, r: 0.08, vol: 0.14 });
+  }, { pv: 0.08 });
+  def('drink', function (v, t, p) {
+    for (let i = 0; i < 3; i++) { const tt = t + i * 0.2; v.osc({ t: tt, type: 'sine', f: 320 * p, fenv: [[0.12, 150 * p, 'e']], dur: 0.08, a: 0.01, r: 0.06, vol: 0.16 }); v.noise({ t: tt, filter: { type: 'bandpass', f: 1500, q: 1.2 }, dur: 0.06, a: 0.01, r: 0.05, vol: 0.12 }); }
+  }, { pv: 0.06 });
+
+  // ---- creatures ----
+  function growl(v, t, p, o) {
+    const sh = v.shaper(o.drive || 3), lp = v.filter('lowpass', o.lp || 800, 1.2), bp = v.filter('bandpass', o.form || 400, 2), mix = v.gain(1);
+    sh.connect(lp); lp.connect(mix); bp.connect(mix); mix.connect(v.out);
+    const fenv = o.fenv.map(function (e) { return [e[0], e[1] * p]; });
+    v.osc({ t: t, type: 'sawtooth', f: o.f * p, fenv: fenv, dur: o.dur, a: o.a || 0.05, r: o.r || 0.25, vol: o.vol, dest: sh, vib: { rate: o.vibRate || 14, cents: o.vibCents || 30, delay: 0.05 } });
+    v.osc({ t: t, type: 'square', f: o.f * 0.5 * p, fenv: fenv.map(function (e) { return [e[0], e[1] * 0.5]; }), dur: o.dur, a: o.a || 0.05, r: o.r || 0.25, vol: o.vol * 0.5, dest: bp });
+    v.noise({ t: t, kind: 'pink', filter: { type: 'bandpass', f: o.form || 400, q: 0.8 }, dur: o.dur, a: 0.05, r: o.r || 0.25, vol: o.vol * 0.6 });
+    if (o.sub) v.osc({ t: t, type: 'sine', f: o.f * 0.5 * p, dur: o.dur, a: 0.05, r: o.r || 0.25, vol: o.vol * 0.9 });
+  }
+  def('wolf_howl', function (v, t, p) {
+    const f1 = v.filter('bandpass', 700, 2.5), f2 = v.filter('bandpass', 1150, 3), mix = v.gain(1); f1.connect(mix); f2.connect(mix); mix.connect(v.out);
+    const fenv = [[0.35, 620], [0.9, 600], [1.3, 560], [1.75, 400]].map(function (e) { return [e[0], e[1] * p]; });
+    v.osc({ t: t, type: 'sawtooth', f: 380 * p, fenv: fenv, dur: 1.5, a: 0.25, r: 0.4, vol: 0.14, dest: f1, vib: { rate: 5, cents: 15, delay: 0.5 } });
+    v.osc({ t: t, type: 'sine', f: 380 * p, fenv: fenv, dur: 1.5, a: 0.25, r: 0.4, vol: 0.22, vib: { rate: 5, cents: 15, delay: 0.5 } });
+    v.osc({ t: t, type: 'triangle', f: 381 * p, fenv: fenv, dur: 1.5, a: 0.3, r: 0.4, vol: 0.1, dest: f2 });
+    v.noise({ t: t, kind: 'pink', filter: { type: 'bandpass', f: 900, q: 1 }, dur: 1.4, a: 0.3, r: 0.4, vol: 0.05 });
+  }, { pv: 0.06, verb: 0.6, hall: true });
+  def('boar_grunt', function (v, t, p) { growl(v, t, p, { f: 95, fenv: [[0.18, 70]], dur: 0.14, r: 0.1, vol: 0.2, lp: 600, form: 350, drive: 2.5 }); growl(v, t + 0.22, p * 1.08, { f: 100, fenv: [[0.16, 65]], dur: 0.12, r: 0.1, vol: 0.18, lp: 600, form: 380, drive: 2.5 }); }, { pv: 0.1 });
+  def('bear_roar', function (v, t, p) { growl(v, t, p, { f: 115, fenv: [[0.25, 140], [0.9, 75]], dur: 0.75, a: 0.08, r: 0.35, vol: 0.24, lp: 900, form: 480, drive: 4, sub: true, vibRate: 12, vibCents: 40 }); }, { pv: 0.08, verb: 0.3 });
+  def('spider_hiss', function (v, t, p) {
+    const g = v.noise({ t: t, filter: { type: 'highpass', f: 4500 * p, q: 0.7 }, dur: 0.45, a: 0.04, r: 0.15, vol: 0.3 });
+    v.lfo({ t: t, type: 'sine', rate: 28, depth: 0.14, param: g.gain, stop: t + 0.7 });
+    for (let i = 0; i < 6; i++) v.noise({ t: t + _rand() * 0.5, filter: { type: 'bandpass', f: 3000 + _rand() * 3000, q: 4 }, dur: 0.006, r: 0.012, vol: 0.2 });
+  }, { pv: 0.08 });
+  def('orc_growl', function (v, t, p) { growl(v, t, p, { f: 135, fenv: [[0.2, 150], [0.6, 95]], dur: 0.5, a: 0.04, r: 0.2, vol: 0.22, lp: 1100, form: 520, drive: 5, vibRate: 18, vibCents: 35 }); }, { pv: 0.1, verb: 0.2 });
+  def('troll_roar', function (v, t, p) { growl(v, t, p, { f: 62, fenv: [[0.3, 78], [1.0, 60], [1.4, 42]], dur: 1.2, a: 0.1, r: 0.45, vol: 0.32, lp: 700, form: 300, drive: 7, sub: true, vibRate: 9, vibCents: 45 }); v.noise({ t: t, kind: 'brown', filter: { type: 'lowpass', f: 200 }, dur: 1.2, a: 0.1, r: 0.4, vol: 0.4 }); }, { pv: 0.06, verb: 0.45, hall: true });
+  def('wight_moan', function (v, t, p) {
+    const fenv = [[0.6, 190], [1.3, 215], [2.0, 170]].map(function (e) { return [e[0], e[1] * p]; });
+    v.osc({ t: t, type: 'sine', f: 220 * p, fenv: fenv, dur: 1.8, a: 0.5, r: 0.7, vol: 0.2, vib: { rate: 2.5, cents: 40, delay: 0.3 } });
+    v.osc({ t: t, type: 'triangle', f: 221 * p, fenv: fenv, dur: 1.8, a: 0.5, r: 0.7, vol: 0.1, vib: { rate: 3.2, cents: 30, delay: 0.3 }, dest: v.lpOut(900, 1) });
+    v.osc({ t: t, type: 'sine', f: 110 * p, fenv: fenv.map(function (e) { return [e[0], e[1] * 0.5]; }), dur: 1.8, a: 0.6, r: 0.7, vol: 0.12 });
+    v.noise({ t: t, kind: 'pink', filter: { type: 'bandpass', f: 1400, q: 1.5 }, dur: 1.6, a: 0.7, r: 0.6, vol: 0.08 });
+  }, { pv: 0.06, verb: 0.7, hall: true });
+
+  // ---- weather ----
+  def('thunder', function (v, t, p) {
+    v.noise({ t: t, filter: { type: 'bandpass', f: 1200, q: 0.6 }, dur: 0.04, a: 0.005, r: 0.12, vol: 0.45 });
+    const g = v.noise({ t: t + 0.05, kind: 'brown', filter: { type: 'lowpass', f: 140 * p, q: 1.5, fenv: [[0.4, 90], [3.5, 45]] }, dur: 1.2, a: 0.08, r: 2.6, vol: 0.9 });
+    v.lfo({ t: t, type: 'sine', rate: 3.3, depth: 0.25, param: g.gain, stop: t + 4.5 });
+    v.noise({ t: t + 0.6, kind: 'brown', filter: { type: 'lowpass', f: 220, q: 1 }, dur: 0.6, a: 0.3, r: 1.5, vol: 0.5 });
+  }, { pv: 0.1, vol: 1.1, verb: 0.35, hall: true });

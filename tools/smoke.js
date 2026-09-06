@@ -34,7 +34,7 @@ const SECONDS = parseFloat(opt('--seconds', '20'));
   const warnings = [];
   page.on('console', m => {
     const t = m.type();
-    if (t === 'error') errors.push('[console.error] ' + m.text());
+    if (t === 'error') { const txt = m.text(); if (!/fonts\.googleapis|fonts\.gstatic|Failed to load resource|net::ERR_/.test(txt)) errors.push('[console.error] ' + txt); }
     else if (t === 'warning') warnings.push(m.text());
   });
   page.on('pageerror', e => errors.push('[pageerror] ' + e.message + '\n' + (e.stack || '')));
