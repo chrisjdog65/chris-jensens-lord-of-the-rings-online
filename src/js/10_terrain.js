@@ -34,7 +34,7 @@
   const VIEW_RADIUS = 960;
   const DISPOSE_DIST = 1400;
   const MAX_BUILDS_PER_FRAME = 2;
-  const BUILD_BUDGET_MS = 7;
+  const BUILD_BUDGET_MS = 3.5;
   const HORIZON_SIZE = 6144, HORIZON_SEGS = 128, HORIZON_DROP = 2.5;
   const WATER_SIZE = 2400, WATER_SEGS = 96, WATER_FAR_SIZE = 9000, WATER_SNAP = 100;
   const GRID_N = 512;                         // coarse world height grid (8 m)
@@ -43,7 +43,7 @@
   const SKIRT = [5, 8, 12];
   const FALLBACK_W = 0.12;                    // weight of the global fallback biome
   const SUPPORT = 1.35;                       // zone influence radius = radius * SUPPORT
-  const LAKE_RIM = 2.5, RIVER_BANK = 1.4, RIVER_BED = -3.2, FORD_BED = -0.9, SEA_FLOOR = -25, CAUSEWAY_H = 1.4;
+  const LAKE_RIM = 3.2, RIVER_BANK = 1.4, RIVER_BED = -3.2, FORD_BED = -0.9, SEA_FLOOR = -25, CAUSEWAY_H = 1.4;
   const TOWN_MIN_H = 2.5, VALLEY_FLOOR = 5;
 
   let HALF = 2048, WORLD_SIZE = 4096, SEA = 0;
@@ -67,27 +67,27 @@
   // amplitude (overridden by zone.mountain * 120); crag: small rocky outcrops; downs: long anisotropic hills;
   // plateau: terraced macro relief; ice: ice ridges + full snow cover; forest: darker mossy floor; marsh: wet flats.
   const BIOME = {
-    shire:    { base: 18, macro: 12, meso: 2.4, micro: 0.35, ridge: 0,   crag: 0 },
-    breeland: { base: 15, macro: 10, meso: 2.6, micro: 0.4,  ridge: 0,   crag: 0 },
-    forest:   { base: 22, macro: 10, meso: 3.2, micro: 0.5,  ridge: 0,   crag: 1.5, forest: 1 },
-    marsh:    { base: 8,  macro: 4,  meso: 1.4, micro: 0.3,  ridge: 0,   crag: 0,   marsh: 1 },
-    barren:   { base: 25, macro: 13, meso: 4.0, micro: 0.6,  ridge: 14,  crag: 4 },
-    downs:    { base: 30, macro: 11, meso: 3.0, micro: 0.4,  ridge: 0,   crag: 1,   downs: 1 },
-    lake:     { base: 16, macro: 9,  meso: 2.5, micro: 0.4,  ridge: 0,   crag: 0.5 },
-    elven:    { base: 30, macro: 10, meso: 3.0, micro: 0.4,  ridge: 10,  crag: 1 },
-    mountain: { base: 80, macro: 26, meso: 6.0, micro: 0.8,  ridge: 120, crag: 6 },
-    dark:     { base: 40, macro: 13, meso: 3.5, micro: 0.6,  ridge: 45,  crag: 5,   plateau: 1 },
-    arctic:   { base: 20, macro: 9,  meso: 2.5, micro: 0.4,  ridge: 18,  crag: 2,   ice: 1 },
-    island:   { base: 14, macro: 10, meso: 3.0, micro: 0.5,  ridge: 12,  crag: 3 },
-    wild:     { base: 15, macro: 9,  meso: 2.5, micro: 0.4,  ridge: 0,   crag: 0 },
+    shire:    { base: 18, macro: 12, hill: 7,   meso: 2.4, micro: 0.35, ridge: 0,   crag: 0 },
+    breeland: { base: 15, macro: 10, hill: 6,   meso: 2.6, micro: 0.4,  ridge: 0,   crag: 0 },
+    forest:   { base: 22, macro: 10, hill: 5,   meso: 3.2, micro: 0.5,  ridge: 0,   crag: 1.5, forest: 1 },
+    marsh:    { base: 8,  macro: 4,  hill: 1.5, meso: 1.4, micro: 0.3,  ridge: 0,   crag: 0,   marsh: 1 },
+    barren:   { base: 25, macro: 13, hill: 6,   meso: 4.0, micro: 0.6,  ridge: 14,  crag: 4 },
+    downs:    { base: 30, macro: 11, hill: 5,   meso: 3.0, micro: 0.4,  ridge: 0,   crag: 1,   downs: 1 },
+    lake:     { base: 16, macro: 9,  hill: 5,   meso: 2.5, micro: 0.4,  ridge: 0,   crag: 0.5 },
+    elven:    { base: 30, macro: 10, hill: 5,   meso: 3.0, micro: 0.4,  ridge: 10,  crag: 1 },
+    mountain: { base: 80, macro: 26, hill: 4,   meso: 6.0, micro: 0.8,  ridge: 120, crag: 6 },
+    dark:     { base: 40, macro: 13, hill: 5,   meso: 3.5, micro: 0.6,  ridge: 45,  crag: 5,   plateau: 1 },
+    arctic:   { base: 20, macro: 9,  hill: 4,   meso: 2.5, micro: 0.4,  ridge: 18,  crag: 2,   ice: 1 },
+    island:   { base: 14, macro: 10, hill: 5,   meso: 3.0, micro: 0.5,  ridge: 12,  crag: 3 },
+    wild:     { base: 15, macro: 9,  hill: 5,   meso: 2.5, micro: 0.4,  ridge: 0,   crag: 0 },
   };
   const FALLBACK_BIOME = 'breeland';
 
   // zone table (flat Float64Array, stride ZS) — filled in init()
-  const ZS = 26;
+  const ZS = 27;
   const Z_CX = 0, Z_CZ = 1, Z_R = 2, Z_S2 = 3, Z_INVS2 = 4, Z_BASE = 5, Z_MAC = 6, Z_MES = 7, Z_MIC = 8, Z_RID = 9, Z_DWN = 10,
     Z_PLA = 11, Z_ICE = 12, Z_CRG = 13, Z_SNOW = 14, Z_MTN = 15, Z_GR = 16, Z_GG = 17, Z_GB = 18, Z_DR = 19, Z_DG = 20, Z_DB = 21,
-    Z_FOR = 22, Z_MARSH = 23, Z_ROCK = 24, Z_LEVEL = 25;
+    Z_FOR = 22, Z_MARSH = 23, Z_ROCK = 24, Z_LEVEL = 25, Z_HILL = 26;
   let ZT = new Float64Array(0), NZ = 0;
   let ZONES = [], ZONE_IDS = [], ZONE_BY_ID = {};
   let FB = null;                                            // fallback biome params
@@ -116,7 +116,7 @@
   // ---------------------------------------------------------------- zone blending
   function blendH(x, z) {
     let sw = FALLBACK_W;
-    let base = FB.base * sw, mac = FB.macro * sw, mes = FB.meso * sw, mic = FB.micro * sw;
+    let base = FB.base * sw, mac = FB.macro * sw, mes = FB.meso * sw, mic = FB.micro * sw, hil = FB.hill * sw;
     let rid = 0, dwn = 0, pla = 0, ice = 0, crg = 0, mtn = 0;
     for (let o = 0; o < NZ; o += ZS) {
       const dx = x - ZT[o], dz = z - ZT[o + 1];
@@ -127,11 +127,11 @@
       sw += w;
       base += w * ZT[o + Z_BASE]; mac += w * ZT[o + Z_MAC]; mes += w * ZT[o + Z_MES]; mic += w * ZT[o + Z_MIC];
       rid += w * ZT[o + Z_RID]; dwn += w * ZT[o + Z_DWN]; pla += w * ZT[o + Z_PLA]; ice += w * ZT[o + Z_ICE];
-      crg += w * ZT[o + Z_CRG]; mtn += w * ZT[o + Z_MTN];
+      crg += w * ZT[o + Z_CRG]; mtn += w * ZT[o + Z_MTN]; hil += w * ZT[o + Z_HILL];
     }
     const inv = 1 / sw;
     B[0] = base * inv; B[1] = mac * inv; B[2] = mes * inv; B[3] = mic * inv; B[4] = rid * inv; B[5] = dwn * inv;
-    B[6] = pla * inv; B[7] = ice * inv; B[8] = crg * inv; B[9] = mtn * inv;
+    B[6] = pla * inv; B[7] = ice * inv; B[8] = crg * inv; B[9] = mtn * inv; B[10] = hil * inv;
   }
 
   function blendC(x, z, h) {
@@ -159,7 +159,7 @@
   // ---------------------------------------------------------------- land relief (zones + noise)
   function landH(x, z, low) {
     blendH(x, z);
-    const base = B[0], macA = B[1], mesA = B[2], micA = B[3], ridA = B[4], dwn = B[5], pla = B[6], ice = B[7], crg = B[8], mtn = B[9];
+    const base = B[0], macA = B[1], mesA = B[2], micA = B[3], ridA = B[4], dwn = B[5], pla = B[6], ice = B[7], crg = B[8], mtn = B[9], hilA = B[10];
     let macro = G.fbm(x * 0.0016667, z * 0.0016667, low ? 2 : 4, 2, 0.5);
     let ridge = 0;
     if (pla > 0.01) {                                      // terraced plateaus (Angmar)
@@ -169,6 +169,10 @@
       macro += (terr - macro) * pla * 0.85;
     }
     let h = base + macA * macro;
+    if (hilA > 0.05) {                                     // billowy hills (rounded tops, soft creases)
+      const n1 = G.noise2(x * 0.0038 + 17, z * 0.0038 - 9), n2 = G.noise2(x * 0.0077 - 4, z * 0.0077 + 13);
+      h += hilA * ((n1 < 0 ? -n1 : n1) * 1.4 + (n2 < 0 ? -n2 : n2) * 0.6 - 0.62);
+    }
     if (ridA > 0.3) {                                      // ridged mountain peaks, confined to the zone core
       const r = G.ridged(x * 0.00286 + 3.1, z * 0.00286 - 1.7, low ? 2 : 4, 2, 0.5);
       const core = ss(0.12, 0.8, mtn);
@@ -289,14 +293,15 @@
       if (d < hw + 50) {
         const px = RSEG[bs] + RSEG[bs + 4] * bt, pz = RSEG[bs + 1] + RSEG[bs + 5] * bt;
         let hr = baseH(px, pz, true);
+        let overWater = 0;
         if (L_lake > 0.02 || L_sea > 0.02) {               // causeway across water
           const cw = CAUSEWAY_H + 0.15 * G.noise2(px * 0.05, pz * 0.05);
-          if (hr < cw) hr = cw;
+          if (hr < cw) { overWater = L_lake > L_sea ? L_lake : L_sea; hr = cw; }
         }
         const diff = hr - h;
         let band = (diff < 0 ? -diff : diff) * 1.5;
         if (band > 42) band = 42;
-        band += 6;
+        band = 6 + band * (1 - overWater) + 2 * overWater;
         const w = ss(hw + band, hw, d);
         h += diff * w;
         roadCore = ss(hw + 4, hw, d);
@@ -312,10 +317,13 @@
       const dx = x - TWN[o], dz = z - TWN[o + 1];
       const R = TWN[o + 2];
       const d2 = dx * dx + dz * dz;
-      if (d2 >= R * R) continue;
-      const w = ss(R, R * 0.7, Math.sqrt(d2)) * (1 - lake);
+      if (d2 >= (R + 92) * (R + 92)) continue;
+      const th = TWN[o + 3] + 0.3 * micro;
+      let band = (th > h ? th - h : h - th) * 1.5;
+      if (band > 90) band = 90;
+      const w = ss(R + band, R * 0.7, Math.sqrt(d2)) * (1 - lake);
       if (w <= 0) continue;
-      h += (TWN[o + 3] + 0.3 * micro - h) * w;
+      h += (th - h) * w;
       if (w > townW) townW = w;
       water *= 1 - w;
     }
@@ -339,13 +347,15 @@
       if (d < hw + 60) {
         const kf = VSEG[bs + 9] > 0 ? ss(0.3, 0.7, valley) : 1;
         if (kf > 0) {
-          const bank = ss(hw + 60, hw + 9, d) * kf;
+          const bb = hw * 6 + 10 > 60 ? 60 : hw * 6 + 10;
+          const bank = ss(hw + bb, hw + 9, d) * kf;
           const bh = RIVER_BANK + 0.5 * micro;
-          h += (bh - h) * (0.55 + 0.45 * ss(hw + 26, hw + 6, d)) * bank;
+          h += (bh - h) * (0.55 + 0.45 * ss(hw + bb * 0.45, hw + 6, d)) * bank;
           const carve = ss(hw + 6, hw - 3, d) * kf;
           const bed = VSEG[bs + 8] + (FORD_BED - VSEG[bs + 8]) * roadCore + 0.35 * micro;
           h += (bed - h) * carve;
-          if (bank > shore) shore = bank;
+          const sb = bank * bank * bank * bank * bank;
+          if (sb > shore) shore = sb;
           if (carve > water) water = carve;
         }
       }
@@ -565,10 +575,11 @@
       ZT[o + Z_MARSH] = bp.marsh || 0;
       ZT[o + Z_ROCK] = clamp(mtn * 1.2 + (bkey === 'barren' ? 0.35 : 0), 0, 1);
       ZT[o + Z_LEVEL] = Array.isArray(zn.level) ? num(zn.level[0], 1) : 1;
+      ZT[o + Z_HILL] = (bp.hill || 0) * (0.7 + 0.3 * rf);
     }
     const fbz = ZONE_BY_ID[FALLBACK_BIOME];
     const bp = BIOME[FALLBACK_BIOME];
-    FB = { base: fbz ? num(fbz.baseHeight, bp.base) : bp.base, macro: bp.macro, meso: bp.meso, micro: bp.micro };
+    FB = { base: fbz ? num(fbz.baseHeight, bp.base) : bp.base, macro: bp.macro, meso: bp.meso, micro: bp.micro, hill: bp.hill || 0 };
     linearRGB(fbz ? hexOf(fbz.grassColor, 0x6b9744) : 0x6b9744, tmp, 0); FB.gr = tmp[0]; FB.gg = tmp[1]; FB.gb = tmp[2];
     linearRGB(fbz ? hexOf(fbz.groundColor, 0x7d6c48) : 0x7d6c48, tmp, 0); FB.dr = tmp[0]; FB.dg = tmp[1]; FB.db = tmp[2];
   }
@@ -648,7 +659,7 @@
     RIVERS = [];
     const riverList = (Array.isArray(water.rivers) ? water.rivers : dw.rivers).slice();
     riverList.push({ id: 'bruinen_stream', name: 'The Bruinen', width: 8, bed: -1.8, valleyOnly: true,
-      points: [{ x: VAL_X + 70, z: VAL_Z - 190 }, { x: VAL_X + 35, z: VAL_Z - 95 }, { x: VAL_X + 8, z: VAL_Z - 10 }, { x: VAL_X - 30, z: VAL_Z + 70 }, { x: VAL_X - 75, z: VAL_Z + 170 }] });
+      points: [{ x: VAL_X + 95, z: VAL_Z - 205 }, { x: VAL_X + 130, z: VAL_Z - 95 }, { x: VAL_X + 136, z: VAL_Z + 25 }, { x: VAL_X + 104, z: VAL_Z + 140 }, { x: VAL_X + 45, z: VAL_Z + 215 }] });
     const vseg = [], vbox = [];
     for (const rv of riverList) {
       if (!rv || !Array.isArray(rv.points) || rv.points.length < 2) continue;
@@ -691,13 +702,20 @@
     // --- towns (centre heights computed from the base field, never below the water)
     TOWNS = [];
     const tarr = [], tbox = [];
+    const docks = (world && Array.isArray(world.docks)) ? world.docks : [];
     for (const tw of towns) {
       if (!tw || !tw.pos) continue;
       const R = Math.max(12, num(tw.radius, 60));
       TOWNS.push(tw);
-      const th = Math.max(TOWN_MIN_H, baseH(tw.pos.x, tw.pos.z, false));
+      let th = baseH(tw.pos.x, tw.pos.z, false);
+      const coastal = L_shoreBase;
+      let hasDock = !!tw.hasDock;
+      for (let i = 0; i < docks.length && !hasDock; i++) if (docks[i] && docks[i].town === tw.id) hasDock = true;
+      if (hasDock && coastal > 0.02 && th > 5.5) th = 5.5;                                                // harbour towns sit at the water line
+      else if (coastal > 0.15 && th > 5) th = th + (5 + 4 * (1 - coastal) - th) * ss(0.15, 0.6, coastal);  // other shore towns hug it
+      th = Math.max(TOWN_MIN_H, th);
       tarr.push(tw.pos.x, tw.pos.z, R, th, R * 0.7);
-      tbox.push({ minX: tw.pos.x - R - 2, maxX: tw.pos.x + R + 2, minZ: tw.pos.z - R - 2, maxZ: tw.pos.z + R + 2 });
+      tbox.push({ minX: tw.pos.x - R - 94, maxX: tw.pos.x + R + 94, minZ: tw.pos.z - R - 94, maxZ: tw.pos.z + R + 94 });
     }
     TWN = new Float64Array(tarr); NTW = tbox.length;
     [TC_START, TC_ITEMS] = buildBuckets(tbox);
@@ -745,7 +763,7 @@
     P_MUD = 24, P_DEEP = 27, P_MOSS = 30, P_MARSH = 33, P_SCREE = 36, P_ICE = 39;
   function preparePalette() {
     linearRGB(0x7d7770, PAL, P_ROCK); linearRGB(0x4a4643, PAL, P_ROCK_DARK); linearRGB(0xf5f8fb, PAL, P_SNOW);
-    linearRGB(0xc2d1e3, PAL, P_SNOW_SHADE); linearRGB(0x8a7254, PAL, P_ROAD); linearRGB(0xa68e6b, PAL, P_ROAD2);
+    linearRGB(0xc2d1e3, PAL, P_SNOW_SHADE); linearRGB(0x7c6647, PAL, P_ROAD); linearRGB(0x98805e, PAL, P_ROAD2);
     linearRGB(0xdccb9c, PAL, P_SAND); linearRGB(0x9a8b66, PAL, P_SAND_WET); linearRGB(0x56603f, PAL, P_MUD);
     linearRGB(0x26363a, PAL, P_DEEP); linearRGB(0x3c6a2c, PAL, P_MOSS); linearRGB(0x5f6d3a, PAL, P_MARSH);
     linearRGB(0x8f8a80, PAL, P_SCREE); linearRGB(0xd8e8f4, PAL, P_ICE);
@@ -803,7 +821,7 @@
       r += (sr - r) * snowF; g += (sg - g) * snowF; b += (sb - b) * snowF;
     }
     // beaches & banks near the water line (wet and darker right at it)
-    const sandF = shore * ss(3.6, 1.4, h) * (1 - town * 0.5) * (1 - snowF * 0.7);
+    const sandF = shore * ss(2.7, 1.1, h) * (1 - town * 0.5) * (1 - snowF * 0.7);
     if (sandF > 0) {
       const wet = ss(0.6, -0.4, h);
       const sr = PAL[P_SAND] + (PAL[P_SAND_WET] - PAL[P_SAND]) * wet;
@@ -1281,7 +1299,7 @@
       if (r === 1 && c === 1) continue;
       const x0 = xs[c], x1 = xs[c + 1], z0 = xs[r], z1 = xs[r + 1];
       pos.push(x0, 0, z0, x1, 0, z0, x0, 0, z1, x1, 0, z1);
-      shore.push(30, 30, 30, 30);
+      shore.push(0, 0, 0, 0);
       idx.push(vi, vi + 2, vi + 1, vi + 1, vi + 2, vi + 3);
       vi += 4;
     }
@@ -1295,9 +1313,12 @@
   function refreshShore() {
     const attr = water.geometry.getAttribute('shore'), posA = water.geometry.getAttribute('position');
     const a = attr.array, p = posA.array, ox = water.position.x, oz = water.position.z;
+    const edge0 = WATER_SIZE * 0.5 - 220, edge1 = WATER_SIZE * 0.5 - 20;
     for (let i = 0; i < a.length; i++) {
-      const d = SEA - coarseHeight(p[i * 3] + ox, p[i * 3 + 2] + oz);
-      a[i] = d < 0 ? 0 : d;
+      const lx = p[i * 3], lz = p[i * 3 + 2];
+      const d = SEA - coarseHeight(lx + ox, lz + oz);
+      const m = lx < 0 ? (lz < 0 ? (-lx > -lz ? -lx : -lz) : (-lx > lz ? -lx : lz)) : (lz < 0 ? (lx > -lz ? lx : -lz) : (lx > lz ? lx : lz));
+      a[i] = (d < 0 ? 0 : d) * ss(edge1, edge0, m);
     }
     attr.needsUpdate = true;
   }
@@ -1483,6 +1504,10 @@
       const lines = String(zn.name || zn.id).toUpperCase().split(' & ');
       ctx.font = '600 ' + zf + 'px Cinzel, "Times New Roman", Georgia, serif';
       if ('letterSpacing' in ctx) ctx.letterSpacing = (zf * 0.14).toFixed(1) + 'px';
+      let tw = 0;
+      for (const ln of lines) tw = Math.max(tw, ctx.measureText(ln).width);
+      q[0] = clamp(q[0], tw * 0.5 + 4, size - tw * 0.5 - 4);
+      q[1] = clamp(q[1], zf * 1.2, size - zf * (lines.length + 1.2));
       let y = q[1] - (lines.length - 1) * zf * 0.6;
       for (const ln of lines) {
         ctx.lineWidth = Math.max(2, zf * 0.26); ctx.strokeStyle = 'rgba(245,235,210,0.42)'; ctx.strokeText(ln, q[0], y);
@@ -1501,12 +1526,14 @@
     ctx.font = '600 ' + tf + 'px "Crimson Pro", Georgia, "Times New Roman", serif';
     for (const tw of TOWNS) {
       const q = P(tw.pos.x, tw.pos.z);
+      const name = tw.name || tw.id;
+      const nw = ctx.measureText(name).width;
+      const lx = clamp(q[0], nw * 0.5 + 3, size - nw * 0.5 - 3);
       ctx.beginPath(); ctx.arc(q[0], q[1], tr, 0, Math.PI * 2);
       ctx.fillStyle = '#f6ead0'; ctx.fill();
       ctx.lineWidth = Math.max(1, tr * 0.4); ctx.strokeStyle = '#4a3416'; ctx.stroke();
-      const name = tw.name || tw.id;
-      ctx.lineWidth = Math.max(2, tf * 0.3); ctx.strokeStyle = 'rgba(250,242,222,0.85)'; ctx.strokeText(name, q[0], q[1] - tr - tf * 0.65);
-      ctx.fillStyle = '#2a1c0c'; ctx.fillText(name, q[0], q[1] - tr - tf * 0.65);
+      ctx.lineWidth = Math.max(2, tf * 0.3); ctx.strokeStyle = 'rgba(250,242,222,0.85)'; ctx.strokeText(name, lx, q[1] - tr - tf * 0.65);
+      ctx.fillStyle = '#2a1c0c'; ctx.fillText(name, lx, q[1] - tr - tf * 0.65);
     }
     return canvas;
   }

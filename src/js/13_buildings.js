@@ -169,12 +169,12 @@
   }
   function texTile(ctx, w, h) {
     const r = rngOf(106);
-    ctx.fillStyle = hsl(15, 30, 40); ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = hsl(15, 10, 40); ctx.fillRect(0, 0, w, h);
     const tw = 32, th = 32;
     for (let j = 0; j < h / th; j++) {
       const y0 = j * th;
       for (let x = ((j % 2) ? -tw / 2 : 0) - tw; x <= w; x += tw) {
-        ctx.fillStyle = hsl(12 + r() * 12, 30 + r() * 16, 52 + r() * 18);
+        ctx.fillStyle = hsl(12 + r() * 12, 8 + r() * 10, 56 + r() * 20);
         ctx.beginPath(); ctx.moveTo(x, y0 - 8); ctx.lineTo(x + tw, y0 - 8); ctx.lineTo(x + tw, y0 + th - 16); ctx.arc(x + tw / 2, y0 + th - 16, tw / 2, 0, PI, false); ctx.closePath(); ctx.fill();
         ctx.strokeStyle = 'rgba(30,10,5,0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
         ctx.fillStyle = 'rgba(255,240,220,0.14)'; ctx.fillRect(x + 2, y0 - 6, tw - 4, 3);
@@ -386,6 +386,7 @@
   /* Builder — accumulates vertex-coloured pieces into (group × material) buckets + placement metadata  */
   /* Local frame: building centre at origin on the ground (y=0), FRONT/door side = -z (yaw 0 = facing -Z). */
   /* ------------------------------------------------------------------------------------------------ */
+  const _q = new T.Quaternion(), _up = new T.Vector3(0, 1, 0), _dir = new T.Vector3();
   class Builder {
     constructor(key, seed) {
       this.key = key; this.rng = rngOf(seed); this.buckets = {}; this.cur = null; this.stack = [];
@@ -431,6 +432,12 @@
     torus(grp, mat, R, r, x, y, z, hex, o) { return this.piece(grp, mat, new T.TorusGeometry(R, r, 7, 22), x, y, z, hex, o); }
     plane(grp, mat, w, h, x, y, z, hex, o) { return this.piece(grp, mat, new T.PlaneGeometry(w, h), x, y, z, hex, o); }
     lathe(grp, mat, pts, seg, x, y, z, hex, o) { return this.piece(grp, mat, latheGeo(pts, seg), x, y, z, hex, o); }
+    rod(grp, mat, x0, y0, z0, x1, y1, z1, r, hex, o) {   // cylinder from point A to point B (cursor frame)
+      const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 0.001;
+      const g = new T.CylinderGeometry(r, r, len, 5);
+      _q.setFromUnitVectors(_up, _dir.set(dx / len, dy / len, dz / len)); g.applyQuaternion(_q);
+      return this.piece(grp, mat, g, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, hex, Object.assign({ jit: 0 }, o || {}));
+    }
     // metadata (all transformed through the cursor)
     wallCol(x1, z1, x2, z2, h, t) { const a = this.xf(x1, 0, z1), b = this.xf(x2, 0, z2); this.meta.walls.push({ x1: a.x, z1: a.z, x2: b.x, z2: b.z, h: h || 3, t: t || 0.3 }); }
     boxCol(minx, miny, minz, maxx, maxy, maxz, floor) {
@@ -771,10 +778,10 @@
     },
     pillar(b, g, style, h, hex) {
       if (style === 'elf') {
-        hex = hex || 0xeceef2;
-        b.cyl(g, 'stone', 0.3, 0.36, h - 0.6, 10, 0, (h - 0.6) / 2 + 0.3, 0, hex, { jit: 0.03, faceJit: false });
-        b.cyl(g, 'stone', 0.44, 0.34, 0.3, 10, 0, 0.15, 0, hex, { jit: 0.03 });
-        b.cyl(g, 'stone', 0.5, 0.3, 0.32, 10, 0, h - 0.16, 0, hex, { jit: 0.03 });
+        hex = hex || 0xf2f3f6;
+        b.cyl(g, 'plaster', 0.3, 0.36, h - 0.6, 12, 0, (h - 0.6) / 2 + 0.3, 0, hex, { jit: 0.02, faceJit: false });
+        b.cyl(g, 'plaster', 0.44, 0.34, 0.3, 12, 0, 0.15, 0, hex, { jit: 0.02 });
+        b.cyl(g, 'plaster', 0.5, 0.3, 0.32, 12, 0, h - 0.16, 0, hex, { jit: 0.02 });
         b.torus(g, 'metal', 0.36, 0.035, 0, h - 0.34, 0, 0xd8c070, { rx: HPI, jit: 0 });
       } else if (style === 'dwarf') {
         hex = hex || 0x5e5a5e;
@@ -922,7 +929,7 @@
 
   const PLASTERS = [0xe8dcc2, 0xdac8a2, 0xf1ece2];
   const THATCHES = [0x9c7f47, 0x8f7640, 0xa98c50];
-  const TILES = [0x7f4d3a, 0x5f6672, 0x8a5a44];
+  const TILES = [0x9a5a44, 0x66707e, 0xa06a4e];
 
   /* ---------------- hobbit_hole ---------------- */
   def('hobbit_hole', {
@@ -1360,7 +1367,7 @@
     build(b, v) {
       const W = 16, D = 22, H = 8, peak = 11, t = 0.8;
       shell(b, {
-        W, D, h: H, peak, ridge: 'z', t, wallMat: 'stone', wallHex: [0x66626a, 0x5e5a62, 0x6c6866][v], wallJit: 0.05, baseH: 1.2, baseHex: 0x4a474e,
+        W, D, h: H, peak, ridge: 'z', t, wallMat: 'stone', wallHex: [0x76727a, 0x6c6872, 0x7a7674][v], wallJit: 0.05, baseH: 1.2, baseHex: 0x55525a,
         roofMat: 'stone', roofHex: 0x57545b, capHex: 0x3f3c42, overhang: 0.6, roofTh: 0.6, woodHex: 0x3e2e22, sillHex: 0x4a474e,
         floorMat: 'stone', floorHex: 0x615d62,
         holes: [
@@ -1410,7 +1417,7 @@
 
   /* ---------------- lossoth_hut ---------------- */
   def('lossoth_hut', {
-    variants: 2, enterable: true,
+    variants: 2, enterable: true, styleVariant(style, v) { return v; },
     build(b, v) {
       const R = 3.5, snow = v === 1, mat = snow ? 'flat' : 'hide', hex = snow ? 0xeef2f8 : 0xb09068, inner = snow ? 0xd8dfe8 : 0x9a7a58;
       const outer = domeGeo(R, 28, 12); b.piece('roof', mat, outer, 0, 0, 0, hex, { jit: snow ? 0.02 : 0.05, faceJit: false });
@@ -1455,9 +1462,9 @@
       b.sph('ext', 'wood', 0.1, 0, Hh + 0.05, 0, 0x5a3c25);
       for (let i = 0; i < 4; i++) {
         const a = PI / 4 + i * HPI, px = Math.sin(a) * (R + 0.9), pz = Math.cos(a) * (R + 0.9);
-        b.box('ext', 'wood', 0.08, 0.35, 0.08, px, 0.12, pz, 0x4a3220, { rx: 0.3 });
-        const len = Math.sqrt(0.81 + 1.4 * 1.4);
-        b.cyl('ext', 'flat', 0.012, 0.012, len, 4, Math.sin(a) * (R + 0.45), 0.75, Math.cos(a) * (R + 0.45), 0xc8b890, { rx: Math.atan2(0.9, 1.4) * Math.cos(a) * -1, rz: Math.atan2(0.9, 1.4) * Math.sin(a), ry: 0 });
+        b.box('ext', 'wood', 0.08, 0.35, 0.08, px, 0.12, pz, 0x4a3220, { rx: 0.3 * Math.cos(a), rz: -0.3 * Math.sin(a) });
+        const ry = 1.3, rr = R * (1 - ry / Hh) + 0.02;
+        b.rod('ext', 'flat', Math.sin(a) * rr, ry, Math.cos(a) * rr, px, 0.25, pz, 0.012, 0xc8b890);
       }
       b.cyl('int', 'cloth', R - 0.25, R - 0.25, 0.04, 14, 0, 0.02, 0, 0xbca987, { jit: 0.04 });
       b.at(0.7, 0.5, 0.3); F.bedroll(b, 'int'); b.end();
@@ -1477,7 +1484,7 @@
       const R = 3.4, Ri = 2.8, H = 9.6, hex = [0x8a857b, 0x7c7872, 0x8f8578][v];
       const gap = Math.asin(0.72 / R);
       b.cyl('ext', 'stone', R, R + 0.15, H + 1, 28, 0, H / 2 - 0.5, 0, hex, { open: true, ts: PI + gap, tl: TAU - 2 * gap, jit: 0.05 });
-      const inner = invertGeo(new T.CylinderGeometry(Ri, Ri, H, 28, 1, true, PI + gap, TAU - 2 * gap)); b.piece('int', 'stone', inner, 0, H / 2, 0, 0x6e6a64, { jit: 0.05 });
+      const inner = invertGeo(new T.CylinderGeometry(Ri, Ri, H, 28, 1, true, PI + gap, TAU - 2 * gap)); b.piece('int', 'stone', inner, 0, H / 2, 0, 0x8d887e, { jit: 0.05 });
       for (const sx of [-1, 1]) b.box('ext', 'stone', 0.5, 2.6, R - Ri + 0.1, sx * (0.72 + 0.25), 1.3, -(R + Ri) / 2, hex, { jit: 0.05 });
       b.box('ext', 'stone', 2.4, 0.5, R - Ri + 0.1, 0, 2.85, -(R + Ri) / 2, hex, { jit: 0.05 });
       b.box('ext', 'wood', 0.14, 2.5, 0.7, -0.72, 1.25, -R + 0.3, 0x4a3220); b.box('ext', 'wood', 0.14, 2.5, 0.7, 0.72, 1.25, -R + 0.3, 0x4a3220); b.box('ext', 'wood', 1.6, 0.14, 0.7, 0, 2.55, -R + 0.3, 0x4a3220);
@@ -1555,21 +1562,24 @@
   def('barrow', {
     enterable: true, variants: 2,
     build(b, v) {
-      const RX = 6.6, RY = 3.2, RZ = 6.0, zf = -3.0, cave = v === 1;
-      const mg = domeGeo(1, 28, 14); mg.scale(RX, RY, RZ);
-      const mp = mg.attributes.position, mn = mg.attributes.normal;
-      for (let i = 0; i < mp.count; i++) if (mp.getZ(i) < zf + 0.2) { mp.setZ(i, zf + 0.2); mn.setXYZ(i, 0, 0, -1); }
-      b.piece('roof', cave ? 'rock' : 'grass', mg, 0, -0.3, 0, cave ? 0x6f6a64 : 0x62884a, { jit: 0.06, faceJit: false });
-      b.cyl('roof', cave ? 'rock' : 'grass', RX * 1.02, RX * 1.05, 1.0, 28, 0, -0.55, 0, cave ? 0x6f6a64 : 0x5f8447, { sz: RZ / RX, jit: 0.05 });
+      const RX = 8.6, RY = 4.4, RZ = 8.2, MZ = 1.4, zf = -3.4, cave = v === 1;
+      const mg = domeGeo(1, 36, 18); mg.scale(RX, RY, RZ);
+      const mp = mg.attributes.position, mn = mg.attributes.normal, zc = zf - MZ + 0.2;
+      const flat = new Uint8Array(mp.count);
+      for (let i = 0; i < mp.count; i++) if (mp.getZ(i) < zc) { mp.setZ(i, zc); mn.setXYZ(i, 0, 0, -1); flat[i] = (Math.abs(mp.getX(i)) < 1.8 && mp.getY(i) < 3.3) ? 2 : 1; }
+      const idx = mg.index.array, keep = [];
+      for (let i = 0; i < idx.length; i += 3) { const a = idx[i], b2 = idx[i + 1], c = idx[i + 2]; if (flat[a] && flat[b2] && flat[c] && (flat[a] === 2 || flat[b2] === 2 || flat[c] === 2)) continue; keep.push(a, b2, c); }
+      mg.setIndex(keep);
+      b.piece('roof', cave ? 'rock' : 'grass', mg, 0, -0.3, MZ, cave ? 0x6f6a64 : 0x62884a, { jit: 0.06, faceJit: false });
+      b.cyl('roof', cave ? 'rock' : 'grass', RX * 1.02, RX * 1.05, 1.0, 28, 0, -0.55, MZ, cave ? 0x6f6a64 : 0x5f8447, { sz: RZ / RX, jit: 0.05 });
       // portal: standing stones + lintel, dark passage, crypt
       for (const sx of [-1, 1]) b.box('ext', 'rock', 0.9, 3.0, 1.0, sx * 1.5, 1.2, zf - 0.3, 0x6a665f, { jit: 0.08, rz: sx * 0.03 });
       b.box('ext', 'rock', 4.2, 0.7, 1.2, 0, 2.95, zf - 0.3, 0x6a665f, { jit: 0.08 });
-      b.box('ext', 'flat', 2.2, 2.7, 0.3, 0, 1.35, zf + 0.1, 0x070605, { jit: 0 });
-      b.box('int', 'flat', 0.3, 2.7, 3.6, -1.1, 1.35, zf + 1.7, 0x141210, { jit: 0.05 }); b.box('int', 'flat', 0.3, 2.7, 3.6, 1.1, 1.35, zf + 1.7, 0x141210, { jit: 0.05 });
-      b.box('roof', 'flat', 2.5, 0.3, 3.6, 0, 2.75, zf + 1.7, 0x141210, { jit: 0.05 });
+      b.box('int', 'stone', 0.3, 2.5, 3.6, -1.1, 1.25, zf + 1.7, 0x2a2725, { jit: 0.05 }); b.box('int', 'stone', 0.3, 2.5, 3.6, 1.1, 1.25, zf + 1.7, 0x2a2725, { jit: 0.05 });
+      b.box('roof', 'stone', 2.5, 0.3, 3.6, 0, 2.6, zf + 1.7, 0x2a2725, { jit: 0.05 });
       b.box('int', 'stone', 2.2, 0.12, 3.6, 0, -0.01, zf + 1.7, 0x4e4a46, { jit: 0.06 });
-      for (const sx of [-1, 1]) b.wallCol(sx * 0.95, zf - 0.6, sx * 0.95, zf + 3.5, 2.7, 0.3);
-      const CX = 3.0, CZ0 = zf + 3.5, CZ1 = CZ0 + 5.5, CH = 3.0;
+      for (const sx of [-1, 1]) b.wallCol(sx * 0.95, zf - 0.6, sx * 0.95, zf + 3.5, 2.5, 0.3);
+      const CX = 3.0, CZ0 = zf + 3.5, CZ1 = CZ0 + 5.2, CH = 2.6;
       b.box('int', 'stone', 0.4, CH, CZ1 - CZ0, -CX, CH / 2, (CZ0 + CZ1) / 2, 0x4a4744, { jit: 0.07 }); b.box('int', 'stone', 0.4, CH, CZ1 - CZ0, CX, CH / 2, (CZ0 + CZ1) / 2, 0x4a4744, { jit: 0.07 });
       b.box('int', 'stone', 2 * CX + 0.4, CH, 0.4, 0, CH / 2, CZ1, 0x4a4744, { jit: 0.07 });
       for (const sx of [-1, 1]) b.box('int', 'stone', CX - 1.1 + 0.2, CH, 0.4, sx * (1.1 + (CX - 1.1) / 2), CH / 2, CZ0, 0x4a4744, { jit: 0.07 });
@@ -1582,8 +1592,8 @@
       b.at(-CX + 0.5, CZ0 + 3.5, -HPI); stoneBench(b, 'int', 1.6, 0x5a5650); b.end();
       for (let i = 0; i < 4; i++) b.box('int', 'flat', 0.7, 0.06, 0.6, (b.rng() - 0.5) * 4, 0.08, CZ0 + 1 + b.rng() * 3.5, 0x2a2622, { ry: b.rng() * PI, jit: 0.1 });
       b.light(0, 1.8, (CZ0 + CZ1) / 2, { kind: 'elf', color: 0x86a0c8, intensity: 12, dist: 10, flicker: true, interior: true });
-      for (let i = 0; i < 5; i++) { const a = 0.6 + i * 1.05, rr = 8.5 + (i % 2) * 1.2; b.at(Math.sin(a) * rr, Math.cos(a) * rr, a); menhir(b, 'ext', 2.2 + (i % 3) * 0.5, 0x746f68); b.end(); b.cylCol(Math.sin(a) * rr, Math.cos(a) * rr, 0.6, 2.5); }
-      for (let i = 0; i < 16; i++) { const a0 = i / 16 * TAU, a1 = (i + 1) / 16 * TAU; const p0 = { x: Math.sin(a0) * RX * 0.96, z: Math.cos(a0) * RZ * 0.96 }, p1 = { x: Math.sin(a1) * RX * 0.96, z: Math.cos(a1) * RZ * 0.96 }; if (p0.z < zf + 0.6 || p1.z < zf + 0.6) continue; b.wallCol(p0.x, p0.z, p1.x, p1.z, 2.4, 0.4); }
+      for (let i = 0; i < 5; i++) { const a = 0.6 + i * 1.05, rr = 10.5 + (i % 2) * 1.4; b.at(Math.sin(a) * rr, MZ + Math.cos(a) * rr, a); menhir(b, 'ext', 2.2 + (i % 3) * 0.5, 0x746f68); b.end(); b.cylCol(Math.sin(a) * rr, MZ + Math.cos(a) * rr, 0.6, 2.5); }
+      for (let i = 0; i < 18; i++) { const a0 = i / 18 * TAU, a1 = (i + 1) / 18 * TAU; const p0 = { x: Math.sin(a0) * RX * 0.96, z: MZ + Math.cos(a0) * RZ * 0.96 }, p1 = { x: Math.sin(a1) * RX * 0.96, z: MZ + Math.cos(a1) * RZ * 0.96 }; if (p0.z < zf + 0.6 || p1.z < zf + 0.6) continue; b.wallCol(p0.x, p0.z, p1.x, p1.z, 2.4, 0.4); }
       b.wallCol(-RX, zf, -1.1, zf, 3, 0.5); b.wallCol(1.1, zf, RX, zf, 3, 0.5);
       b.interior(-CX, -0.5, zf - 0.5, CX, CH + 0.5, CZ1);
       b.spot(0, CZ0 + 1.2, PI, 'idle');
@@ -1649,7 +1659,7 @@
 
   /* ---------------- wall_segment ---------------- */
   def('wall_segment', {
-    static: true, variants: 2,
+    static: true, variants: 2, styleVariant(style, v) { return style === 'camp' ? 1 : 0; },
     key(spec, v) { return 'wall_segment:' + v + ':' + Math.round((spec.len || 12) * 2); },
     build(b, v, spec) {
       const L = spec.len || 12;
@@ -1700,7 +1710,7 @@
 
   /* ---------------- fence ---------------- */
   def('fence', {
-    static: true,
+    static: true, styleVariant(style, v) { return style === 'hobbit' ? 1 : (style === 'dwarf' || style === 'ruin' || style === 'lossoth') ? 2 : v === 1 ? 0 : v; },
     key(spec, v) { return 'fence:' + v + ':' + Math.round((spec.len || 6) * 2); },
     build(b, v, spec) {
       const L = spec.len || 6;
@@ -1726,8 +1736,8 @@
       b.cyl('ext', 'wood', 0.07, 0.07, 2.3, 8, 0, 1.95, 0, 0x4a3220, { rz: HPI });
       b.box('ext', 'wood', 0.06, 0.4, 0.06, 1.2, 2.1, 0, 0x4a3220); b.box('ext', 'wood', 0.06, 0.06, 0.3, 1.2, 2.28, 0.15, 0x4a3220);
       b.cyl('ext', 'flat', 0.015, 0.015, 1.1, 4, 0, 1.4, 0, 0xb8a888); b.lathe('ext', 'wood', [[0.09, 0], [0.13, 0.02], [0.15, 0.22], [0.14, 0.24]], 10, 0, 0.75, 0, 0x5a3c25, { jit: 0.05 }); b.torus('ext', 'metal', 0.14, 0.012, 0, 0.98, 0, 0x3a3a40, { ry: HPI });
-      b.piece('ext', v === 1 ? 'tile' : 'thatch', chevronRoofGeo(2.8, 2.45, 3.05, 0.16, 2.6), 0, 0, 0, v === 1 ? TILES[0] : THATCHES[0], { ry: -HPI, jit: 0.04, faceJit: false });
-      b.box('ext', 'wood', 2.5, 0.1, 0.1, 0, 2.45, 0, 0x4a3220);
+      b.piece('ext', v === 1 ? 'tile' : 'thatch', chevronRoofGeo(2.2, 2.5, 3.05, 0.12, 1.9), 0, 0, 0, v === 1 ? TILES[0] : THATCHES[0], { ry: -HPI, jit: 0.04, faceJit: false });
+      b.box('ext', 'wood', 2.3, 0.1, 0.1, 0, 2.45, 0, 0x4a3220);
       b.cylCol(0, 0, 1.15, 1.0);
     },
   });
@@ -1795,7 +1805,7 @@
 
   /* ---------------- shrine ---------------- */
   def('shrine', {
-    enterable: true,
+    enterable: true, styleVariant(style, v) { return style === 'elf' ? 0 : (style === 'man' || style === 'hobbit') ? 1 : v; },
     build(b, v) {
       const elf = v === 0, hex = elf ? 0xe4e6ea : 0xa8a49c;
       b.box('ext', 'stone', 3.8, 0.34, 3.8, 0, 0.17, 0, hex, { jit: 0.03 }); b.box('ext', 'stone', 4.6, 0.17, 4.6, 0, 0.085, 0, hex, { jit: 0.03 });
@@ -1838,9 +1848,9 @@
     static: true, variants: 2,
     build(b, v) {
       b.cyl('ext', 'wood', 0.07, 0.09, 2.4, 7, 0, 1.2, 0, 0x4e3a28, { jit: 0.05 }); b.cyl('ext', 'stone', 0.25, 0.3, 0.14, 8, 0, 0.07, 0, 0x8d8579, { jit: 0.06 });
-      b.box('ext', 'wood', 1.4, 0.44, 0.06, 0.05, 1.9, 0, 0x7a5a3a, { jit: 0.04 });
-      if (v === 1) b.cone('ext', 'wood', 0.22, 0.3, 4, 0.9, 1.9, 0, 0x7a5a3a, { rz: -HPI, ry: PI / 4 });
-      b.sign(0.05, 1.9, 0, 0, 1.4, 0.44);
+      b.box('ext', 'wood', 1.4, 0.44, 0.06, 0.05, 1.9, -0.13, 0x7a5a3a, { jit: 0.04 });
+      if (v === 1) b.cone('ext', 'wood', 0.22, 0.3, 4, 0.9, 1.9, -0.13, 0x7a5a3a, { rz: -HPI, ry: PI / 4 });
+      b.sign(0.05, 1.9, -0.13, 0, 1.4, 0.44);
       b.cylCol(0, 0, 0.1, 2.0);
     },
   });
@@ -2058,7 +2068,8 @@
     const recipe = RECIPES[spec.recipe];
     if (!recipe) { if (G.warn) G.warn('[Buildings] unknown recipe ' + spec.recipe); return null; }
     const x = +spec.x || 0, z = +spec.z || 0, yaw = +spec.yaw || 0;
-    const variant = (spec.variant !== undefined && spec.variant !== null) ? (Math.abs(spec.variant | 0) % recipe.variants) : Math.floor(hash2(x * 0.173 + 11.3, z * 0.131 + 7.7) * recipe.variants) % recipe.variants;
+    let variant = (spec.variant !== undefined && spec.variant !== null) ? (Math.abs(spec.variant | 0) % recipe.variants) : Math.floor(hash2(x * 0.173 + 11.3, z * 0.131 + 7.7) * recipe.variants) % recipe.variants;
+    if ((spec.variant === undefined || spec.variant === null) && recipe.styleVariant) variant = recipe.styleVariant(spec.style, variant) % recipe.variants;
     const y = (spec.y !== undefined && spec.y !== null) ? +spec.y : terrainH(x, z);
     let cached;
     try { cached = getCached(recipe, variant, spec); }
@@ -2324,7 +2335,7 @@
   }
   const cand = []; let candN = 0; let _stamp = 0;
   const near = []; let nearN = 0;
-  function virtIntensity(v) { return v.kind === 'lamp' ? v.base * _night : v.kind === 'elf' ? v.base * (0.35 + 0.65 * _night) : v.base; }
+  function virtIntensity(v) { return v.kind === 'lamp' ? v.base * (v.interior ? 0.7 + 0.3 * _night : _night) : v.kind === 'elf' ? v.base * (0.35 + 0.65 * _night) : v.base; }
   function assignLights(px, py, pz) {
     _stamp++; candN = 0;
     for (let i = 0; i < nearN; i++) {

@@ -222,17 +222,17 @@
     const w = R.w * bw * (female ? 0.9 : 1);
     const d = {
       race, female, build, H, s, w, R,
-      headR: 0.125 * s * R.head * (female ? 0.96 : 1),
+      headR: 0.135 * s * R.head * (female ? 0.96 : 1),
       neckLen: 0.05 * s,
       hipY: H * R.leg,
-      shoulderHalf: 0.185 * s * w * (female ? 0.92 : 1),
-      armR: 0.052 * s * Math.sqrt(w), foreR: 0.045 * s * Math.sqrt(w),
-      upperArm: 0.29 * s * (R.armLen || 1), foreArm: 0.26 * s * (R.armLen || 1), handLen: 0.1 * s,
+      shoulderHalf: 0.19 * s * w * (female ? 0.92 : 1),
+      armR: 0.058 * s * Math.sqrt(w), foreR: 0.05 * s * Math.sqrt(w),
+      upperArm: 0.28 * s * (R.armLen || 1), foreArm: 0.25 * s * (R.armLen || 1), handLen: 0.115 * s,
       hipR: 0.15 * s * (female ? 1.1 : 1) * Math.sqrt(w) * (R.belly ? 1.25 : 1),
       legX: 0.09 * s * Math.sqrt(w) * (female ? 1.06 : 1),
       thighR: 0.078 * s * Math.sqrt(w), shinR: 0.058 * s * Math.sqrt(w),
       footLen: 0.25 * s * (R.feet || 1), footW: 0.095 * s * (R.feet || 1), footH: 0.065 * s,
-      waistR: 0.13 * s * w * (female ? 0.86 : 1) * (R.belly ? 1.3 : 1), chestR: 0.165 * s * w * (female ? 0.95 : 1),
+      waistR: 0.13 * s * w * (female ? 0.86 : 1) * (R.belly ? 1.3 : 1), chestR: 0.17 * s * w * (female ? 0.95 : 1),
       hunch: R.hunch || 0, nose: R.nose || 1, ears: R.ears, feetMul: R.feet || 1,
     };
     d.thigh = d.hipY * 0.52; d.shin = d.hipY - d.thigh - d.footH;
@@ -253,7 +253,7 @@
       const jaw = sphere(r * 0.86, 14, 10); jaw.scale(0.95, 0.75, 0.9); jaw.translate(0, -r * 0.42, -r * 0.05);
       list.push(_paint(jaw, skin));
       // nose
-      const nose = sphere(r * 0.14 * d.nose, 8, 6); nose.scale(0.85, 1.1, 1.25); nose.translate(0, -r * 0.1, -r * 0.98);
+      const nose = sphere(r * 0.16 * d.nose, 8, 6); nose.scale(0.85, 1.0, 1.3); nose.translate(0, -r * 0.08, -r * 0.98);
       list.push(_paint(nose, hexMul(skin, 0.95)));
       // ears
       const et = d.ears;
@@ -275,20 +275,22 @@
     return cached(key, () => {
       const r = d.headR, list = [];
       const es = (opts.eyeScale || 1) * (d.female ? 1.08 : 1);
-      const ey = r * 0.12, ez = -r * 0.84, ex = r * 0.36;
+      const ey = r * 0.14, ez = -r * 0.86, ex = r * 0.37;
       for (const sd of [-1, 1]) {
-        const w = sphere(r * 0.19 * es, 10, 8); w.scale(1, 1.05, 0.55); w.translate(sd * ex, ey, ez);
+        const w = sphere(r * 0.215 * es, 10, 8); w.scale(1, 1.05, 0.6); w.translate(sd * ex, ey, ez);
         list.push(_paint(w, white));
-        const p = sphere(r * 0.105 * es, 8, 6); p.scale(1, 1.1, 0.5); p.translate(sd * ex - sd * r * 0.005, ey, ez - r * 0.085);
+        const p = sphere(r * 0.115 * es, 8, 6); p.scale(1, 1.1, 0.5); p.translate(sd * ex, ey, ez - r * 0.13);
         list.push(_paint(p, eye));
-        const pu = sphere(r * 0.05 * es, 6, 4); pu.scale(1, 1, 0.5); pu.translate(sd * ex, ey, ez - r * 0.13);
+        const pu = sphere(r * 0.055 * es, 6, 4); pu.scale(1, 1, 0.5); pu.translate(sd * ex, ey, ez - r * 0.175);
         list.push(_paint(pu, 0x111111));
+        const hi = sphere(r * 0.03 * es, 5, 4); hi.translate(sd * ex - sd * r * 0.045, ey + r * 0.05, ez - r * 0.2);
+        list.push(_paint(hi, 0xffffff));
         // brow
-        const b = box(r * 0.36, r * 0.07, r * 0.08); b.rotateZ(sd * (opts.angry ? -0.35 : 0.12)); b.translate(sd * ex, ey + r * 0.3 + (opts.angry ? -r * 0.03 : 0), ez - r * 0.02);
+        const b = box(r * 0.38, r * 0.085, r * 0.1); b.rotateZ(sd * (opts.angry ? -0.38 : 0.1)); b.rotateY(sd * -0.45); b.translate(sd * ex, ey + r * 0.3 + (opts.angry ? -r * 0.04 : 0), ez - r * 0.02);
         list.push(_paint(b, brow));
         if (opts.tusks) { const t = cone(r * 0.07, r * 0.28, 6); t.translate(sd * r * 0.22, -r * 0.35, -r * 0.92); list.push(_paint(t, 0xe8e0cc)); }
       }
-      const m = box(r * 0.34, r * 0.05, r * 0.06); m.translate(0, -r * 0.42, -r * 0.93);
+      const m = box(r * 0.36, r * 0.06, r * 0.08); m.translate(0, -r * 0.43, -r * 0.95);
       list.push(_paint(m, mouth));
       if (opts.mask) { const k = sphere(r * 1.03, 14, 10, 0, TAU, PI * 0.5, PI * 0.5); k.scale(1, 0.78, 0.98); k.translate(0, -r * 0.02, 0); list.push(_paint(k, opts.mask)); }
       return _merge(list);
@@ -300,23 +302,24 @@
     return cached(key, () => {
       const r = d.headR, list = [];
       const cap = (th, sc, tilt, zoff) => { const c = sphere(r * 1.09, 18, 12, 0, TAU, 0, th); c.scale(sc, 1, sc * 1.02); c.rotateX(tilt || 0); c.translate(0, r * 0.06, zoff || 0); return c; };
-      if (style === 0) list.push(cap(PI * 0.55, 1, -0.22, r * 0.06));
+      const CT = 0.4, CTH = PI * 0.47;
+      if (style === 0) list.push(cap(CTH, 1, CT, r * 0.04));
       else if (style === 1) {
-        list.push(cap(PI * 0.6, 1.02, -0.2, r * 0.05));
+        list.push(cap(PI * 0.5, 1.02, CT, r * 0.04));
         const back = capsule(r * 0.72, r * 0.9, 4, 12); back.scale(1.15, 1, 0.55); back.translate(0, -r * 0.55, r * 0.7); list.push(back);
         for (const sd of [-1, 1]) { const st = capsule(r * 0.22, r * 1.1, 3, 8); st.translate(sd * r * 0.9, -r * 0.5, r * 0.15); list.push(st); }
       } else if (style === 2) {
-        list.push(cap(PI * 0.58, 1, -0.2, r * 0.05));
+        list.push(cap(CTH, 1, CT, r * 0.04));
         const tail = capsule(r * 0.2, r * 1.3, 3, 8); tail.rotateX(-0.45); tail.translate(0, -r * 0.55, r * 1.05); list.push(tail);
         const knot = sphere(r * 0.3, 8, 6); knot.translate(0, r * 0.2, r * 0.95); list.push(knot);
       } else if (style === 3) {
-        list.push(cap(PI * 0.6, 1, -0.2, r * 0.05));
+        list.push(cap(CTH, 1, CT, r * 0.04));
         const bun = sphere(r * 0.42, 10, 8); bun.translate(0, r * 0.35, r * 0.9); list.push(bun);
         for (const sd of [-1, 1]) { const br = capsule(r * 0.16, r * 1.4, 3, 8); br.rotateX(0.25); br.translate(sd * r * 0.75, -r * 0.7, r * 0.35); list.push(br); }
       } else if (style === 4) {
-        list.push(cap(PI * 0.6, 1.04, -0.15, r * 0.05));
-        for (let i = 0; i < 7; i++) { const a = (i / 7) * TAU; const sp = cone(r * 0.22, r * 0.7, 6); sp.rotateX(0.55 * cos(a) - 0.2); sp.rotateZ(-0.55 * sin(a)); sp.translate(sin(a) * r * 0.55, r * 1.05, cos(a) * r * 0.55 + r * 0.1); list.push(sp); }
-        const mane = capsule(r * 0.6, r * 0.7, 3, 10); mane.scale(1.1, 1, 0.5); mane.translate(0, -r * 0.35, r * 0.8); list.push(mane);
+        list.push(cap(PI * 0.5, 1.1, 0.35, r * 0.06));
+        for (const a of [-1.9, -1.0, 0, 1.0, 1.9]) { const lump = sphere(r * 0.4, 8, 6); lump.scale(1, 0.75, 1); lump.translate(sin(a) * r * 0.85, r * 0.42 + 0.12 * r * cos(a * 2), cos(a) * r * 0.85 + r * 0.08); list.push(lump); }
+        const mane = capsule(r * 0.6, r * 0.8, 3, 10); mane.scale(1.15, 1, 0.5); mane.translate(0, -r * 0.4, r * 0.8); list.push(mane);
       }
       if (beard === 1) { const b = sphere(r * 0.88, 14, 10, 0, TAU, PI * 0.5, PI * 0.45); b.scale(1.02, 0.9, 1.0); b.translate(0, -r * 0.3, -r * 0.08); list.push(b); }
       else if (beard === 2) {
@@ -336,22 +339,22 @@
     return cached(key, () => {
       const L = d.torsoLen, wR = d.waistR, cR = d.chestR, list = [];
       const female = d.female;
-      const prof = [[wR * 0.92, -0.02], [wR, L * 0.08], [wR * 0.98, L * 0.25], [lerp(wR, cR, 0.7), L * 0.5], [cR, L * 0.7], [cR * 1.02, L * 0.86], [cR * 0.92, L * 0.98], [cR * 0.55, L * 1.06], [0.0001, L * 1.08]];
+      const prof = [[wR * 0.92, -0.02], [wR, L * 0.08], [wR * 0.97, L * 0.25], [lerp(wR, cR, 0.7), L * 0.5], [cR, L * 0.7], [cR * 1.03, L * 0.86], [cR * 1.0, L * 0.96], [cR * 0.72, L * 1.03], [0.0001, L * 1.05]];
       if (d.hunch) { prof[6][0] *= 1.05; }
-      const body = lathe(prof, 18); body.scale(1, 1, female ? 0.72 : 0.75);
+      const body = lathe(prof, 18); body.scale(1, 1, female ? 0.76 : 0.8);
       list.push(_paint(body, col));
-      if (female) { for (const sd of [-1, 1]) { const b = sphere(cR * 0.36, 10, 8); b.scale(1, 0.9, 0.8); b.translate(sd * cR * 0.4, L * 0.72, -cR * 0.55); list.push(_paint(b, col)); } }
+      if (female) { const b = sphere(cR * 0.8, 12, 9); b.scale(1.3, 0.55, 0.62); b.translate(0, L * 0.7, -cR * 0.42); list.push(_paint(b, col)); }
       // neck (skin)
       const neck = cyl(d.headR * 0.42, d.headR * 0.5, d.neckLen + d.headR * 0.6, 10); neck.translate(0, L + d.neckLen * 0.5 + d.headR * 0.1, 0);
       list.push(_paint(neck, skin));
       // belt
-      if (variant !== 'bare') { const belt = cyl(wR * 1.04, wR * 1.06, L * 0.1, 18); belt.scale(1, 1, female ? 0.76 : 0.79); belt.translate(0, L * 0.05, 0); list.push(_paint(belt, col2)); const buckle = box(wR * 0.3, L * 0.09, wR * 0.12); buckle.translate(0, L * 0.05, -wR * 0.8); list.push(_paint(buckle, 0xc9a24a)); }
+      if (variant !== 'bare') { const belt = cyl(wR * 1.04, wR * 1.06, L * 0.1, 18); belt.scale(1, 1, female ? 0.8 : 0.84); belt.translate(0, L * 0.05, 0); list.push(_paint(belt, col2)); const buckle = box(wR * 0.3, L * 0.09, wR * 0.12); buckle.translate(0, L * 0.05, -wR * 0.8); list.push(_paint(buckle, 0xc9a24a)); }
       if (variant === 'leather' || variant === 'fur') { // shoulder strap across the chest
         const strap = box(cR * 0.22, L * 0.95, cR * 0.1); strap.rotateZ(0.55); strap.translate(-cR * 0.0, L * 0.55, -cR * 0.72); list.push(_paint(strap, col2));
         if (variant === 'fur') { const ruff = cyl(cR * 1.2, cR * 1.05, L * 0.22, 14); ruff.scale(1, 1, 0.8); ruff.translate(0, L * 0.93, 0); list.push(_paint(ruff, col2)); }
       }
       if (variant === 'plate') { // breastplate + collar
-        const bp = sphere(cR * 1.0, 16, 12, 0, TAU, PI * 0.15, PI * 0.5); bp.scale(1.02, L * 0.62 / cR, 0.82); bp.translate(0, L * 0.4, -cR * 0.06); list.push(_paint(bp, col));
+        const bp = sphere(cR * 1.0, 16, 12, 0, TAU, PI * 0.15, PI * 0.5); bp.scale(1.02, L * 0.62 / cR, 0.86); bp.translate(0, L * 0.4, -cR * 0.06); list.push(_paint(bp, col));
         const collar = cyl(cR * 0.62, cR * 0.7, L * 0.12, 12); collar.scale(1, 1, 0.8); collar.translate(0, L * 1.02, 0); list.push(_paint(collar, col2));
         const ridge = box(cR * 0.12, L * 0.55, cR * 0.15); ridge.translate(0, L * 0.55, -cR * 0.82); list.push(_paint(ridge, col2));
       }
@@ -403,8 +406,8 @@
   // hand: origin at wrist, fingers pointing -Y; palm faces +X for the left hand? we mirror in placement
   function handGeo(d, col, kind, side) { // kind: bare|glove|gauntlet
     return cached('hand|' + d.key + '|' + col + '|' + kind + '|' + side, () => {
-      const L = d.handLen * (kind === 'gauntlet' ? 1.35 : kind === 'glove' ? 1.1 : 1), r = d.foreR * (kind === 'gauntlet' ? 1.35 : kind === 'glove' ? 1.08 : 0.95), list = [];
-      const palm = sphere(r, 10, 8); palm.scale(0.8, L / r * 0.62, 0.55); palm.translate(0, -L * 0.5, 0); list.push(_paint(palm, col));
+      const L = d.handLen * (kind === 'gauntlet' ? 1.35 : kind === 'glove' ? 1.1 : 1), r = d.foreR * (kind === 'gauntlet' ? 1.4 : kind === 'glove' ? 1.2 : 1.1), list = [];
+      const palm = sphere(r, 10, 8); palm.scale(0.85, L / r * 0.62, 0.6); palm.translate(0, -L * 0.5, 0); list.push(_paint(palm, col));
       const th = capsule(r * 0.32, L * 0.35, 3, 6); th.rotateZ(side * 0.7); th.translate(side * r * 0.55, -L * 0.3, -r * 0.2); list.push(_paint(th, col));
       if (kind === 'gauntlet') { const cuff = cyl(r * 1.05, r * 0.95, L * 0.45, 10); cuff.translate(0, L * 0.1, 0); list.push(_paint(cuff, col)); for (let i = 0; i < 3; i++) { const k = sphere(r * 0.25, 6, 5); k.translate(-r * 0.3 + i * r * 0.3, -L * 0.62, -r * 0.35); list.push(_paint(k, hexMul(col, 0.8))); } }
       if (kind === 'glove') { const cuff = cyl(r * 1.02, r * 0.95, L * 0.3, 10); cuff.translate(0, L * 0.05, 0); list.push(_paint(cuff, hexMul(col, 0.85))); }
@@ -440,7 +443,7 @@
     return cached('pauld|' + d.key + '|' + type + '|' + col + '|' + col2, () => {
       const list = [], r = d.armR;
       for (const sd of [-1, 1]) {
-        const x = sd * d.shoulderHalf, y = d.torsoLen;
+        const x = sd * d.shoulderHalf, y = d.torsoLen * 0.95;
         if (type === 'light') { const p = sphere(r * 1.55, 12, 8, 0, TAU, 0, PI * 0.5); p.scale(1, 0.7, 1); p.translate(x, y + r * 0.2, 0); list.push(_paint(p, col)); }
         else if (type === 'medium') { const p = sphere(r * 1.75, 12, 8, 0, TAU, 0, PI * 0.55); p.scale(1, 0.85, 1); p.translate(x, y + r * 0.25, 0); list.push(_paint(p, col)); const st = cyl(r * 1.8, r * 1.8, r * 0.3, 12); st.translate(x, y - r * 0.4, 0); list.push(_paint(st, col2)); }
         else { const p = sphere(r * 2.15, 14, 10, 0, TAU, 0, PI * 0.58); p.scale(1, 0.9, 1); p.translate(x + sd * r * 0.2, y + r * 0.35, 0); list.push(_paint(p, col)); const rim = cyl(r * 2.2, r * 2.3, r * 0.35, 14); rim.translate(x + sd * r * 0.2, y - r * 0.55, 0); list.push(_paint(rim, col2)); const spike = cone(r * 0.35, r * 1.2, 6); spike.rotateZ(sd * -0.5); spike.translate(x + sd * r * 1.2, y + r * 1.4, 0); list.push(_paint(spike, col2)); }
@@ -733,7 +736,7 @@
     const torso = this.parts.torso = grp(0, 0, 0, hips);
     const head = this.parts.head = grp(0, d.torsoLen + d.neckLen + d.headR * 0.85, 0, torso);
     this.headRest = head.position.y;
-    const sy = d.torsoLen - d.armR * 0.35;
+    const sy = d.torsoLen * 0.93;
     this.parts.armL = grp(-d.shoulderHalf, sy, 0, torso); this.parts.armR = grp(d.shoulderHalf, sy, 0, torso);
     this.parts.forearmL = grp(0, -d.upperArm, 0, this.parts.armL); this.parts.forearmR = grp(0, -d.upperArm, 0, this.parts.armR);
     this.parts.handL = grp(0, -d.foreArm, 0, this.parts.forearmL); this.parts.handR = grp(0, -d.foreArm, 0, this.parts.forearmR);
@@ -758,7 +761,7 @@
     this.lookKeys = {}; this.look = null; this.prop = null; this.propKind = null;
     this.rangedInHands = false;
     this.setEquipment(spec.equipment || {}, true);
-    if (spec.nameplate && spec.name) { this.nameplate = nameplate(spec.name, spec.nameColor || '#ffffff', { sub: spec.title || (spec.level ? 'Level ' + spec.level : '') }); this.nameplate.position.y = d.H + 0.35; this.group.add(this.nameplate); }
+    if (spec.nameplate && spec.name) { this.nameplate = nameplate(spec.name, spec.nameColor || '#ffffff', { sub: spec.title || (spec.level ? 'Level ' + spec.level : '') }); this.nameplate.position.y = d.H + 0.12; this.group.add(this.nameplate); }
     _rigCount++; _humanoidCount++;
     this.applyPose(this.cur);
   }
@@ -913,7 +916,7 @@
     if (this.nameplate) { releaseNameplate(this.nameplate); this.nameplate = null; }
     disposeTree(this.group);
     this.meshes = {}; this.disposed = true;
-    _rigCount--; if (this.kind === 'humanoid') _humanoidCount--;
+    _rigCount--; if (this.kind === 'humanoid') _humanoidCount--; else _monsterCount--;
   };
 
   // ================================================================== HUMANOID ANIMATIONS
@@ -1727,9 +1730,9 @@
     const col = toHex(td.color != null ? td.color : 0x2a7a7a), dark = hexMul(col, 0.6), belly = hexLerp(col, 0xe0e8d0, 0.5), fin = hexLerp(col, 0x103040, 0.4);
     const M = monsterMats(td, col);
     const rig = new CreatureRig(fam, (R) => {
-      const n = 11, r0 = 0.5;
+      const n = 9, r0 = 0.5;
       // head first
-      const head = R.joint('head', 0, 1.2, 0);
+      const head = R.joint('head', 0, 1.5, 0);
       const hl = []; const sk = sphere(r0 * 1.1, 14, 10); sk.scale(1, 0.85, 1.4); hl.push(_paint(sk, col));
       const sn = capsule(r0 * 0.6, r0 * 0.9, 3, 10); sn.rotateX(PI / 2); sn.scale(1, 0.7, 1); sn.translate(0, -r0 * 0.15, -r0 * 1.4); hl.push(_paint(sn, col));
       const crest = extrude(shapeFrom([[0, 0], [0.3, 0.9], [0.6, 0.7], [0.9, 1.1], [1.2, 0.5], [1.6, 0.4], [1.6, 0]]), 0.03, 0); crest.rotateY(-PI / 2); crest.scale(1, r0 * 0.9, 1); crest.translate(0, r0 * 0.6, r0 * 0.9); hl.push(_paint(crest, fin));
@@ -1748,7 +1751,7 @@
         const fn = extrude(shapeFrom([[-0.5, 0], [-0.2, 1], [0.35, 0.8], [0.6, 0]]), 0.03, 0); fn.rotateY(-PI / 2); fn.scale(1, r * 0.9, r * 1.1); fn.translate(0, r * 0.85, 0); parts.push(_paint(fn, fin));
         if (i === n - 1) { const fl = extrude(shapeFrom([[0, 0], [0.8, 0.9], [1.6, 0.3], [1.6, -0.3], [0.8, -0.9]]), 0.03, 0); fl.rotateY(-PI / 2); fl.scale(1, r * 1.5, r * 1.5); fl.translate(0, 0, r * 1.2); parts.push(_paint(fl, fin)); }
         R.add('seg' + i, j, _merge(parts), M.shiny, i < 4);
-        par = j; z = r * 1.2 + r0 * (1 - (i + 1) / n * 0.75) * 1.2;
+        par = j; z = (r + r0 * (1 - (i + 1) / n * 0.75)) * 0.95;
       }
       R.height = 2.6; R.n = n; R.runAt = 2.5; R.attackDur = 1.0;
       R.cycleFreq = (sp) => 0.5 + sp * 0.25;
@@ -1764,7 +1767,7 @@
       for (let i = 0; i < n; i++) { const a = amp * sin(t * rate - i * k) * (i < 2 ? 0.5 : 1); R.A(P, 'seg' + i, a, 0.15 * amp * sin(t * rate * 0.5 - i * k), 0); sum += a; }
       R.A(P, 'head', -0.35 + 0.3 * sin(t * rate), 0, 0);
     },
-    idle(P, t, c) { const R = c.rig; SERPENT_ANIMS.wave(P, t, c, 0.22, 1.3, 0.75); P[R.BP + 1] = 0.12 * sin(t * 1.3); R.A(P, 'head', 0.05 * sin(t * 0.7), 0.3 * sin(t * 0.4), 0.06 * sin(t * 0.9)); R.A(P, 'jaw', -0.05 - 0.05 * sin(t * 1.3), 0, 0); },
+    idle(P, t, c) { const R = c.rig; SERPENT_ANIMS.wave(P, t, c, 0.3, 1.3, 0.8); P[R.BP + 1] = 0.12 * sin(t * 1.3); R.A(P, 'head', 0.05 * sin(t * 0.7), 0.3 * sin(t * 0.4), 0.06 * sin(t * 0.9)); R.A(P, 'jaw', -0.05 - 0.05 * sin(t * 1.3), 0, 0); },
     walk(P, t, c) { const R = c.rig; SERPENT_ANIMS.wave(P, t, c, 0.3, 3.0, 0.8); P[R.BP + 1] = 0.15 * sin(t * 3.0); R.A(P, 'head', -0.05, 0.1 * sin(t * 1.5), 0); },
     run(P, t, c) { const R = c.rig; SERPENT_ANIMS.wave(P, t, c, 0.35, 4.5, 0.85); P[R.BP + 1] = 0.18 * sin(t * 4.5); R.A(P, 'head', -0.15, 0, 0); R.A(P, 'jaw', -0.3, 0, 0); },
     attack(P, t, c) { const R = c.rig, p = c.phase, rear = p < 0.4 ? easeOut(p / 0.4) : p < 0.6 ? 1 - ease((p - 0.4) / 0.2) : 0, strike = p < 0.4 ? 0 : p < 0.6 ? ease((p - 0.4) / 0.2) : 1 - ease((p - 0.6) / 0.4); SERPENT_ANIMS.wave(P, t, c, 0.2, 2.0, 0.75); R.A(P, 'head', 0.9 * rear - 0.8 * strike, 0, 0); R.A(P, 'seg0', 0.4 * rear - 0.3 * strike, 0, 0); R.A(P, 'seg1', 0.3 * rear, 0, 0); P[R.BP + 1] = 0.7 * rear + 0.1 * strike; P[R.BP + 2] = 0.2 * rear - 0.6 * strike; R.S(P, 'jaw', -0.5 * rear - 0.9 * strike - 0.1, 0, 0); },
@@ -1820,7 +1823,7 @@
     } catch (e) { if (G.reportError) G.reportError(e, 'buildMonster ' + fam); rig = buildQuadruped('wolf', td); }
     const sc = monsterScale(fam, td);
     rig.group.scale.setScalar(sc); rig.height *= sc; rig.scale = sc; rig.typeData = td; rig.family = fam;
-    if (td.name && td.nameplate) { rig.nameplate = nameplate(td.name, td.boss ? '#ff9c3a' : td.elite ? '#c48bff' : '#ff6a6a', { sub: td.level ? 'Level ' + (Array.isArray(td.level) ? td.level[0] : td.level) : '' }); rig.nameplate.position.y = rig.height / sc + 0.4; rig.group.add(rig.nameplate); }
+    if (td.name && td.nameplate) { rig.nameplate = nameplate(td.name, td.boss ? '#ff9c3a' : td.elite ? '#c48bff' : '#ff6a6a', { sub: td.level ? 'Level ' + (Array.isArray(td.level) ? td.level[0] : td.level) : '' }); rig.nameplate.position.y = rig.height / sc + 0.15; rig.group.add(rig.nameplate); }
     return rig;
   }
 
@@ -1840,13 +1843,13 @@
       R.add('body', body, _merge(bl), MAT_VC(0.7, 0.02), true);
       // neck
       const neck = R.joint('neck', 0, r * 0.45, -len * 0.42, body, -0.95);
-      const nl = []; const nk = limb(r * 0.5, r * 2.0, r * 0.62, r * 0.36); nk.rotateX(PI); nl.push(_paint(nk, col));
+      const nl = []; const nk = limb(r * 0.5, r * 2.0, r * 0.72, r * 0.42); nk.rotateX(PI); nl.push(_paint(nk, col));
       for (let i = 0; i < 7; i++) { const m = sphere(r * 0.2, 8, 6); m.scale(0.55, 1, 1.1); m.translate(0, r * 0.35 + i * r * 0.27, r * 0.28 - i * r * 0.03); nl.push(_paint(m, mane)); }
       R.add('neck', neck, _merge(nl), MAT_VC(0.7, 0.02), true);
       // head
       const head = R.joint('head', 0, r * 2.05, 0, neck, 1.05);
-      const hl = []; const sk = sphere(r * 0.44, 14, 10); sk.scale(0.9, 1, 1.1); hl.push(_paint(sk, col));
-      const mz = capsule(r * 0.3, r * 0.55, 3, 10); mz.rotateX(PI / 2 - 0.35); mz.scale(0.95, 0.9, 1); mz.translate(0, -r * 0.35, -r * 0.65); hl.push(_paint(mz, col));
+      const hl = []; const sk = sphere(r * 0.5, 14, 10); sk.scale(0.9, 1, 1.1); hl.push(_paint(sk, col));
+      const mz = capsule(r * 0.33, r * 0.6, 3, 10); mz.rotateX(PI / 2 - 0.35); mz.scale(0.95, 0.9, 1); mz.translate(0, -r * 0.35, -r * 0.65); hl.push(_paint(mz, col));
       const nose = sphere(r * 0.31, 10, 8); nose.scale(1, 0.8, 0.8); nose.translate(0, -r * 0.5, -r * 1.05); hl.push(_paint(nose, hexMul(col, 0.8)));
       if (blaze) { const b = box(r * 0.14, r * 1.1, r * 0.1); b.rotateX(-0.35); b.translate(0, -r * 0.05, -r * 0.62); hl.push(_paint(b, 0xf0ece4)); }
       for (const sd of [-1, 1]) { const e = cone(r * 0.11, r * 0.42, 6); e.scale(0.7, 1, 1); e.rotateZ(sd * -0.3); e.rotateX(-0.2); e.translate(sd * r * 0.22, r * 0.58, r * 0.05); hl.push(_paint(e, col)); const nos = sphere(r * 0.07, 6, 5); nos.translate(sd * r * 0.14, -r * 0.45, -r * 1.3); hl.push(_paint(nos, 0x2a2020)); }
@@ -1945,7 +1948,7 @@
     const list = [plankColor(outer, col, 'y', 0.12)];
     if (inner) { const inn = sphere(1, 24, 12, 0, TAU, PI * 0.5, PI * 0.5); inn.scale(sx * 0.9, sy * 0.88, sz * 0.94); inn.translate(0, 0.02, 0); list.push(plankColor(flipGeo(inn), hexMul(col, 0.85), 'z', 0.25)); }
     const gun = new THREE.TorusGeometry(1, 0.05, 6, 32); gun.rotateX(PI / 2); gun.scale(sx * 0.97, 1, sz * 0.97); gun.translate(0, 0.02, 0); list.push(_paint(gun, hexMul(col, 0.7)));
-    return _merge(list);
+    const g = _merge(list); g.translate(0, sy * 0.72, 0); return g;
   }
   function buildBoat(kind) {
     kind = kind || 'rowboat';
@@ -1956,62 +1959,62 @@
     if (kind === 'elfship') {
       const col = 0xe6e2d6, hull = mesh(cached('boat|elf', () => {
         const list = [hullGeo(0.95, 0.75, 3.4, col, true)];
-        const keel = box(0.08, 0.2, 6.2); keel.translate(0, -0.6, 0); list.push(_paint(keel, 0x9a9488));
-        const deckF = box(1.5, 0.06, 1.4); deckF.translate(0, 0.02, -2.5); list.push(plankColor(deckF, 0xd8d0c0, 'x', 0.18));
-        const deckB = box(1.5, 0.06, 1.2); deckB.translate(0, 0.02, 2.6); list.push(plankColor(deckB, 0xd8d0c0, 'x', 0.18));
-        const bench = box(1.5, 0.08, 0.3); bench.translate(0, 0.25, 1.4); list.push(_paint(bench, 0xc8bca8));
+        const keel = box(0.08, 0.2, 6.2); keel.translate(0, -0.12, 0); list.push(_paint(keel, 0x9a9488));
+        const deckF = box(1.5, 0.06, 1.4); deckF.translate(0, 0.5, -2.5); list.push(plankColor(deckF, 0xd8d0c0, 'x', 0.18));
+        const deckB = box(1.5, 0.06, 1.2); deckB.translate(0, 0.5, 2.6); list.push(plankColor(deckB, 0xd8d0c0, 'x', 0.18));
+        const bench = box(1.5, 0.08, 0.3); bench.translate(0, 0.72, 1.4); list.push(_paint(bench, 0xc8bca8));
         // swan prow
-        const neck = tube([[0, 0.0, -3.3], [0, 0.6, -3.7], [0, 1.4, -3.9], [0, 2.0, -3.75], [0, 2.3, -3.45]], 0.12, 16); list.push(_paint(neck, col));
-        const hd = sphere(0.2, 12, 9); hd.scale(1, 0.9, 1.3); hd.translate(0, 2.35, -3.35); list.push(_paint(hd, col));
-        const beak = cone(0.07, 0.3, 6); beak.rotateX(-PI / 2); beak.translate(0, 2.3, -3.05); list.push(_paint(beak, 0xd8a040));
-        const stern = tube([[0, 0.0, 3.3], [0, 0.5, 3.6], [0, 1.1, 3.55]], 0.1, 8); list.push(_paint(stern, col));
-        for (const sd of [-1, 1]) { const wing = extrude(shapeFrom([[0, 0], [0.9, 0.35], [1.5, 0.15], [1.3, -0.05], [0.4, -0.12]]), 0.03, 0); wing.rotateY(sd < 0 ? PI * 0.5 : -PI * 0.5); wing.translate(sd * 0.95, 0.15, -1.6); list.push(_paint(wing, hexMul(col, 0.9))); for (let i = 0; i < 7; i++) { const post = cyl(0.025, 0.025, 0.45, 6); post.translate(sd * 0.9 * (1 - Math.abs(i - 3) * 0.05), 0.25, -1.8 + i * 0.6); list.push(_paint(post, 0xc8bca8)); } const rail = tube([[sd * 0.78, 0.48, -2.0], [sd * 0.9, 0.48, -0.9], [sd * 0.92, 0.48, 0.3], [sd * 0.88, 0.48, 1.4], [sd * 0.75, 0.48, 2.2]], 0.03, 12); list.push(_paint(rail, 0xc8bca8)); }
+        const neck = tube([[0, 0.45, -3.3], [0, 1.0, -3.7], [0, 1.8, -3.9], [0, 2.45, -3.75], [0, 2.75, -3.45]], 0.12, 16); list.push(_paint(neck, col));
+        const hd = sphere(0.2, 12, 9); hd.scale(1, 0.9, 1.3); hd.translate(0, 2.8, -3.35); list.push(_paint(hd, col));
+        const beak = cone(0.07, 0.3, 6); beak.rotateX(-PI / 2); beak.translate(0, 2.75, -3.05); list.push(_paint(beak, 0xd8a040));
+        const stern = tube([[0, 0.45, 3.3], [0, 0.95, 3.6], [0, 1.5, 3.55]], 0.1, 8); list.push(_paint(stern, col));
+        for (const sd of [-1, 1]) { const wing = extrude(shapeFrom([[0, 0], [0.9, 0.35], [1.5, 0.15], [1.3, -0.05], [0.4, -0.12]]), 0.03, 0); wing.rotateY(sd < 0 ? PI * 0.5 : -PI * 0.5); wing.translate(sd * 0.95, 0.6, -1.6); list.push(_paint(wing, hexMul(col, 0.9))); for (let i = 0; i < 7; i++) { const post = cyl(0.025, 0.025, 0.45, 6); post.translate(sd * 0.9 * (1 - Math.abs(i - 3) * 0.05), 0.75, -1.8 + i * 0.6); list.push(_paint(post, 0xc8bca8)); } const rail = tube([[sd * 0.78, 0.98, -2.0], [sd * 0.9, 0.98, -0.9], [sd * 0.92, 0.98, 0.3], [sd * 0.88, 0.98, 1.4], [sd * 0.75, 0.98, 2.2]], 0.03, 12); list.push(_paint(rail, 0xc8bca8)); }
         return _merge(list);
       }), wood, true);
       g.add(hull); parts.hull = hull;
-      mast = grp(0, 0, -0.3, g);
+      mast = grp(0, 0.5, -0.3, g);
       const mm = mesh(cached('boat|elfmast', () => { const list = []; const m = cyl(0.05, 0.07, 4.6, 8); m.translate(0, 2.3, 0); list.push(_paint(m, 0xd8d0c0)); const yard = cyl(0.03, 0.03, 2.6, 8); yard.rotateZ(PI / 2); yard.translate(0, 4.2, 0); list.push(_paint(yard, 0xd8d0c0)); const top = sphere(0.09, 8, 6); top.translate(0, 4.62, 0); list.push(_paint(top, 0xd8a040)); return _merge(list); }), wood, true);
       mast.add(mm);
       const sail = mesh(cached('boat|elfsail', () => { const s = new THREE.PlaneGeometry(2.4, 3.2, 8, 8); const p = s.getAttribute('position'); for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i); p.setZ(i, (1 - (x / 1.2) * (x / 1.2)) * 0.45 * (0.5 + 0.5 * (1 - (y + 1.6) / 3.2)) + 0.05); } s.computeVertexNormals(); s.translate(0, 2.5, 0); return _paint(s, 0xf4f0e6); }), material(0xffffff, { vertexColors: true, rough: 0.9, double: true }), true);
       mast.add(sail); parts.sail = sail;
-      seat = grp(0, 0.3, 1.4, g);
+      seat = grp(0, 0.78, 1.4, g);
     } else if (kind === 'ferry') {
       const col = 0x7a5a38;
       const hull = mesh(cached('boat|ferry', () => {
         const list = [];
-        const base = box(3.2, 0.55, 6.0); base.translate(0, -0.15, 0); list.push(plankColor(base, hexMul(col, 0.8), 'y', 0.14));
-        const deck = box(3.0, 0.08, 5.8); deck.translate(0, 0.16, 0); list.push(plankColor(deck, col, 'x', 0.24));
-        for (const sd of [-1, 1]) { for (let i = 0; i < 7; i++) { const post = cyl(0.04, 0.05, 0.9, 6); post.translate(sd * 1.45, 0.6, -2.7 + i * 0.9); list.push(_paint(post, 0x5a4028)); } const rail = box(0.06, 0.06, 5.5); rail.translate(sd * 1.45, 1.02, 0); list.push(_paint(rail, 0x5a4028)); const rail2 = box(0.05, 0.05, 5.5); rail2.translate(sd * 1.45, 0.6, 0); list.push(_paint(rail2, 0x5a4028)); }
-        for (const sz of [-1, 1]) { const ramp = box(2.6, 0.08, 0.9); ramp.rotateX(sz * -0.35); ramp.translate(0, 0.05, sz * 3.35); list.push(plankColor(ramp, hexMul(col, 0.9), 'x', 0.24)); }
-        for (let i = 0; i < 3; i++) { const bar = cyl(0.12, 0.14, 0.5, 8); bar.translate(-1.0 + i * 0.5, 0.45, 2.2); list.push(_paint(bar, 0x4a3420)); }
-        const crate = box(0.6, 0.6, 0.6); crate.translate(1.0, 0.5, -2.2); list.push(plankColor(crate, 0x8a6a40, 'y', 0.15));
+        const base = box(3.2, 0.6, 6.0); base.translate(0, 0.1, 0); list.push(plankColor(base, hexMul(col, 0.8), 'y', 0.14));
+        const deck = box(3.0, 0.08, 5.8); deck.translate(0, 0.42, 0); list.push(plankColor(deck, col, 'x', 0.24));
+        for (const sd of [-1, 1]) { for (let i = 0; i < 7; i++) { const post = cyl(0.04, 0.05, 0.9, 6); post.translate(sd * 1.45, 0.88, -2.7 + i * 0.9); list.push(_paint(post, 0x5a4028)); } const rail = box(0.06, 0.06, 5.5); rail.translate(sd * 1.45, 1.3, 0); list.push(_paint(rail, 0x5a4028)); const rail2 = box(0.05, 0.05, 5.5); rail2.translate(sd * 1.45, 0.88, 0); list.push(_paint(rail2, 0x5a4028)); }
+        for (const sz of [-1, 1]) { const ramp = box(2.6, 0.08, 0.9); ramp.rotateX(sz * -0.35); ramp.translate(0, 0.3, sz * 3.35); list.push(plankColor(ramp, hexMul(col, 0.9), 'x', 0.24)); }
+        for (let i = 0; i < 3; i++) { const bar = cyl(0.12, 0.14, 0.5, 8); bar.translate(-1.0 + i * 0.5, 0.7, 2.2); list.push(_paint(bar, 0x4a3420)); }
+        const crate = box(0.6, 0.6, 0.6); crate.translate(1.0, 0.76, -2.2); list.push(plankColor(crate, 0x8a6a40, 'y', 0.15));
         return _merge(list);
       }), wood, true);
       g.add(hull); parts.hull = hull;
-      mast = grp(0, 0.2, -0.8, g);
+      mast = grp(0, 0.46, -0.8, g);
       const pole = mesh(cached('boat|ferrypole', () => { const list = []; const m = cyl(0.04, 0.05, 3.0, 8); m.translate(0, 1.5, 0); list.push(_paint(m, 0x5a4028)); const lamp = box(0.22, 0.28, 0.22); lamp.translate(0, 2.9, 0); list.push(_paint(lamp, 0x3a3230)); const flag = extrude(shapeFrom([[0, 0], [0.8, 0.15], [0, 0.4]]), 0.02, 0); flag.translate(0, 2.4, 0); list.push(_paint(flag, 0x8a2a2a)); return _merge(list); }), wood, true);
       mast.add(pole);
       const lampGlow = mesh(cached('boat|lamp', () => { const s = sphere(0.07, 8, 6); s.translate(0, 2.9, 0); return s; }), material(0xffc060, { emissive: 0xffa030, emissiveIntensity: 2 }), false);
       mast.add(lampGlow); parts.lamp = lampGlow;
-      seat = grp(0, 0.2, 0.4, g);
+      seat = grp(0, 0.46, 0.4, g);
     } else {
       const col = 0x8a6a42;
       const hull = mesh(cached('boat|row', () => {
-        const list = [hullGeo(0.7, 0.42, 1.75, col, true)];
-        const keel = box(0.06, 0.1, 3.3); keel.translate(0, -0.38, 0); list.push(_paint(keel, hexMul(col, 0.6)));
-        for (const z of [-0.75, 0.1, 0.85]) { const b = box(1.15 * (1 - Math.abs(z) * 0.15), 0.06, 0.26); b.translate(0, 0.05, z); list.push(_paint(b, hexMul(col, 0.85))); }
-        const bowCap = box(0.5, 0.06, 0.45); bowCap.translate(0, 0.04, -1.45); list.push(plankColor(bowCap, hexMul(col, 0.9), 'x', 0.12));
-        for (const sd of [-1, 1]) { const lock = cyl(0.03, 0.03, 0.14, 6); lock.translate(sd * 0.66, 0.1, -0.15); list.push(_paint(lock, 0x5a5a60)); }
+        const list = [hullGeo(0.72, 0.5, 1.8, col, true)];
+        const keel = box(0.06, 0.1, 3.4); keel.translate(0, -0.1, 0); list.push(_paint(keel, hexMul(col, 0.6)));
+        for (const z of [-0.75, 0.1, 0.85]) { const b = box(1.2 * (1 - Math.abs(z) * 0.15), 0.06, 0.26); b.translate(0, 0.3, z); list.push(_paint(b, hexMul(col, 0.85))); }
+        const bowCap = box(0.5, 0.06, 0.45); bowCap.translate(0, 0.36, -1.5); list.push(plankColor(bowCap, hexMul(col, 0.9), 'x', 0.12));
+        for (const sd of [-1, 1]) { const lock = cyl(0.03, 0.03, 0.14, 6); lock.translate(sd * 0.68, 0.42, -0.15); list.push(_paint(lock, 0x5a5a60)); }
         return _merge(list);
       }), wood, true);
       g.add(hull); parts.hull = hull;
       for (const sd of [-1, 1]) {
-        const oar = grp(sd * 0.68, 0.14, -0.15, g);
+        const oar = grp(sd * 0.7, 0.46, -0.15, g);
         const om = mesh(cached('boat|oar', () => { const list = []; const shaft = cyl(0.02, 0.025, 2.2, 8); shaft.rotateZ(PI / 2); shaft.translate(0.5, 0, 0); list.push(_paint(shaft, 0x9a7a4a)); const blade = box(0.5, 0.03, 0.16); blade.translate(1.5, 0, 0); list.push(_paint(blade, 0x8a6a3a)); return _merge(list); }), wood, false);
         if (sd < 0) om.rotation.y = PI;
         oar.add(om); oar.rotation.z = sd * -0.35; oar.userData.side = sd; oars.push(oar);
       }
-      seat = grp(0, 0.1, 0.1, g);
+      seat = grp(0, 0.33, 0.1, g);
     }
     const boat = { group: g, seat, mast, oars, parts, kind, time: 0,
       animate(t) { this.time = t; for (const o of oars) { const sd = o.userData.side; o.rotation.z = sd * (-0.35 + 0.25 * sin(t * 2.2)); o.rotation.y = sd * 0.45 * cos(t * 2.2); } if (parts.sail) parts.sail.rotation.y = 0.06 * sin(t * 0.7); },
@@ -2076,9 +2079,9 @@
     ctx.clearRect(0, 0, W, H); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.font = 'bold 42px "Trebuchet MS", "Segoe UI", Arial, sans-serif';
     ctx.lineWidth = 8; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineJoin = 'round';
-    const nameY = sub ? 40 : 64;
+    const nameY = sub ? 46 : 70;
     ctx.strokeText(text, W / 2, nameY); ctx.fillStyle = color || '#ffffff'; ctx.fillText(text, W / 2, nameY);
-    if (sub) { ctx.font = '600 27px "Trebuchet MS", "Segoe UI", Arial, sans-serif'; ctx.lineWidth = 6; ctx.strokeText(sub, W / 2, 92); ctx.fillStyle = subColor || 'rgba(235,225,200,0.95)'; ctx.fillText(sub, W / 2, 92); }
+    if (sub) { ctx.font = '600 27px "Trebuchet MS", "Segoe UI", Arial, sans-serif'; ctx.lineWidth = 6; ctx.strokeText(sub, W / 2, 98); ctx.fillStyle = subColor || 'rgba(235,225,200,0.95)'; ctx.fillText(sub, W / 2, 98); }
     tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.userData.shared = true;
     _npTex.set(key, tex);
     return tex;
@@ -2104,7 +2107,7 @@
     sp.getWorldPosition(_tmpV);
     const d = _tmpV.distanceTo(camera.position);
     const base = (sp.userData.np && sp.userData.np.base) || 1;
-    const s = clamp(d * 0.062, 0.3, 6) * base;
+    const s = clamp(d * 0.05, 0.25, 5) * base;
     // undo parent scale so the plate stays constant regardless of rig scale
     let ps = 1; if (sp.parent) { sp.parent.getWorldScale(_tmpV2); ps = _tmpV2.y || 1; }
     sp.scale.set(s * 4 / ps, s / ps, 1);

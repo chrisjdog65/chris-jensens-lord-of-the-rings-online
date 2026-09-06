@@ -54,3 +54,8 @@
 - Handles: `{kind, pos (Vector3 — move it to move the effect), alive, target, stop(), setPos()}`. Common opts: `dir|yaw, color, scale, target (entity/Object3D followed each frame), yOff, duration, loop, light, variant, from`. `spawn` returns null for bad pos/kind. `setBeacon(pos|null)` accepts `{x,z}`.
 - `projectile({from, to|target, speed, kind:'arrow'|'bolt'|'stone'|'fire', arc, range, hitRadius, maxTime, onHit(point, ent|null)})` — onHit fires exactly once. Extra kinds: `beam` (opts.from), `flash`, `ring`, `teleport` (opts.out).
 - Uses `G.Game.renderer.getDrawingBufferSize` if present for point sizing; `setViewportHeight(px)` otherwise. One-shots > 220 m from camera are skipped. Entities are aimed at `pos + height×0.55`.
+
+## 13_buildings.js
+- `G.Buildings.init(scene)` then `build()` places everything from `G.Data.world` (towns, POIs, docks). `update(playerPos, dt)`. Events: `enterBuilding`, `leaveBuilding`, `doorToggled`.
+- Buildings carry `interiorSpots` `[{x,y,z,yaw,role}]` (roles keeper/vendor/boatmaster/lord/forge/fire/table/bed/sit/pray/watch/idle); `G.Buildings.spotFor(npcId)` returns a spot for an interior NPC. Docks: `dock.building`, `dock.deckY`, building `dockEnd`.
+- Town walls for `town.walls` truthy or id 'bree'. POIs without `buildings` get generated ruins by kind. `nearest(pos, filter)`, `isInside(pos)`, `playerInside`, `openDoor/closeDoor/toggleDoor(ent)`, `stats()`.

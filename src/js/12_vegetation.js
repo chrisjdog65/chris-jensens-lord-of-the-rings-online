@@ -768,6 +768,8 @@
    * ---------------------------------------------------------------------------------------------- */
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
   const _rgb = [0, 0, 0];
+  const _rp = { x: 0, z: 0, dist: 0 };
+  const _hedgeSeen = new Set();
   function emit(cell, type, x, y, z, yaw, sx, sy, sz, tr, tg, tb, snow, tiltX, tiltZ, keepFar) {
     let qs = cell.tmp[type]; if (!qs) qs = cell.tmp[type] = [null, null, null, null];
     const q = (x >= cell.x0 + CELL / 2 ? 1 : 0) + (z >= cell.z0 + CELL / 2 ? 2 : 0);
@@ -874,22 +876,37 @@
       const s = 0.8 + rng() * 0.6;
       spawnTree(type, x, z, T.height(x, z), type === 'mallorn' ? s * 0.9 : s, rng() < FAR_KEEP);
     }
-    // ---- hedgerows along roads (shire / bree-land) ---------------------------------------------
-    if (prof.hedge && T.onRoad) {
-      const step = 3;
-      for (let gx = 0; gx < CELL; gx += step) for (let gz = 0; gz < CELL; gz += step) {
-        const x = x0 + gx + rng() * step, z = z0 + gz + rng() * step;
-        const r = T.onRoad(x, z);
-        if (r < 0.01 || r > 0.35) continue;
-        if (hash2(Math.floor(x / 24) * 1.3, Math.floor(z / 24) * 0.7) > 0.6) continue;      // gaps between hedge sections
-        // push the bush outward, away from the road centre, along -gradient(onRoad)
-        const gxr = T.onRoad(x + 1, z) - T.onRoad(x - 1, z), gzr = T.onRoad(x, z + 1) - T.onRoad(x, z - 1);
-        const gl = Math.hypot(gxr, gzr); if (gl < 1e-4) continue;
-        const hx = x - (gxr / gl) * 2.6, hz = z - (gzr / gl) * 2.6;
-        if (T.height(hx, hz) < SEA + 0.2 || townFactor(hx, hz, towns) === 0) continue;
-        if (T.onRoad(hx, hz) > 0.05) continue;
-        const s = 0.9 + rng() * 0.4;
-        emit(cell, 'bush', hx, T.height(hx, hz) - 0.1, hz, rng() * Math.PI * 2, s * 1.15, s * 0.85, s * 1.15, 0.9 + rng() * 0.2, 0.92 + rng() * 0.16, 0.85 + rng() * 0.2, 0, 0, 0, true);
+    // ---- hedgerows along roads (shire / bree-land): one bush per ~2.5 m of road, 6.5 m off the centre line ----
+    if (prof.hedge && (T.nearestRoadPoint || T.onRoad)) {
+      let nearRoad = true;
+      if (T.nearestRoadPoint) { const rp = T.nearestRoadPoint(xc, zc, _rp); nearRoad = rp && rp.dist < CELL; }
+      if (nearRoad) {
+        const step = 2.5, HEDGE_D = 6.5;
+        _hedgeSeen.clear();
+        for (let gx = 0; gx < CELL; gx += step) for (let gz = 0; gz < CELL; gz += step) {
+          const x = x0 + gx + step * 0.5, z = z0 + gz + step * 0.5;
+          let rx, rz, dist;
+          if (T.nearestRoadPoint) { const rp = T.nearestRoadPoint(x, z, _rp); if (!rp) continue; rx = rp.x; rz = rp.z; dist = rp.dist; }
+          else { // fallback: estimate the road direction from the onRoad gradient
+            const r = T.onRoad(x, z); if (r < 0.01 || r > 0.5) continue;
+            const gxr = T.onRoad(x + 1, z) - T.onRoad(x - 1, z), gzr = T.onRoad(x, z + 1) - T.onRoad(x, z - 1);
+            const gl = Math.hypot(gxr, gzr); if (gl < 1e-4) continue;
+            dist = 4.5; rx = x + (gxr / gl) * dist; rz = z + (gzr / gl) * dist;
+          }
+          if (!(dist >= 3.5 && dist <= 10.5)) continue;
+          const dx = (x - rx) / dist, dz = (z - rz) / dist;
+          const hx = rx + dx * HEDGE_D, hz = rz + dz * HEDGE_D;
+          if (hx < x0 || hx >= x0 + CELL || hz < z0 || hz >= z0 + CELL) continue;
+          // one bush per 2.5 m of road on each side; 20 m sections gated by hash so hedges have gaps and gates
+          const side = (dx * 0.3 - dz * 0.95) > 0 ? 1 : 0;
+          const key = Math.round(rx / 2.5) * 73856093 ^ Math.round(rz / 2.5) * 19349663 ^ side * 83492791;
+          if (_hedgeSeen.has(key)) continue; _hedgeSeen.add(key);
+          if (hash2(Math.floor(rx / 20) * 1.3 + side * 7.7, Math.floor(rz / 20) * 0.7) > 0.62) continue;
+          if (T.height(hx, hz) < SEA + 0.2 || townFactor(hx, hz, towns) === 0) continue;
+          if (T.onRoad && T.onRoad(hx, hz) > 0.05) continue;
+          const s = 0.85 + hash2(hx * 0.37, hz * 0.91) * 0.4;
+          emit(cell, 'bush', hx + (rng() - 0.5) * 0.6, T.height(hx, hz) - 0.12, hz + (rng() - 0.5) * 0.6, rng() * Math.PI * 2, s * 1.25, s * 0.8, s * 1.25, 0.9 + rng() * 0.2, 0.92 + rng() * 0.16, 0.85 + rng() * 0.2, 0, 0, 0, true);
+        }
       }
     }
     // ---- orchards outside shire towns -----------------------------------------------------------
