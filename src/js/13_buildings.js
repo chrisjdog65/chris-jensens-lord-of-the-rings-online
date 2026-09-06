@@ -1866,3 +1866,647 @@
       b.boxCol(-0.75, 0, -0.75, 0.75, 1.4, 0.75);
     },
   });
+
+  /* ------------------------------------------------------------------------------------------------ */
+  /* Runtime: instancing, doors, colliders, lights, update loop, world builders                        */
+  /* ------------------------------------------------------------------------------------------------ */
+  const root = new T.Group(); root.name = 'buildings';
+  const all = [], byId = {}, enterables = [], batches = [];
+  const CACHE = new Map(), DOOR_CACHE = new Map(), SIGN_MAT = new Map();
+  let scene = null, playerInside = null, lightsEnabled = true, _time = 0, _lightTimer = 0, _doorTimer = 0, horsesBroken = false;
+  const NEAR_DIST = 60, INT_DIST = 320, FAR_DIST = 900, LIGHT_DIST = 60, FX_DIST = 70, FX_DROP = 95;
+  const POOL_SIZE = 6;
+  const pool = [];
+  const _v = new T.Vector3();
+
+  function terrainH(x, z) { const Tr = G.Terrain; return (Tr && typeof Tr.height === 'function') ? (+Tr.height(x, z) || 0) : 0; }
+  function isWaterAt(x, z) { const Tr = G.Terrain; if (Tr && typeof Tr.isWater === 'function') return !!Tr.isWater(x, z); return terrainH(x, z) < (G.C ? G.C.SEA_LEVEL : 0); }
+  function seaLevel() { return (G.C && typeof G.C.SEA_LEVEL === 'number') ? G.C.SEA_LEVEL : 0; }
+  function l2w(bld, lx, lz, out) { out = out || {}; out.x = bld.x + lx * bld.cos + lz * bld.sin; out.z = bld.z - lx * bld.sin + lz * bld.cos; return out; }
+  function titleize(s) { return String(s || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+
+  function getCached(recipe, variant, spec) {
+    const key = recipe.key ? recipe.key(spec, variant) : recipe.name + ':' + variant;
+    let c = CACHE.get(key);
+    if (!c) {
+      const b = new Builder(key, hashStr(key));
+      recipe.build(b, variant, spec, b.rng);
+      c = b.build(); c.key = key; c.uses = 0;
+      CACHE.set(key, c);
+    }
+    c.uses++;
+    return c;
+  }
+
+  /* ---- door leaves ---- */
+  function doorLeafGeo(d) {
+    const key = [d.kind, d.w.toFixed(2), d.h.toFixed(2), d.hex || 0, d.hinge].join(':');
+    let g = DOOR_CACHE.get(key);
+    if (g) return g;
+    const b = new Builder('door:' + key, hashStr(key));
+    const dir = -d.hinge, w = d.w, h = d.h, th = 0.08, cx = dir * w / 2;
+    const hex = d.hex || (d.kind === 'elf' ? 0xe8e6de : d.kind === 'flap' ? 0x9a7a58 : d.kind === 'dwarf' ? 0x4e3a28 : 0x6b4a2a);
+    const dark = d.kind === 'elf' ? 0xc8c4b8 : 0x2e2016, iron = d.kind === 'elf' ? 0xd8b862 : 0x3a3a40;
+    if (d.kind === 'round') {
+      const r = w / 2;
+      b.cyl('d', 'wood', r - 0.02, r - 0.02, th, 26, cx, r, 0, hex, { rx: HPI, jit: 0.03 });
+      for (let i = -3; i <= 3; i++) { const off = i * (r * 0.28); const chord = 2 * Math.sqrt(Math.max(0, r * r - off * off)) - 0.1; if (chord > 0.1) b.box('d', 'wood', 0.02, chord, th + 0.012, cx + off, r, 0, dark, { jit: 0 }); }
+      b.torus('d', 'wood', r - 0.06, 0.025, cx, r, -th / 2, dark, { jit: 0 });
+      b.sph('d', 'wood', 0.07, cx, r, -th / 2 - 0.04, 0xd8b040, { jit: 0 });
+    } else {
+      const arch = d.kind === 'arch' || d.kind === 'elf';
+      const bh = arch ? h - w / 2 : h;
+      b.box('d', 'wood', w - 0.04, bh - 0.02, th, cx, bh / 2, 0, hex, { jit: 0.03 });
+      if (arch) b.cyl('d', 'wood', w / 2 - 0.02, w / 2 - 0.02, th, 16, cx, bh - 0.01, 0, hex, { rx: HPI, ts: HPI, tl: PI, jit: 0.03 });
+      const n = Math.max(2, Math.round(w / 0.28));
+      for (let i = 1; i < n; i++) { const x = cx - w / 2 + (w / n) * i; const hh = arch ? bh + Math.sqrt(Math.max(0, (w / 2) * (w / 2) - (x - cx) * (x - cx))) - 0.05 : h - 0.05; b.box('d', 'wood', 0.018, hh, th + 0.012, x, hh / 2, 0, dark, { jit: 0 }); }
+      if (d.kind === 'banded' || d.kind === 'dwarf' || d.kind === 'plain') {
+        const rows = d.kind === 'plain' ? [0.35, h - 0.4] : [0.3, h / 2, h - 0.35];
+        for (const y of rows) { b.box('d', 'wood', w - 0.08, 0.1, th + 0.03, cx, y, 0, iron, { jit: 0 }); for (let i = 0; i < 4; i++) b.sph('d', 'wood', 0.02, cx - w / 2 + 0.12 + i * (w - 0.24) / 3, y, -th / 2 - 0.02, 0x8a8a92, { jit: 0 }); }
+      }
+      if (d.kind === 'elf') { b.box('d', 'wood', 0.05, h * 0.55, th + 0.03, cx, h * 0.5, 0, iron, { jit: 0 }); for (let i = 0; i < 3; i++) b.box('d', 'wood', 0.16, 0.16, th + 0.03, cx, h * 0.3 + i * h * 0.2, 0, iron, { rz: PI / 4, jit: 0 }); }
+      if (d.kind === 'flap') { for (let i = 0; i < 2; i++) b.box('d', 'wood', w - 0.1, 0.03, th + 0.02, cx, 0.5 + i * 0.6, 0, 0x4a3a28, { jit: 0 }); }
+      b.torus('d', 'wood', 0.05, 0.014, cx + dir * (w / 2 - 0.16), h * 0.5, -th / 2 - 0.02, 0x8a8a92, { jit: 0 });
+    }
+    const built = b.build();
+    g = built.groups.d[0].geo;
+    DOOR_CACHE.set(key, g);
+    return g;
+  }
+
+  function makeDoor(bld, d) {
+    const leaves = d.leaves === 2 ? [{ hinge: -1, w: d.w / 2 }, { hinge: 1, w: d.w / 2 }] : [{ hinge: d.hinge || -1, w: d.w }];
+    const c = Math.cos(d.ry), s = Math.sin(d.ry);
+    const pivots = [];
+    for (const lf of leaves) {
+      const geo = doorLeafGeo({ kind: d.kind || 'plain', w: lf.w, h: d.h, hex: d.hex, hinge: lf.hinge });
+      const pivot = new T.Group();
+      pivot.position.set(d.x + lf.hinge * (d.w / 2) * c, d.y || 0, d.z - lf.hinge * (d.w / 2) * s);
+      pivot.rotation.y = d.ry;
+      const mesh = new T.Mesh(geo, getMat('wood')); mesh.castShadow = true; mesh.receiveShadow = true;
+      pivot.add(mesh);
+      bld.group.add(pivot);
+      pivots.push({ group: pivot, hinge: lf.hinge, base: d.ry, open: lf.hinge * (100 * PI / 180) });
+    }
+    const wp = l2w(bld, d.x, d.z);
+    const ex = l2w(bld, d.x + (d.w / 2) * c, d.z - (d.w / 2) * s), ex2 = l2w(bld, d.x - (d.w / 2) * c, d.z + (d.w / 2) * s);
+    const ent = {
+      id: uid(), kind: 'door', name: (d.name || (d.leaves === 2 ? 'Doors' : 'Door')) + (bld.name ? ' of ' + bld.name : ''),
+      level: 1, pos: new T.Vector3(wp.x, bld.y + (d.y || 0), wp.z), yaw: bld.yaw + d.ry, vel: new T.Vector3(), radius: 0.5, height: d.h,
+      alive: true, dead: false, hostile: false, faction: 'neutral', effects: [], cooldowns: {}, target: null, anim: 'idle', animTime: 0, mesh: pivots[0].group, rig: null, ai: null,
+      building: bld, open: false, t: 0, tApplied: -1, pivots, openedAt: 0, colId: null,
+      col: { x1: ex.x, z1: ex.z, x2: ex2.x, z2: ex2.z, h: d.h + 0.4, t: Math.max(0.3, d.t || 0.3) },
+      interact: { label: 'Open door', range: 3, fn: function (e) { toggleDoor(e || ent); } },
+    };
+    if (typeof G.addEntity === 'function') G.addEntity(ent);
+    else { G.state.entities.push(ent); G.state.byId[ent.id] = ent; if (G.Spatial && G.Spatial.insert) G.Spatial.insert(ent); }
+    return ent;
+  }
+  function doorColliderOn(ent, on) {
+    const P = G.Physics; if (!P) return;
+    if (on && ent.colId === null && typeof P.addWall === 'function') ent.colId = P.addWall(ent.col.x1, ent.col.z1, ent.col.x2, ent.col.z2, ent.col.h, ent.col.t, 'bld:' + ent.building.id);
+    else if (!on && ent.colId !== null && typeof P.remove === 'function') { P.remove(ent.colId); ent.colId = null; }
+  }
+  function applyDoorPose(ent) {
+    const k = ent.t;
+    const e = k <= 0 ? 0 : k >= 1 ? 1 : (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
+    for (const p of ent.pivots) p.group.rotation.y = p.base + p.open * e;
+    ent.tApplied = k;
+  }
+  function setDoor(ent, open) {
+    if (!ent || ent.kind !== 'door' || ent.open === open) return;
+    ent.open = open;
+    ent.interact.label = open ? 'Close door' : 'Open door';
+    ent.openedAt = _time;
+    const target = open ? 1 : 0;
+    if (typeof G.tween === 'function' && typeof G.tweenUpdate === 'function') G.tween(ent, { t: target }, 0.5, 'inOut');
+    else ent.animTarget = target;
+    if (G.Audio && typeof G.Audio.sfx === 'function') { try { G.Audio.sfx(open ? 'door_open' : 'door_close', { pos: ent.pos }); } catch (e) { /* audio not ready */ } }
+    doorColliderOn(ent, !open);
+    if (typeof G.emit === 'function') G.emit('doorToggled', ent);
+  }
+  function toggleDoor(ent) { setDoor(ent, !ent.open); }
+
+  /* ---- colliders ---- */
+  function addBoxLocal(bld, bx, ids, tag) {
+    const P = G.Physics;
+    const fl = bx.floor ? { tag, floor: true } : tag;
+    const y0 = bld.y + bx.miny, y1 = bld.y + bx.maxy;
+    const q = Math.abs(bld.yaw / HPI - Math.round(bld.yaw / HPI)) < 0.01;
+    const cell = q ? 1e9 : (bx.floor && bx.maxy > 1.0 ? 1.6 : 2.5);
+    const nx = Math.max(1, Math.ceil((bx.maxx - bx.minx) / cell)), nz = Math.max(1, Math.ceil((bx.maxz - bx.minz) / cell));
+    const p = {};
+    for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+      const x0 = bx.minx + (bx.maxx - bx.minx) * i / nx, x1 = bx.minx + (bx.maxx - bx.minx) * (i + 1) / nx;
+      const z0 = bx.minz + (bx.maxz - bx.minz) * j / nz, z1 = bx.minz + (bx.maxz - bx.minz) * (j + 1) / nz;
+      let mnx = Infinity, mxx = -Infinity, mnz = Infinity, mxz = -Infinity;
+      for (const [cx, cz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) { l2w(bld, cx, cz, p); if (p.x < mnx) mnx = p.x; if (p.x > mxx) mxx = p.x; if (p.z < mnz) mnz = p.z; if (p.z > mxz) mxz = p.z; }
+      ids.push(P.addBox(mnx, y0, mnz, mxx, y1, mxz, fl));
+    }
+  }
+  function registerColliders(bld) {
+    const P = G.Physics;
+    if (!bld || bld.colRegistered || !P || typeof P.addWall !== 'function') return false;
+    const m = bld.cached.meta, tag = 'bld:' + bld.id, ids = bld.colliders, a = {}, b2 = {};
+    try {
+      for (const w of m.walls) { l2w(bld, w.x1, w.z1, a); l2w(bld, w.x2, w.z2, b2); ids.push(P.addWall(a.x, a.z, b2.x, b2.z, w.h, w.t, tag)); }
+      for (const c of m.cyls) { l2w(bld, c.x, c.z, a); ids.push(P.addCylinder(a.x, a.z, c.r, c.h, tag)); }
+      for (const bx of m.boxes) addBoxLocal(bld, bx, ids, tag);
+      for (const d of bld.doors) if (!d.open) doorColliderOn(d, true);
+    } catch (e) { if (G.reportError) G.reportError(e, 'Buildings.registerColliders'); }
+    bld.colRegistered = true;
+    return true;
+  }
+  function registerAllColliders() { let n = 0; for (const bld of all) if (registerColliders(bld)) n++; return n; }
+
+  /* ---- signs ---- */
+  function signMaterial(text) {
+    let m = SIGN_MAT.get(text);
+    if (!m) { m = new T.MeshStandardMaterial({ map: signTexture(text), roughness: 0.85 }); SIGN_MAT.set(text, m); }
+    return m;
+  }
+  function makeSign(bld, s, text) {
+    const front = new T.PlaneGeometry(s.w, s.h); front.rotateY(PI); front.translate(0, 0, -0.033);
+    const back = new T.PlaneGeometry(s.w, s.h); back.translate(0, 0, 0.033);
+    const geo = mergeGeos([front, back]);
+    const mesh = new T.Mesh(geo, signMaterial(text));
+    mesh.position.set(s.x, s.y, s.z); mesh.rotation.y = s.ry; mesh.castShadow = true;
+    bld.ext.add(mesh);
+    bld.signMeshes.push(mesh);
+  }
+
+  /* ---- visibility ---- */
+  function refreshVis(bld, py) {
+    if (bld.batched) return;
+    const band = bld.band, inside = bld.inside;
+    bld.group.visible = band < 3;
+    if (bld.int) bld.int.visible = band === 0 || inside;
+    if (bld.roof) bld.roof.visible = !inside;
+    for (const c of bld.ceilings) c.group.visible = (band === 0 || inside) && !(inside && py !== undefined && py < bld.y + c.y - 0.5);
+    for (const d of bld.doors) for (const p of d.pivots) p.group.visible = band < 2;
+    for (const sm of bld.signMeshes) sm.visible = band < 2;
+  }
+
+  /* ---- placement ---- */
+  function place(spec) {
+    if (!spec || typeof spec !== 'object') return null;
+    const recipe = RECIPES[spec.recipe];
+    if (!recipe) { if (G.warn) G.warn('[Buildings] unknown recipe ' + spec.recipe); return null; }
+    const x = +spec.x || 0, z = +spec.z || 0, yaw = +spec.yaw || 0;
+    const variant = (spec.variant !== undefined && spec.variant !== null) ? (Math.abs(spec.variant | 0) % recipe.variants) : Math.floor(hash2(x * 0.173 + 11.3, z * 0.131 + 7.7) * recipe.variants) % recipe.variants;
+    const y = (spec.y !== undefined && spec.y !== null) ? +spec.y : terrainH(x, z);
+    let cached;
+    try { cached = getCached(recipe, variant, spec); }
+    catch (e) { if (G.reportError) G.reportError(e, 'Buildings.place ' + spec.recipe); else if (G.warn) G.warn('[Buildings] build failed ' + spec.recipe + ': ' + e.message); return null; }
+    const m = cached.meta;
+    const name = spec.name || (recipe.defaultName ? recipe.defaultName(spec) : titleize(recipe.name));
+    const group = new T.Group();
+    group.position.set(x, y, z); group.rotation.y = yaw; group.name = 'bld:' + recipe.name;
+    const bld = {
+      id: uid(), recipe: recipe.name, name, x, y, z, yaw, cos: Math.cos(yaw), sin: Math.sin(yaw), variant,
+      group, ext: null, int: null, roof: null, upper: null, ceilings: [], door: null, doors: [],
+      interiorBounds: m.interior, radius: m.radius, radius2: m.radius * m.radius,
+      colliders: [], colRegistered: false, lights: [], hearths: [], smokes: [], interiorSpots: [], signMeshes: [], horses: [],
+      npcInside: spec.npcInside || [], town: spec.town || null, poi: spec.poi || null, spec, cached,
+      enterable: !!(recipe.enterable && m.interior), static: !!recipe.static, batched: null,
+      band: -1, inside: false, d2: Infinity,
+    };
+    for (const grp in cached.groups) {
+      const sub = new T.Group(); sub.name = grp;
+      for (const part of cached.groups[grp]) {
+        const mesh = new T.Mesh(part.geo, getMat(part.mat));
+        mesh.castShadow = part.mat !== 'glass' && part.mat !== 'water'; mesh.receiveShadow = true;
+        sub.add(mesh);
+      }
+      group.add(sub);
+      if (grp === 'ext') bld.ext = sub; else if (grp === 'int') bld.int = sub; else if (grp === 'roof') bld.roof = sub;
+      else { const c = m.ceilings.find(cc => cc.grp === grp); bld.ceilings.push({ group: sub, y: c ? c.y : 0 }); if (grp === 'upper') bld.upper = sub; }
+    }
+    if (!bld.ext) { bld.ext = new T.Group(); bld.ext.name = 'ext'; group.add(bld.ext); }
+    for (const d of m.doors) { const ent = makeDoor(bld, d); bld.doors.push(ent); }
+    bld.door = bld.doors[0] || null;
+    const p = {};
+    for (const s of m.spots) { l2w(bld, s.x, s.z, p); bld.interiorSpots.push({ x: p.x, y: bld.y + s.y, z: p.z, yaw: bld.yaw + s.yaw, role: s.role, building: bld }); }
+    for (const l of m.lights) { l2w(bld, l.x, l.z, p); bld.lights.push({ x: p.x, y: bld.y + l.y, z: p.z, color: l.color, base: l.intensity, dist: l.dist, kind: l.kind, flicker: l.flicker, seed: hash2(p.x, p.z) * 100, on: true, light: null, stamp: 0, cur: 0, bld }); }
+    for (const h of m.hearths) { l2w(bld, h.x, h.z, p); bld.hearths.push({ pos: new T.Vector3(p.x, bld.y + h.y, p.z), scale: h.scale, kind: h.kind, opts: { scale: h.scale, loop: true }, fxId: null }); }
+    for (const s of m.smokes) { l2w(bld, s.x, s.z, p); const sm = { pos: new T.Vector3(p.x, bld.y + s.y, p.z), scale: 0.8, kind: 'smoke', opts: { scale: 0.8, loop: true, color: 0x9a948c }, fxId: null }; bld.smokes.push(sm); bld.hearths.push(sm); }
+    for (const h of m.horses) { l2w(bld, h.x, h.z, p); bld.horses.push({ x: p.x, z: p.z, y: bld.y, yaw: bld.yaw + h.yaw, rig: null, ent: null }); }
+    if (m.signs.length) { const text = spec.text || spec.name || name; for (const s of m.signs) makeSign(bld, s, text); }
+    if (bld.doors.length === 0 && m.interior === null) bld.enterable = false;
+    if (bld.enterable) enterables.push(bld);
+    all.push(bld); byId[bld.id] = bld;
+    root.add(group);
+    registerColliders(bld);
+    refreshVis(bld);
+    return bld;
+  }
+
+  function remove(bld) {
+    if (!bld) return false;
+    if (typeof bld === 'string') bld = byId[bld];
+    if (!bld) return false;
+    const P = G.Physics;
+    if (P && typeof P.remove === 'function') { for (const id of bld.colliders) P.remove(id); for (const d of bld.doors) if (d.colId !== null) P.remove(d.colId); }
+    for (const d of bld.doors) { if (typeof G.removeEntity === 'function') G.removeEntity(d); else { const i = G.state.entities.indexOf(d); if (i >= 0) G.state.entities.splice(i, 1); delete G.state.byId[d.id]; if (G.Spatial && G.Spatial.remove) G.Spatial.remove(d); } }
+    for (const h of bld.hearths) stopFX(h);
+    for (const h of bld.horses) if (h.rig) { if (h.rig.group && h.rig.group.parent) h.rig.group.parent.remove(h.rig.group); if (h.rig.dispose) h.rig.dispose(); }
+    if (bld.group.parent) bld.group.parent.remove(bld.group);
+    if (playerInside === bld) playerInside = null;
+    let i = all.indexOf(bld); if (i >= 0) all.splice(i, 1);
+    i = enterables.indexOf(bld); if (i >= 0) enterables.splice(i, 1);
+    delete byId[bld.id];
+    return true;
+  }
+
+  /* ---- static batching (props merged per town into one mesh per material) ---- */
+  function batchStatic(list, label) {
+    const buckets = {}; const batched = [];
+    for (const bld of list) {
+      if (!bld || !bld.static || bld.doors.length || bld.batched || !bld.ext) continue;
+      bld.group.updateMatrixWorld(true);
+      for (const mesh of bld.ext.children) {
+        if (!mesh.isMesh || !mesh.geometry) continue;
+        const g = mesh.geometry.clone(); g.applyMatrix4(mesh.matrixWorld);
+        const key = mesh.material.name.replace(/^bld_/, '');
+        (buckets[key] || (buckets[key] = [])).push(g);
+      }
+      batched.push(bld);
+    }
+    if (!batched.length) return null;
+    const grp = new T.Group(); grp.name = 'batch:' + (label || '');
+    for (const key in buckets) {
+      const geo = mergeGeos(buckets[key]); if (!geo) continue;
+      const mesh = new T.Mesh(geo, getMat(key)); mesh.castShadow = key !== 'glass' && key !== 'water'; mesh.receiveShadow = true;
+      grp.add(mesh);
+    }
+    root.add(grp);
+    for (const bld of batched) { bld.ext.visible = false; bld.batched = grp; }
+    batches.push(grp);
+    return grp;
+  }
+
+  /* ---- world builders ---- */
+  function resolvePos(center, radius, o) {
+    const ox = +o.x || 0, oz = +o.z || 0;
+    if (o.rel) return { x: center.x + ox, z: center.z + oz };
+    const lim = (radius || 60) * 1.6 + 30;
+    const dAbs = Math.hypot(ox - center.x, oz - center.z), dRel = Math.hypot(ox, oz);
+    if (dAbs <= lim) return { x: ox, z: oz };
+    if (dRel <= lim) return { x: center.x + ox, z: center.z + oz };
+    return { x: ox, z: oz };
+  }
+  function roadGateAngles(town) {
+    const out = [];
+    const W = G.Data && G.Data.world;
+    if (!W || !W.roads) return out;
+    const cx = town.pos.x, cz = town.pos.z, R = town.wallRadius || (town.radius * 1.05 + 6);
+    for (const rd of W.roads) {
+      if (rd.from !== town.id && rd.to !== town.id) continue;
+      const pts = rd.from === town.id ? rd.points : rd.points.slice().reverse();
+      let p = null;
+      for (const q of pts) { if (Math.hypot(q.x - cx, q.z - cz) > R + 4) { p = q; break; } }
+      if (!p) p = pts[pts.length - 1];
+      if (!p) continue;
+      out.push(Math.atan2(p.x - cx, p.z - cz));
+    }
+    return out;
+  }
+  function buildTownWalls(town, placed) {
+    const cx = town.pos.x, cz = town.pos.z, R = town.wallRadius || (town.radius * 1.05 + 6);
+    let gates = Array.isArray(town.gates) ? town.gates.map(g => (typeof g === 'number' ? g : Math.atan2((g.x || 0) - cx, (g.z || 0) - cz))) : roadGateAngles(town);
+    if (!gates.length) gates = [-HPI, 0];   // west, south
+    const N = Math.max(8, Math.round(TAU * R / 11)), da = TAU / N;
+    const variant = town.wallStyle === 'palisade' || (town.style === 'camp') ? 1 : 0;
+    const gateHalf = 7.6 / R;
+    for (let i = 0; i < N; i++) {
+      const a0 = i * da, a1 = a0 + da, am = a0 + da / 2;
+      let skip = false;
+      for (const g of gates) { const d = Math.atan2(Math.sin(am - g), Math.cos(am - g)); if (Math.abs(d) < gateHalf + da * 0.5) { skip = true; break; } }
+      if (skip) continue;
+      const p0x = cx + Math.sin(a0) * R, p0z = cz + Math.cos(a0) * R, p1x = cx + Math.sin(a1) * R, p1z = cz + Math.cos(a1) * R;
+      const len = Math.hypot(p1x - p0x, p1z - p0z) + 0.6;
+      const bld = place({ recipe: 'wall_segment', x: (p0x + p1x) / 2, z: (p0z + p1z) / 2, yaw: am + PI, len, variant, town: town.id });
+      if (bld) placed.push(bld);
+    }
+    for (const g of gates) { const bld = place({ recipe: 'gate', x: cx + Math.sin(g) * R, z: cz + Math.cos(g) * R, yaw: g + PI, town: town.id, name: town.name + ' Gate' }); if (bld) placed.push(bld); }
+  }
+  function buildTown(town) {
+    if (!town || !town.pos) return [];
+    const placed = [];
+    const center = town.pos, radius = town.radius || 60;
+    for (const bs of (town.buildings || [])) {
+      const p = resolvePos(center, radius, bs);
+      const bld = place(Object.assign({}, bs, { recipe: bs.recipe || bs.kind, x: p.x, z: p.z, town: town.id, style: bs.style || town.style }));
+      if (bld) placed.push(bld);
+    }
+    for (const ps of (town.props || [])) {
+      const p = resolvePos(center, radius, ps);
+      const bld = place(Object.assign({}, ps, { recipe: ps.recipe || ps.kind, x: p.x, z: p.z, town: town.id, style: ps.style || town.style }));
+      if (bld) placed.push(bld);
+    }
+    if (town.walls || town.id === 'bree') buildTownWalls(town, placed);
+    town.buildingsPlaced = placed;
+    batchStatic(placed, town.id);
+    return placed;
+  }
+  function waterDir(x, z, radii) {
+    let best = -1, bestScore = 0;
+    for (let k = 0; k < 8; k++) {
+      const a = k * PI / 4; let score = 0;
+      for (const r of radii) if (isWaterAt(x + Math.sin(a) * r, z + Math.cos(a) * r)) score += 1 + 8 / r;
+      if (score > bestScore) { bestScore = score; best = a; }
+    }
+    return best;
+  }
+  function buildDocks(docks) {
+    const placed = [];
+    if (!Array.isArray(docks)) return placed;
+    for (const d of docks) {
+      if (!d || !d.pos) continue;
+      const x = +d.pos.x || 0, z = +d.pos.z || 0;
+      let a = waterDir(x, z, [5, 9, 14, 20, 28, 36]);
+      if (a < 0) a = (typeof d.yaw === 'number') ? d.yaw + PI : 0;
+      let len = 14;
+      for (let r = 4; r <= 34; r += 2) { const hx = x + Math.sin(a) * r, hz = z + Math.cos(a) * r; if (terrainH(hx, hz) <= seaLevel() - 1.4) { len = r + 8; break; } len = r + 8; }
+      len = clamp(len, 10, 38);
+      const h0 = terrainH(x, z), deckY = Math.max(seaLevel() + 0.75, h0 + 0.1);
+      const bld = place({ recipe: 'dock', x, z, yaw: a + PI, len, deckLocal: deckY - h0, name: d.name || 'Dock', town: d.town || null, dockId: d.id });
+      if (!bld) continue;
+      const end = bld.interiorSpots.find(s => s.role === 'boat');
+      bld.dockEnd = end ? { x: end.x, y: deckY, z: end.z } : { x: x + Math.sin(a) * (len + 2), y: deckY, z: z + Math.cos(a) * (len + 2) };
+      bld.dockId = d.id; d.building = bld; d.deckY = deckY;
+      placed.push(bld);
+    }
+    return placed;
+  }
+  function buildPOI(poi) {
+    if (!poi || !poi.pos) return [];
+    const placed = [], px = +poi.pos.x || 0, pz = +poi.pos.z || 0, r = rngOf(hashStr('poi:' + (poi.id || (px + ',' + pz))));
+    const put = (spec) => { const b = place(Object.assign({ poi: poi.id }, spec)); if (b) placed.push(b); return b; };
+    if (Array.isArray(poi.buildings) && poi.buildings.length) {
+      for (const bs of poi.buildings) { const p = resolvePos(poi.pos, 60, bs); put(Object.assign({}, bs, { recipe: bs.recipe || bs.kind, x: p.x, z: p.z })); }
+    } else {
+      switch (poi.kind) {
+        case 'ruin': {
+          put({ recipe: 'ruin_tower', x: px, z: pz, yaw: r() * TAU });
+          const n = 3 + Math.floor(r() * 3);
+          for (let i = 0; i < n; i++) { const a = (i / n) * TAU + r() * 0.6, rr = 9 + r() * 7; put({ recipe: 'ruin_wall', x: px + Math.sin(a) * rr, z: pz + Math.cos(a) * rr, yaw: a + HPI + (r() - 0.5) * 0.6, len: 5 + r() * 4 }); }
+          if (r() < 0.6) put({ recipe: 'statue', x: px + 6, z: pz - 5, yaw: r() * TAU, variant: 2 });
+          break;
+        }
+        case 'tower': put({ recipe: 'tower', x: px, z: pz, yaw: r() * TAU }); put({ recipe: 'ruin_wall', x: px + 8, z: pz + 3, yaw: 0.4, len: 7 }); put({ recipe: 'ruin_wall', x: px - 7, z: pz - 4, yaw: 2.2, len: 6 }); break;
+        case 'bridge': {
+          let a = waterDir(px, pz, [6, 10, 16]); if (a < 0) a = typeof poi.yaw === 'number' ? poi.yaw : 0;
+          let len = 24;
+          for (let d = 4; d <= 40; d += 2) { if (!isWaterAt(px + Math.sin(a) * d, pz + Math.cos(a) * d)) { len = d * 2 + 8; break; } len = d * 2 + 8; }
+          put({ recipe: 'bridge', x: px, z: pz, yaw: a + PI, len: clamp(len, 16, 44) });
+          break;
+        }
+        case 'grave': put({ recipe: 'barrow', x: px, z: pz, yaw: r() * TAU, variant: 0 }); break;
+        case 'cave': case 'dungeon': put({ recipe: 'barrow', x: px, z: pz, yaw: typeof poi.yaw === 'number' ? poi.yaw : r() * TAU, variant: 1, name: poi.name }); break;
+        case 'camp': {
+          put({ recipe: 'campfire', x: px, z: pz, yaw: 0 });
+          const n = 2 + Math.floor(r() * 2);
+          for (let i = 0; i < n; i++) { const a = (i / n) * TAU + 0.5; put({ recipe: 'tent', x: px + Math.sin(a) * 6, z: pz + Math.cos(a) * 6, yaw: a }); }
+          put({ recipe: 'crate', x: px + 4, z: pz - 3, yaw: r() }); put({ recipe: 'hay', x: px - 4.5, z: pz + 3, yaw: r() });
+          break;
+        }
+        case 'shrine': put({ recipe: 'shrine', x: px, z: pz, yaw: typeof poi.yaw === 'number' ? poi.yaw : 0 }); put({ recipe: 'lamp', x: px - 3.5, z: pz - 3.5, style: 'elf' }); put({ recipe: 'lamp', x: px + 3.5, z: pz - 3.5, style: 'elf' }); break;
+        case 'landmark': put({ recipe: 'statue', x: px, z: pz, yaw: r() * TAU }); break;
+        default: break;
+      }
+      if (poi.kind !== 'camp' && poi.name) put({ recipe: 'sign', x: px + 5, z: pz + 5, yaw: -PI / 4, text: poi.name });
+    }
+    poi.buildingsPlaced = placed;
+    return placed;
+  }
+  function build(sc) {
+    if (sc) init(sc);
+    const W = G.Data && G.Data.world;
+    if (!W) return 0;
+    let n = 0;
+    for (const t of (W.towns || [])) n += buildTown(t).length;
+    for (const p of (W.pois || [])) n += buildPOI(p).length;
+    n += buildDocks(W.docks || []).length;
+    log('[Buildings] built', n, 'structures,', all.length, 'total');
+    return n;
+  }
+  function init(sc) {
+    if (sc && sc.isScene) { scene = sc; if (root.parent !== sc) sc.add(root); }
+    ensurePool();
+  }
+
+  /* ---- lights ---- */
+  function ensurePool() {
+    if (pool.length) return;
+    for (let i = 0; i < POOL_SIZE; i++) {
+      const L = new T.PointLight(0xffa040, 0, 12, 2); L.castShadow = false; L.name = 'bld_light' + i;
+      root.add(L); pool.push({ light: L, virt: null });
+    }
+  }
+  function nightFactor() {
+    let ll = 1;
+    if (G.Sky && typeof G.Sky.lightLevel === 'number') ll = G.Sky.lightLevel;
+    else if (G.time && typeof G.time.dayTime === 'number') { const h = G.time.dayTime; ll = (h > 6.5 && h < 19.5) ? 1 : (h > 5 && h <= 6.5) ? (h - 5) / 1.5 : (h >= 19.5 && h < 21) ? (21 - h) / 1.5 : 0; }
+    return clamp((0.5 - ll) / 0.4, 0, 1);
+  }
+  let _night = 0;
+  function updateMaterials() {
+    _night = nightFactor();
+    if (MAT.glass) MAT.glass.emissiveIntensity = 0.06 + _night * 1.5;
+    if (MAT.lampglow) MAT.lampglow.emissiveIntensity = 0.12 + _night * 1.9;
+    if (MAT.elfglow) MAT.elfglow.emissiveIntensity = 0.45 + _night * 1.3;
+  }
+  const cand = []; let candN = 0; let _stamp = 0;
+  const near = []; let nearN = 0;
+  function virtIntensity(v) { return v.kind === 'lamp' ? v.base * _night : v.kind === 'elf' ? v.base * (0.35 + 0.65 * _night) : v.base; }
+  function assignLights(px, py, pz) {
+    _stamp++; candN = 0;
+    for (let i = 0; i < nearN; i++) {
+      const bld = near[i];
+      for (const v of bld.lights) {
+        if (!v.on) continue;
+        const dx = v.x - px, dy = v.y - py, dz = v.z - pz, d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 > LIGHT_DIST * LIGHT_DIST) continue;
+        if (virtIntensity(v) <= 0.01) continue;
+        // bounded insertion sort by distance
+        let k = candN < POOL_SIZE ? candN++ : POOL_SIZE - 1;
+        if (k === POOL_SIZE - 1 && cand[k] && cand[k].d2 <= d2) continue;
+        v.d2 = d2;
+        while (k > 0 && cand[k - 1].d2 > d2) { cand[k] = cand[k - 1]; k--; }
+        cand[k] = v;
+      }
+    }
+    for (let i = 0; i < candN; i++) cand[i].stamp = _stamp;
+    for (const slot of pool) if (slot.virt && slot.virt.stamp !== _stamp) { slot.virt.light = null; slot.virt = null; slot.light.intensity = 0; }
+    for (let i = 0; i < candN; i++) {
+      const v = cand[i]; if (v.light) continue;
+      for (const slot of pool) if (!slot.virt) { slot.virt = v; v.light = slot.light; slot.light.position.set(v.x, v.y, v.z); slot.light.color.setHex(v.color); slot.light.distance = v.dist; break; }
+    }
+  }
+  function flickerLights() {
+    for (const slot of pool) {
+      const v = slot.virt;
+      if (!v || !lightsEnabled) { slot.light.intensity = 0; continue; }
+      let it = virtIntensity(v);
+      if (v.flicker) it *= 0.84 + 0.16 * (0.5 + 0.5 * Math.sin(_time * 11.3 + v.seed) * Math.sin(_time * 17.1 + v.seed * 1.7)) + 0.05 * Math.sin(_time * 29 + v.seed);
+      slot.light.intensity = it;
+    }
+  }
+
+  /* ---- FX (hearth fires, chimney smoke) ---- */
+  function updateFX(dt, px, pz) {
+    const FX = G.FX; if (!FX || typeof FX.spawn !== 'function') return;
+    let spawnBudget = 4;
+    for (let i = 0; i < nearN; i++) {
+      const bld = near[i];
+      for (const h of bld.hearths) {
+        const dx = h.pos.x - px, dz = h.pos.z - pz, d2 = dx * dx + dz * dz;
+        if (h.fxId === null && d2 < FX_DIST * FX_DIST) {
+          if (spawnBudget-- <= 0) continue;
+          try { h.fxId = FX.spawn(h.kind, h.pos, h.opts); if (h.fxId === undefined || h.fxId === null) h.fxId = true; } catch (e) { h.fxId = true; }
+        } else if (h.fxId !== null && d2 > FX_DROP * FX_DROP) { stopFX(h); }
+      }
+    }
+  }
+  function stopFX(h) {
+    const FX = G.FX;
+    if (h.fxId !== null && h.fxId !== true && FX) {
+      try { if (typeof FX.stop === 'function') FX.stop(h.fxId); else if (typeof FX.remove === 'function') FX.remove(h.fxId); else if (h.fxId && typeof h.fxId.stop === 'function') h.fxId.stop(); } catch (e) { /* ignore */ }
+    }
+    h.fxId = null;
+  }
+  function updateHorses(dt) {
+    if (horsesBroken || !G.Chars || typeof G.Chars.buildHorse !== 'function') return;
+    for (let i = 0; i < nearN; i++) {
+      const bld = near[i];
+      for (const h of bld.horses) {
+        if (!h.rig) {
+          try {
+            const rig = G.Chars.buildHorse(['chestnut', 'grey', 'bay', 'black'][Math.floor(hash2(h.x, h.z) * 4)]);
+            if (!rig || !rig.group) { horsesBroken = true; return; }
+            rig.group.position.set(h.x, h.y, h.z); rig.group.rotation.y = h.yaw;
+            root.add(rig.group);
+            h.rig = rig; h.ent = { pos: rig.group.position, vel: new T.Vector3(), yaw: h.yaw, onGround: true, anim: 'idle', animTime: 0, alive: true, kind: 'mount', mounted: false };
+            if (rig.setAnim) rig.setAnim('idle');
+          } catch (e) { horsesBroken = true; if (G.reportError) G.reportError(e, 'Buildings.horse'); return; }
+        }
+        if (h.rig && bld.d2 < 80 * 80 && typeof h.rig.play === 'function') { try { h.rig.play(dt, h.ent); } catch (e) { horsesBroken = true; return; } }
+      }
+    }
+  }
+
+  /* ---- doors update ---- */
+  function nearDoorOccupied(ent, px, pz) {
+    if ((px - ent.pos.x) * (px - ent.pos.x) + (pz - ent.pos.z) * (pz - ent.pos.z) < 36) return true;
+    const S = G.Spatial;
+    if (S && typeof S.query === 'function') {
+      const res = S.query(ent.pos.x, ent.pos.z, 6, entFilter);
+      if (res && res.length) return true;
+    }
+    return false;
+  }
+  function entFilter(e) { return e && (e.kind === 'npc' || e.kind === 'aiplayer' || e.kind === 'player' || e.kind === 'monster') && e.alive !== false; }
+  function updateDoors(dt, px, pz) {
+    const tweening = typeof G.tween === 'function' && typeof G.tweenUpdate === 'function';
+    _doorTimer -= dt;
+    const check = _doorTimer <= 0;
+    if (check) _doorTimer = 0.5;
+    for (let i = 0; i < all.length; i++) {
+      const bld = all[i];
+      if (!bld.doors.length) continue;
+      for (const d of bld.doors) {
+        if (!tweening && d.animTarget !== undefined && d.t !== d.animTarget) { d.t = d.animTarget > d.t ? Math.min(d.animTarget, d.t + dt * 2) : Math.max(d.animTarget, d.t - dt * 2); }
+        if (d.t !== d.tApplied) applyDoorPose(d);
+        if (check && d.open && _time - d.openedAt > 20 && !nearDoorOccupied(d, px, pz)) setDoor(d, false);
+      }
+    }
+  }
+
+  /* ---- inside detection ---- */
+  function isInside(pos) {
+    if (!pos) return null;
+    for (let i = 0; i < enterables.length; i++) {
+      const bld = enterables[i];
+      const dx = pos.x - bld.x, dz = pos.z - bld.z;
+      if (dx * dx + dz * dz > bld.radius2) continue;
+      const ib = bld.interiorBounds;
+      if (ib) {
+        const lx = dx * bld.cos - dz * bld.sin, lz = dx * bld.sin + dz * bld.cos, ly = pos.y - bld.y;
+        if (lx >= ib.minx - 0.3 && lx <= ib.maxx + 0.3 && lz >= ib.minz - 0.3 && lz <= ib.maxz + 0.3 && ly >= ib.miny && ly <= ib.maxy) return bld;
+      }
+      for (const d of bld.doors) { if (!d.open) continue; const ddx = pos.x - d.pos.x, ddz = pos.z - d.pos.z; if (ddx * ddx + ddz * ddz < 1.44) return bld; }
+    }
+    return null;
+  }
+  function nearest(pos, filter) {
+    if (!pos) return null;
+    let best = null, bd = Infinity;
+    for (const bld of all) { if (filter && !filter(bld)) continue; const dx = pos.x - bld.x, dz = pos.z - bld.z, d2 = dx * dx + dz * dz; if (d2 < bd) { bd = d2; best = bld; } }
+    return best;
+  }
+  function spotFor(npcId) {
+    if (!npcId) return null;
+    for (const bld of all) {
+      const list = bld.npcInside; if (!list || !list.length) continue;
+      const idx = list.indexOf(npcId); if (idx < 0) continue;
+      const spots = bld.interiorSpots; if (!spots.length) return { x: bld.x, y: bld.y, z: bld.z, yaw: bld.yaw, role: 'idle', building: bld };
+      const pref = ['keeper', 'vendor', 'boatmaster', 'lord', 'forge', 'fire', 'table', 'idle'];
+      const sorted = spots.slice().sort((a, b) => pref.indexOf(a.role) - pref.indexOf(b.role));
+      return sorted[idx % sorted.length];
+    }
+    return null;
+  }
+
+  /* ---- main update ---- */
+  function update(playerPos, dt) {
+    dt = (typeof dt === 'number' && dt === dt) ? dt : 0;
+    _time += dt;
+    if (!pool.length) ensurePool();
+    updateMaterials();
+    if (!playerPos || typeof playerPos.x !== 'number') playerPos = (G.state && G.state.player && G.state.player.pos) || null;
+    if (!playerPos) { updateDoors(dt, 1e9, 1e9); flickerLights(); return; }
+    const px = playerPos.x, py = playerPos.y, pz = playerPos.z;
+    nearN = 0;
+    for (let i = 0; i < all.length; i++) {
+      const bld = all[i];
+      const dx = px - bld.x, dz = pz - bld.z, d2 = dx * dx + dz * dz;
+      bld.d2 = d2;
+      const band = d2 < NEAR_DIST * NEAR_DIST ? 0 : d2 < INT_DIST * INT_DIST ? 1 : d2 < FAR_DIST * FAR_DIST ? 2 : 3;
+      if (band !== bld.band) { bld.band = band; refreshVis(bld, py); }
+      if (d2 < 150 * 150) { if (nearN < near.length) near[nearN] = bld; else near.push(bld); nearN++; }
+    }
+    const ins = isInside(playerPos);
+    if (ins !== playerInside) {
+      if (playerInside) { playerInside.inside = false; refreshVis(playerInside, py); if (typeof G.emit === 'function') G.emit('leaveBuilding', playerInside); }
+      playerInside = ins;
+      if (ins) { ins.inside = true; refreshVis(ins, py); if (typeof G.emit === 'function') G.emit('enterBuilding', ins); }
+    }
+    if (ins && ins.ceilings.length) refreshVis(ins, py);
+    updateDoors(dt, px, pz);
+    _lightTimer -= dt;
+    if (_lightTimer <= 0) { _lightTimer = 0.2; assignLights(px, py + 1, pz); }
+    flickerLights();
+    updateFX(dt, px, pz);
+    updateHorses(dt);
+  }
+  function setLightsEnabled(on) { lightsEnabled = !!on; if (!lightsEnabled) for (const slot of pool) slot.light.intensity = 0; }
+  function stats() {
+    let ext = 0, inter = 0, doors = 0, lights = 0;
+    for (const bld of all) { if (!bld.batched && bld.ext) ext += bld.ext.children.length + (bld.roof ? bld.roof.children.length : 0); if (bld.int) inter += bld.int.children.length; doors += bld.doors.length; lights += bld.lights.length; }
+    return { buildings: all.length, enterable: enterables.length, doors, virtualLights: lights, pooledLights: pool.length, batches: batches.length, exteriorMeshes: ext, interiorMeshes: inter, cachedRecipes: CACHE.size };
+  }
+
+  if (typeof G.on === 'function') G.on('sceneReady', function (sc) { if (sc && sc.isScene) init(sc); });
+
+  G.Buildings = {
+    init, build, place, remove, buildTown, buildPOI, buildDocks, buildTownWalls, batchStatic,
+    update, isInside, nearest, spotFor, setLightsEnabled, registerColliders: registerAllColliders,
+    openDoor: function (d) { setDoor(d, true); }, closeDoor: function (d) { setDoor(d, false); }, toggleDoor,
+    all, byId, root, batches, recipes: RECIPES, RECIPES: Object.keys(RECIPES), materials: MAT, getMaterial: getMat, stats,
+    get playerInside() { return playerInside; },
+    get lightsEnabled() { return lightsEnabled; },
+    get scene() { return scene; },
+    get night() { return _night; },
+  };
+})();

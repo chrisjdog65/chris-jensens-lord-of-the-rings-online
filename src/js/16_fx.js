@@ -48,6 +48,7 @@
     return c;
   }
   const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
+  const _v5 = new THREE.Vector3(), _v6 = new THREE.Vector3();          // arc/thrust scratch (never alias the caller's dir)
   const _m4 = new THREE.Matrix4(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
   const _scl = new THREE.Vector3();
   const _v2d = new THREE.Vector2();
@@ -350,8 +351,8 @@
       float y = position.y + 0.5;
       float env = sin(y * 3.14159);
       float sd = iParams.z; float tt = floor(uTime * 28.0);
-      float j1 = sin(y * 23.0 + sd + tt * 1.7) + 0.5 * sin(y * 57.0 + sd * 2.0 - tt * 2.3) + 0.25 * sin(y * 131.0 + tt * 3.1);
-      float j2 = cos(y * 19.0 - sd + tt * 1.3) + 0.5 * cos(y * 49.0 + sd * 3.0 + tt * 2.9) + 0.25 * cos(y * 127.0 - tt * 2.2);
+      float j1 = sin(y * 41.0 + sd + tt * 1.7) + 0.6 * sin(y * 97.0 + sd * 2.0 - tt * 2.3) + 0.35 * sin(y * 223.0 + tt * 3.1);
+      float j2 = cos(y * 37.0 - sd + tt * 1.3) + 0.6 * cos(y * 89.0 + sd * 3.0 + tt * 2.9) + 0.35 * cos(y * 211.0 - tt * 2.2);
       wp.xyz += (ax * j1 + az * j2) * iParams.w * env;` : ''}
       vec4 mvPosition = viewMatrix * wp;
       vec3 n = normalize(mat3(modelMatrix) * mat3(im) * normal);
@@ -377,11 +378,11 @@
       float u = vUv.x, v = vUv.y, mode = vP.w, a = 0.0;
       vec3 col = vColor;
       if (mode < 0.5) {                                   // sweeping blade arc: x = arc fraction, y = head, z = alpha
-        float trail = vP.x * 0.8; float head = vP.y; float tail = head - trail;
+        float trail = vP.x * 0.8; float head = vP.y; float tail = max(head - trail, 0.0);
         if (u > head || u < tail) discard;
-        float k = clamp((u - tail) / max(trail, 1e-4), 0.0, 1.0);
+        float k = clamp((u - tail) / max(head - tail, 1e-4), 0.0, 1.0);
         float along = pow(k, 1.25);
-        float radial = smoothstep(0.0, 0.22, v) * (1.0 - smoothstep(0.9, 1.0, v)) * (0.3 + 0.7 * v);
+        float radial = smoothstep(0.0, 0.22, v) * (1.0 - smoothstep(0.9, 1.0, v)) * (0.12 + 0.88 * v * v);
         float rim = smoothstep(0.76, 0.88, v) * (1.0 - smoothstep(0.9, 0.98, v));
         a = (along * radial + rim * along * 0.9) * vP.z;
         col = mix(col, vec3(1.0), along * (rim * 0.9 + radial * 0.3));
@@ -413,7 +414,8 @@
       float core = pow(vFres, 1.8);
       float scroll = 0.8 + 0.2 * sin((vUv.y * 7.0 - uTime * 5.0) * 6.2832 + vP.z);
       float flick = 0.82 + 0.18 * sin(uTime * 73.0 + vP.z * 7.0);
-      float a = core * fade * scroll * flick;
+      float endFade = smoothstep(0.0, 0.05, vUv.y) * (1.0 - smoothstep(0.95, 1.0, vUv.y));
+      float a = core * fade * scroll * flick * endFade;
       if (a <= 0.003) discard;
       vec3 col = mix(vColor, vec3(1.0), pow(vFres, 6.0) * 0.6) * 1.6;
       ${FOG_FADE}
@@ -660,16 +662,17 @@
     _m4.makeBasis(_v3, _v4, normal);
     out.setFromRotationMatrix(_m4);
   }
-  function arcFx(h, dir, radius, arcFrac, color, life, variant, alpha) {
+  function arcFx(h, dirIn, radius, arcFrac, color, life, variant, alpha) {
     const r = arcs.alloc(h); if (!r) return null;
-    _v2.crossVectors(dir, UP); if (_v2.lengthSq() < 1e-6) _v2.set(1, 0, 0); _v2.normalize();   // right
+    const dir = _v5.copy(dirIn), right = _v6;
+    right.crossVectors(dir, UP); if (right.lengthSq() < 1e-6) right.set(1, 0, 0); right.normalize();
     const n = _v1;
     switch (variant) {
-      case 1: n.copy(UP).multiplyScalar(-1).addScaledVector(_v2, -0.3); break;             // left → right
-      case 2: n.copy(UP).addScaledVector(_v2, 1.1).addScaledVector(dir, 0.2); break;        // diagonal
-      case 3: n.copy(UP).multiplyScalar(-1).addScaledVector(_v2, 1.1); break;               // diagonal, other way
+      case 1: n.copy(UP).multiplyScalar(-1).addScaledVector(right, -0.3); break;            // left → right
+      case 2: n.copy(UP).addScaledVector(right, 1.1).addScaledVector(dir, 0.2); break;       // diagonal
+      case 3: n.copy(UP).multiplyScalar(-1).addScaledVector(right, 1.1); break;              // diagonal, other way
       case 4: n.crossVectors(UP, dir); break;                                               // overhead chop
-      default: n.copy(UP).addScaledVector(_v2, 0.3); break;                                 // right → left
+      default: n.copy(UP).addScaledVector(right, 0.3); break;                               // right → left
     }
     n.normalize();
     // make dir perpendicular to n for the basis
@@ -681,11 +684,12 @@
     setCol(r, color); fnArc(r, 0);
     return r;
   }
-  function thrustFx(h, dir, length, width, color, life, alpha) {
+  function thrustFx(h, dirIn, length, width, color, life, alpha) {
     const r = arcs.alloc(h); if (!r) return null;
-    _v2.crossVectors(UP, dir); if (_v2.lengthSq() < 1e-6) _v2.set(1, 0, 0); _v2.normalize();
+    const dir = _v5.copy(dirIn), side = _v6;
+    side.crossVectors(UP, dir); if (side.lengthSq() < 1e-6) side.set(1, 0, 0); side.normalize();
     _v3.copy(dir).normalize(); _v4.copy(UP);
-    _m4.makeBasis(_v3, _v4, _v2); r.quat.setFromRotationMatrix(_m4);
+    _m4.makeBasis(_v3, _v4, side); r.quat.setFromRotationMatrix(_m4);
     r.off.set(dir.x * 0.2, 1.1, dir.z * 0.2); r.pos.copy(h.pos).add(r.off);
     r.birth = now; r.life = life; r.a = 0.07; r.b2 = length; r.c = alpha; r.d = width; r.fn = fnThrust; r.mode = 2; r.bill = false;
     setCol(r, color); fnThrust(r, 0);
@@ -904,12 +908,13 @@
     else { fx = x + rr(-2.5, 2.5); fy = y + 9 * sc; fz = z + rr(-2.5, 2.5); }                 // strike from the sky
     _v3.set(fx, fy, fz); _v4.set(tx, ty, tz);
     const seed = _rnd() * 6.28;
-    beamFx(_v3, _v4, c, 0.32, 0.55 * sc, 0.36 * sc, seed, 0.35);
-    beamFx(_v3, _v4, lighten(c, 0.6), 0.28, 0.16 * sc, 0.36 * sc, seed, 1.0);
+    beamFx(_v3, _v4, lighten(c, 0.5), 0.24, 0.12 * sc, 0.36 * sc, seed, 0.6);
+    { const len = _v3.distanceTo(_v4); let n = Math.ceil(len / 0.5); if (n > 32) n = 32; if (n < 3) n = 3;
+      for (let i = 0; i < n; i++) { const t = (i + 0.5) / n; A.emit(fx + (tx - fx) * t + rr(-0.15, 0.15), fy + (ty - fy) * t, fz + (tz - fz) * t + rr(-0.15, 0.15), 0, 0, 0, now, rr(0.22, 0.3), 0.22, 1.7 * sc, 0.8 * sc, c, c, TEX.GLOW, 0, 0, 0, 0, 0, 0, NO_FLOOR, 0); } }
     beamFx(_v3, _v4, 0xffffff, 0.2, 0.06 * sc, 0.36 * sc, seed, 1.0);
     _v1.set((fx + tx) * 0.5 + rr(-1.5, 1.5), (fy + ty) * 0.5, (fz + tz) * 0.5 + rr(-1.5, 1.5));
     _v2.set(_v1.x + rr(-1.2, 1.2), ty + rr(0.2, 1.2), _v1.z + rr(-1.2, 1.2));
-    beamFx(_v1, _v2, lighten(c, 0.4), 0.16, 0.08 * sc, 0.5 * sc, seed + 1.3, 0.8);
+    beamFx(_v1, _v2, lighten(c, 0.4), 0.16, 0.06 * sc, 0.5 * sc, seed + 1.3, 0.7);
     glow(tx, ty, tz, 2.4 * sc, 0.6 * sc, 0xffffff, c, 0.22, 1, 0);
     glow(fx, fy, fz, 1.2 * sc, 0.3 * sc, 0xffffff, c, 0.2, 0.8, 0);
     sparks(22, tx, ty, tz, 6 * sc, 0xffffff, c, 0.25, 0.5, 0.1 * sc, 1.0, groundAt(tx, tz, ty - 1.2), 0, 1, 0, 0.25, 0.1, TEX.STREAK, 0);
@@ -969,7 +974,7 @@
   };
   KINDS.smoke = (h, x, y, z, o) => {
     const c = hexOf(o.color, 0x8d8d92);
-    addEmitter(h, EP.smoke, 5 * (o.scale || 1), o.loop ? 0 : (o.duration || 0), 0, 0, 0, c, lighten(c, 0.35), o.scale || 1, 0.2);
+    addEmitter(h, EP.smoke, 5 * (o.scale || 1), o.loop ? 0 : (o.duration || 3), 0, 0, 0, c, lighten(c, 0.35), o.scale || 1, 0.2);
   };
   function fireBase(h, o, sc, flames, embers, smoke, glowRate) {
     const c = hexOf(o.color, 0xffb040);
@@ -996,7 +1001,7 @@
   KINDS.blood = KINDS.impact;
   KINDS.quest_beacon = (h, x, y, z, o) => {
     const c = hexOf(o.color, 0xffd27a), sc = o.scale || 1;
-    pillarFx(h, 0, 1.2 * sc, 40 * sc, c, -1, 0.5);
+    pillarFx(h, 0, 1.2 * sc, 40 * sc, c, -1, 0.4);
     ringLoopFx(h, 0.06, 0.2, 1.8 * sc, 2.2, c, 0.55, 0.22);
     addEmitter(h, EP.beaconRise, 7, 0, 0, 0, 0, 0xffffff, c, sc, 0.9);
     h.persistent = true;
@@ -1064,7 +1069,7 @@
     if (!o.from || !validPos(o.from)) return;
     _v3.set(o.from.x, o.from.y, o.from.z); _v4.set(x, y, z);
     const seed = _rnd() * 6.28, w = (o.width || 0.3) * sc, j = (typeof o.jitter === 'number' ? o.jitter : 0.05) * sc;
-    beamFx(_v3, _v4, c, o.duration || 0.4, w, j, seed, 0.4);
+    beamFx(_v3, _v4, c, o.duration || 0.4, w, j, seed, 0.18);
     beamFx(_v3, _v4, lighten(c, 0.7), o.duration || 0.4, w * 0.3, j, seed, 1.0);
     glow(x, y, z, 1.2 * sc, 0.4 * sc, 0xffffff, c, o.duration || 0.4, 0.8, 0);
   };
@@ -1262,7 +1267,7 @@
     A = new PSys(MAX_ADD, true, atlas);
     N = new PSys(MAX_NRM, false, atlas);
     arcs = new InstSys(ringGeometry(0.3, 1, 72), instMaterial(INST_VERT(false), ARC_FRAG), MAX_ARCS, 'FX_arcs', 1002);
-    beams = new InstSys(new THREE.CylinderGeometry(1, 1, 1, 10, 24, true), instMaterial(INST_VERT(true), BEAM_FRAG), MAX_BEAMS, 'FX_beams', 1003);
+    beams = new InstSys(new THREE.CylinderGeometry(1, 1, 1, 10, 56, true), instMaterial(INST_VERT(true), BEAM_FRAG), MAX_BEAMS, 'FX_beams', 1003);
     const pg = new THREE.CylinderGeometry(1, 1, 1, 36, 1, true); pg.translate(0, 0.5, 0);
     pillars = new InstSys(pg, instMaterial(INST_VERT(false), PILLAR_FRAG), MAX_PILLARS, 'FX_pillars', 999);
     buildProjectileMeshes();

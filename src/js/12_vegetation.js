@@ -758,12 +758,15 @@
 
   /* ------------------------------------------------------------------------------------------------
    * Cell generation — deterministic content of one 64 m cell
-   * cell.groups[type] = { n, nFar, mats: Float32Array(n*16), inst: Float32Array(n*4) } (far-kept items first)
+   * cell.groups[type] = [ { q, n, nFar, mats: Float32Array(n*16), inst: Float32Array(n*4) } ] — one entry per 32 m
+   * quadrant q (0..3) that has items; far-kept items come first so the far LOD copies a prefix.
    * ---------------------------------------------------------------------------------------------- */
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
   const _rgb = [0, 0, 0];
   function emit(cell, type, x, y, z, yaw, sx, sy, sz, tr, tg, tb, snow, tiltX, tiltZ, keepFar) {
-    let grp = cell.tmp[type]; if (!grp) grp = cell.tmp[type] = { near: [], far: [] };
+    let qs = cell.tmp[type]; if (!qs) qs = cell.tmp[type] = [null, null, null, null];
+    const q = (x >= cell.x0 + CELL / 2 ? 1 : 0) + (z >= cell.z0 + CELL / 2 ? 2 : 0);
+    let grp = qs[q]; if (!grp) grp = qs[q] = { near: [], far: [] };
     _e.set(tiltX || 0, yaw || 0, tiltZ || 0, 'YXZ'); _q.setFromEuler(_e); _p.set(x, y, z); _s.set(sx, sy, sz);
     _m.compose(_p, _q, _s);
     const a = keepFar ? grp.far : grp.near, el = _m.elements;
@@ -772,13 +775,18 @@
   }
   function packCell(cell) {
     for (const type in cell.tmp) {
-      const g = cell.tmp[type]; const nFar = g.far.length / 20, n = nFar + g.near.length / 20;
-      const mats = new Float32Array(n * 16), inst = new Float32Array(n * 4);
-      let k = 0;
-      const take = (arr) => { for (let i = 0; i < arr.length; i += 20) { for (let j = 0; j < 16; j++) mats[k * 16 + j] = arr[i + j]; for (let j = 0; j < 4; j++) inst[k * 4 + j] = arr[i + 16 + j]; k++; } };
-      take(g.far); take(g.near);
-      cell.groups[type] = { n, nFar, mats, inst };
-      cell.n += n;
+      const subs = [];
+      for (let q = 0; q < 4; q++) {
+        const g = cell.tmp[type][q]; if (!g) continue;
+        const nFar = g.far.length / 20, n = nFar + g.near.length / 20;
+        const mats = new Float32Array(n * 16), inst = new Float32Array(n * 4);
+        let k = 0;
+        const take = (arr) => { for (let i = 0; i < arr.length; i += 20) { for (let j = 0; j < 16; j++) mats[k * 16 + j] = arr[i + j]; for (let j = 0; j < 4; j++) inst[k * 4 + j] = arr[i + 16 + j]; k++; } };
+        take(g.far); take(g.near);
+        subs.push({ q, n, nFar, mats, inst });
+        cell.n += n;
+      }
+      cell.groups[type] = subs;
     }
     cell.tmp = null;
   }
@@ -965,10 +973,12 @@
   let lastRebuildTime = -1e9, tAcc = 0;
   let wind = 1, windTarget = 1;
   let colliderCount = 0;
-  const rebuild = { active: false, list: null, idx: 0 };
+  const rebuild = { active: false, list: null, idx: 0, px: 0, pz: 0 };
+  const _qd = [0, 0, 0, 0];
   const cellKey = (cx, cz) => cx + ',' + cz;
-  function cellDist(x0, z0, px, pz) {   // xz distance from a point to the cell square
-    const dx = Math.max(x0 - px, 0, px - (x0 + CELL)), dz = Math.max(z0 - pz, 0, pz - (z0 + CELL));
+  function cellDist(x0, z0, px, pz, size) {   // xz distance from a point to a cell square
+    size = size || CELL;
+    const dx = Math.max(x0 - px, 0, px - (x0 + size)), dz = Math.max(z0 - pz, 0, pz - (z0 + size));
     return Math.sqrt(dx * dx + dz * dz);
   }
   function unloadCell(cell) {
@@ -1022,7 +1032,7 @@
     for (const cell of cells.values()) { cell.d = cellDist(cell.x0, cell.z0, px, pz); if (cell.n > 0) list.push(cell); }
     list.sort((a, b) => a.d - b.d);          // nearest first: capacity overflow drops the farthest cells
     for (const type in MESHES) for (const rec of MESHES[type]) rec.cursor = 0;
-    rebuild.list = list; rebuild.idx = 0; rebuild.active = true;
+    rebuild.list = list; rebuild.idx = 0; rebuild.active = true; rebuild.px = px; rebuild.pz = pz;
     dirty = false; forceRebuild = false;
     lastRebuildTime = tAcc;
   }
@@ -1030,21 +1040,26 @@
     const list = rebuild.list; let n = 0;
     while (rebuild.idx < list.length && n < maxCells) {
       const cell = list[rebuild.idx++]; n++;
-      const d = cell.d;
+      const H = CELL / 2;
+      for (let q = 0; q < 4; q++) _qd[q] = cellDist(cell.x0 + (q & 1) * H, cell.z0 + (q >> 1) * H, rebuild.px, rebuild.pz, H);
       for (const type in cell.groups) {
         const spec = TYPES[type], recs = MESHES[type]; if (!spec || !recs) continue;
-        if (d > spec.maxDist) continue;
-        const grp = cell.groups[type];
-        let lod = 0;
-        if (spec.lodDist.length) { if (d >= spec.lodDist[1]) lod = 2; else if (d >= spec.lodDist[0]) lod = 1; }
-        if (lod >= recs.length) lod = recs.length - 1;
-        const rec = recs[lod];
-        let cnt = lod === 2 ? grp.nFar : grp.n;
-        if (rec.cursor + cnt > rec.cap) cnt = rec.cap - rec.cursor;
-        if (cnt <= 0) continue;
-        rec.mats.set(grp.mats.subarray(0, cnt * 16), rec.cursor * 16);
-        rec.inst.set(grp.inst.subarray(0, cnt * 4), rec.cursor * 4);
-        rec.cursor += cnt;
+        if (cell.d > spec.maxDist) continue;
+        const subs = cell.groups[type];
+        for (let si = 0; si < subs.length; si++) {
+          const grp = subs[si], d = _qd[grp.q];
+          if (d > spec.maxDist) continue;
+          let lod = 0;
+          if (spec.lodDist.length) { if (d >= spec.lodDist[1]) lod = 2; else if (d >= spec.lodDist[0]) lod = 1; }
+          if (lod >= recs.length) lod = recs.length - 1;
+          const rec = recs[lod];
+          let cnt = lod === 2 ? grp.nFar : grp.n;
+          if (rec.cursor + cnt > rec.cap) cnt = rec.cap - rec.cursor;
+          if (cnt <= 0) continue;
+          rec.mats.set(grp.mats.subarray(0, cnt * 16), rec.cursor * 16);
+          rec.inst.set(grp.inst.subarray(0, cnt * 4), rec.cursor * 4);
+          rec.cursor += cnt;
+        }
       }
     }
     if (rebuild.idx >= list.length) commitRebuild();
@@ -1258,13 +1273,13 @@
       dirty = true; forceRebuild = true; physDirty = true;
     }
     const localMissing = !cells.has(cellKey(pcx, pcz));     // first frame / teleport: spend more time now
-    if (genIdx < genQueue.length) generateSome(localMissing ? 40 : 1.5);
+    if (genIdx < genQueue.length) generateSome(localMissing ? 40 : 1.0);
     if (physDirty && !localMissing) { updatePhysics(px, pz); physDirty = false; }
     if (rebuild.active) stepRebuild(localMissing ? 1e9 : 160);
-    else if (dirty && (forceRebuild || tAcc - lastRebuildTime > 0.35)) { startRebuild(px, pz); stepRebuild(forceRebuild || localMissing ? 1e9 : 160); }
+    else if (dirty && (forceRebuild || tAcc - lastRebuildTime > 0.35)) { startRebuild(px, pz); stepRebuild(localMissing ? 1e9 : 160); }
 
     uniforms.uPlayer.value.set(px, playerPos.y || 0, pz);
-    for (let i = 0; i < RINGS.length; i++) updateRing(RINGS[i], px, pz, localMissing ? 1e9 : (i === 0 ? 1.2 : 0.5));
+    for (let i = 0; i < RINGS.length; i++) updateRing(RINGS[i], px, pz, localMissing ? 1e9 : (i === 0 ? 1.0 : 0.35));
   }
   function setDensity(mult) {
     mult = +mult; if (!(mult === mult)) return;

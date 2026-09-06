@@ -49,3 +49,8 @@
 - `lootFor(type, level)` → array with `.gold` (copper). `setBonuses(ent)` → `{stats, sets:[...]}`. `use(player, slotIndex)` calls `G.Combat.heal/addEffect`, `G.Player.teleport` when present.
 - Helpers: `template(tid)`, `all()`, `bySlot`, `tierFor`, `typeLabel`, `slotsFor(inst)`, `rarityOf`, `rarityColor`, `isEquippable`, `isUsable`, `isTwoHanded`, `dps`, `classCanWield`, `classOk`, `findInInventory`, `freeSlots`, `usedSlots`, `destroy`, `equipDirect(player, inst|tid, slot?)`, `buyValue`, `sellValue`, `iconHTML(inst, size)`, `tooltipHTML(inst, player)`, `compare`.
 - Generated gear instances carry overrides over hidden `gen_*` base templates; save as plain JSON.
+
+## 16_fx.js
+- Handles: `{kind, pos (Vector3 — move it to move the effect), alive, target, stop(), setPos()}`. Common opts: `dir|yaw, color, scale, target (entity/Object3D followed each frame), yOff, duration, loop, light, variant, from`. `spawn` returns null for bad pos/kind. `setBeacon(pos|null)` accepts `{x,z}`.
+- `projectile({from, to|target, speed, kind:'arrow'|'bolt'|'stone'|'fire', arc, range, hitRadius, maxTime, onHit(point, ent|null)})` — onHit fires exactly once. Extra kinds: `beam` (opts.from), `flash`, `ring`, `teleport` (opts.out).
+- Uses `G.Game.renderer.getDrawingBufferSize` if present for point sizing; `setViewportHeight(px)` otherwise. One-shots > 220 m from camera are skipped. Entities are aimed at `pos + height×0.55`.
