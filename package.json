@@ -1,0 +1,12 @@
+{
+  "name": "chris-jensens-lotro",
+  "version": "1.0.0",
+  "description": "Chris Jensen's Lord of the Rings Online - a single-file third-person Middle-earth RPG",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "test": "node build.js && node tools/smoke.js",
+    "play": "node tools/play.js"
+  },
+  "license": "MIT"
+}

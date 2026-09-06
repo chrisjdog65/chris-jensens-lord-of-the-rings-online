@@ -1,0 +1,4 @@
+node_modules/
+tools/out/
+*.log
+tools/scratch/
