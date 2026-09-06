@@ -248,8 +248,8 @@
     const running = ctx.state === 'running';
     const gap = now - lastTickAt;                 // large gap => tab was throttled/suspended
     for (const g of generators) {
-      if (!running) { g.paused = true; continue; }
-      if (g.paused) { g.paused = false; if (g.resync) g.resync(now); }
+      if (!running) { if (!g.paused) { g.paused = true; g.pausedAt = now; } continue; }
+      if (g.paused) { g.paused = false; if (g.resync) g.resync(now - g.pausedAt); }
       if (g.next < now - 0.5) g.next = now + 0.02;   // starved: skip ahead instead of bursting
       try { g.tick(now, now + LOOKAHEAD, gap); } catch (e) { generators.delete(g); }
     }
@@ -844,15 +844,14 @@
   }
   function cricket(v, t, f, rate, burstRate, pan) {
     const src = v.track(bufN(noiseBuf('white'), 1, true));
-    const bp = v.filter('bandpass', f, 22), am = v.gain(0.5), burst = v.gain(0.5), pn = v.track(panN(pan)) || v.gain(1);
-    src.connect(bp); bp.connect(am); am.connect(burst); burst.connect(pn); pn.connect(v.out);
+    const bp = v.filter('bandpass', f, 22), am = v.gain(0.5), burst = v.gain(0.5), pn = v.track(panN(pan)) || v.gain(1), sc = v.gain(0.2);
+    src.connect(bp); bp.connect(am); am.connect(burst); burst.connect(pn); pn.connect(sc); sc.connect(v.out);
     v.lfo({ t: t, type: 'square', rate: rate, depth: 0.5, param: am.gain });
     v.lfo({ t: t, type: 'square', rate: burstRate, depth: 0.5, param: burst.gain });
     src.start(t, _rand());
   }
   function bedCrickets(v, t) {
     cricket(v, t, 4300, 24, 0.71, -0.5); cricket(v, t, 5200, 31, 0.43, 0.55); cricket(v, t, 3700, 19, 0.29, 0.1);
-    const g = v.gain(0.18); v.out.connect(g); // crickets are quiet; scale whole bed
   }
   function bedWaves(v, t) {
     const src = v.track(bufN(noiseBuf('brown'), 1, true));
@@ -933,3 +932,247 @@
   A.setAmbientRain = function (on) { amb.rain = !!on; wantRain = amb.rain; if (ctx) A.ambient(amb.biome, amb.phase); };
   A.stopAmbient = function () { for (const k in amb.beds) setBed(k, 0); };
   A.ambientState = amb;
+
+  // ================================================================================================
+  // MUSIC ENGINE — notation, instruments, look-ahead scheduler, crossfading players
+  // ================================================================================================
+  const NOTE_BASE = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  function midi(s) { const m = /^([A-G])([#b]?)(-?\d)$/.exec(s); if (!m) return null; return 12 * (+m[3] + 1) + NOTE_BASE[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0); }
+  function hz(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+  // seq("E4/1.5 F#4/.5 G4 _/1 [ A4 B4 ]x2 C4+E4+G4/2@.6") → [{t, n:[midi...], d, v}] (beats)
+  function seq(str, o) {
+    o = o || {}; const out = []; let t = o.start || 0; const vel = o.vel == null ? 0.8 : o.vel; const tr = o.tr || 0;
+    const toks = str.replace(/\|/g, ' ').trim().split(/\s+/); const stack = [];
+    for (let i = 0; i < toks.length; i++) {
+      const tk = toks[i]; if (!tk) continue;
+      if (tk === '[') { stack.push({ idx: out.length, t0: t }); continue; }
+      const gm = /^\]x(\d+)$/.exec(tk);
+      if (gm || tk === ']') {
+        const g = stack.pop(); if (!g) continue; const reps = gm ? +gm[1] : 1; const evs = out.slice(g.idx); const len = t - g.t0;
+        for (let r = 1; r < reps; r++) for (const e of evs) out.push({ t: e.t + len * r, n: e.n, d: e.d, v: e.v });
+        t = g.t0 + len * reps; continue;
+      }
+      const m = /^([^\/@]+)(?:\/([\d.]+))?(?:@([\d.]+))?$/.exec(tk); if (!m) continue;
+      const d = m[2] != null ? parseFloat(m[2]) : 1, v = m[3] != null ? parseFloat(m[3]) : vel;
+      if (m[1] !== '_' && m[1] !== 'R') { const ns = m[1].split('+').map(midi).filter(function (x) { return x != null; }).map(function (x) { return x + tr; }); if (ns.length) out.push({ t: t, n: ns, d: d, v: v }); }
+      t += d;
+    }
+    out.len = t; return out;
+  }
+  const CHORD = { '': [0, 4, 7], m: [0, 3, 7], '7': [0, 4, 7, 10], m7: [0, 3, 7, 10], maj7: [0, 4, 7, 11], sus4: [0, 5, 7], sus2: [0, 2, 7], dim: [0, 3, 6], '5': [0, 7, 12], add9: [0, 4, 7, 14], madd9: [0, 3, 7, 14], m9: [0, 3, 7, 10, 14], '6': [0, 4, 7, 9], m6: [0, 3, 7, 9], aug: [0, 4, 8], mM7: [0, 3, 7, 11], '9': [0, 4, 7, 10, 14], m7b5: [0, 3, 6, 10], dim7: [0, 3, 6, 9] };
+  function chordName(name, oct) { const m = /^([A-G][#b]?)(.*)$/.exec(name); if (!m) return name; const root = midi(m[1] + oct); const iv = CHORD[m[2]] || CHORD['']; return iv.map(function (i) { return noteName(root + i); }).join('+'); }
+  const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  function noteName(m) { return NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1); }
+  // chords("Am/4 F/4 C/2 G/2", {oct:3}) — chord symbols in the same grammar as seq
+  function chords(str, o) {
+    o = o || {}; const oct = o.oct == null ? 3 : o.oct;
+    const conv = str.replace(/(^|\s)([A-G][#b]?(?:maj7|m7b5|dim7|madd9|add9|sus4|sus2|dim|aug|mM7|m7|m9|m6|m|7|9|6|5)?)(?=[\/@\s]|$)/g, function (_, pre, name) { return pre + chordName(name, oct); });
+    return seq(conv, o);
+  }
+  // drums("x...o...X...o.o.", step) — x=hit, X=accent, o=soft
+  function drums(str, step, o) {
+    step = step || 0.5; const out = []; let t = o && o.start || 0; const clean = str.replace(/[|\s]/g, '');
+    for (let i = 0; i < clean.length; i++) { const c = clean[i]; if (c === 'x') out.push({ t: t, n: [0], d: step, v: 0.85 }); else if (c === 'X') out.push({ t: t, n: [0], d: step, v: 1 }); else if (c === 'o') out.push({ t: t, n: [0], d: step, v: 0.45 }); t += step; }
+    out.len = t; return out;
+  }
+  // arp(chordEvents, [0,1,2,1], stepBeats) → single notes cycling through chord tones (index ≥ len → octave up)
+  function arp(chEvs, pattern, step, o) {
+    o = o || {}; const out = []; const gate = o.gate || step * 1.9; const vel = o.vel == null ? 0.7 : o.vel;
+    for (const c of chEvs) { let k = 0; for (let t = c.t; t < c.t + c.d - 1e-6; t += step, k++) { const idx = pattern[k % pattern.length]; if (idx < 0) continue; const len = c.n.length; const n = c.n[idx % len] + 12 * Math.floor(idx / len) + (o.tr || 0); out.push({ t: t, n: [n], d: gate, v: vel * (k % pattern.length === 0 ? 1 : 0.85) }); } }
+    return out;
+  }
+  function shift(evs, beats) { return evs.map(function (e) { return { t: e.t + beats, n: e.n, d: e.d, v: e.v }; }); }
+  function concat() { let out = [], t = 0; for (let i = 0; i < arguments.length; i++) { const a = arguments[i]; out = out.concat(shift(a, t)); t += a.len || 0; } out.len = t; return out; }
+  function transpose(evs, semis) { const o = evs.map(function (e) { return { t: e.t, n: e.n.map(function (n) { return n + semis; }), d: e.d, v: e.v }; }); o.len = evs.len; return o; }
+
+  // ---- note voice (lightweight Voice routed straight into a track gain) ----
+  function NVoice(dest) { this.name = 'n'; this.nodes = []; this.endAt = 0; this.dead = false; this.out = gainN(1); this.out.connect(dest); this.nodes.push(this.out); }
+  NVoice.prototype = Object.create(Voice.prototype);
+  NVoice.prototype.refreshSpatial = function () {};
+  function note(dest, e, build) {
+    const v = new NVoice(dest);
+    try { build(v, e); } catch (err) { v.kill(); return; }
+    A.stats.notes++;
+    const life = Math.max(0.2, v.endAt - nowT()) + 0.4;
+    setTimeout(function () { v.kill(); }, life * 1000);
+  }
+
+  // ---- instruments: fn(v, e) with e = {t, f, d (sec gate), v (0..1), m (midi)} ----
+  const INST = {};
+  INST.pad = function (v, e) {
+    const fl = v.lpOut(500 + 1400 * e.v, 0.8); fl.frequency.setValueAtTime(400, e.t); fl.frequency.linearRampToValueAtTime(700 + 1500 * e.v, e.t + Math.min(1.2, e.d * 0.6)); fl.frequency.setTargetAtTime(500, e.t + e.d, 0.5);
+    const vol = 0.09 * e.v;
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: -8, dur: e.d, a: Math.min(0.7, e.d * 0.4), r: 1.2, vol: vol, dest: fl });
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: 8, dur: e.d, a: Math.min(0.7, e.d * 0.4), r: 1.2, vol: vol, dest: fl });
+    v.osc({ t: e.t, type: 'triangle', f: e.f * 0.5, dur: e.d, a: Math.min(0.9, e.d * 0.5), r: 1.2, vol: vol * 0.9, dest: fl });
+  };
+  INST.choir = function (v, e) {
+    const f1 = v.filter('bandpass', 720, 3), f2 = v.filter('bandpass', 1180, 4), lp = v.lpOut(2600, 0.5); f1.connect(lp); f2.connect(lp);
+    const vol = 0.11 * e.v, a = Math.min(0.9, e.d * 0.45);
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: -6, dur: e.d, a: a, r: 1.4, vol: vol, dest: f1, vib: { rate: 4.5, cents: 7, delay: 0.6 } });
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: 7, dur: e.d, a: a, r: 1.4, vol: vol, dest: f2, vib: { rate: 5.2, cents: 6, delay: 0.8 } });
+    v.osc({ t: e.t, type: 'sine', f: e.f, dur: e.d, a: a, r: 1.4, vol: vol * 1.1, dest: lp, vib: { rate: 4.8, cents: 6, delay: 0.7 } });
+    v.noise({ t: e.t, kind: 'pink', filter: { type: 'bandpass', f: 1500, q: 1 }, dur: e.d, a: a, r: 1.2, vol: vol * 0.25, dest: lp });
+  };
+  INST.flute = function (v, e) {
+    const vol = 0.22 * e.v;
+    v.osc({ t: e.t, type: 'sine', f: e.f, dur: e.d, a: 0.06, d: 0.1, s: 0.85, r: 0.18, vol: vol, vib: { rate: 5.3, cents: 9, delay: 0.25 } });
+    v.osc({ t: e.t, type: 'triangle', f: e.f, dur: e.d, a: 0.07, d: 0.1, s: 0.7, r: 0.18, vol: vol * 0.35, vib: { rate: 5.3, cents: 9, delay: 0.25 }, dest: v.lpOut(2800, 0.5) });
+    v.noise({ t: e.t, kind: 'pink', filter: { type: 'bandpass', f: e.f * 2, q: 2.5 }, dur: 0.08, a: 0.02, r: 0.08, vol: vol * 0.35 });
+    v.noise({ t: e.t, kind: 'pink', filter: { type: 'bandpass', f: e.f, q: 6 }, dur: e.d, a: 0.1, r: 0.15, vol: vol * 0.12 });
+  };
+  INST.lute = function (v, e) { v.pluck({ t: e.t, f: e.f, dur: Math.min(1.6, Math.max(0.5, e.d + 0.5)), bright: 0.55 + 0.4 * e.v, decay: 0.9, vol: 0.45 * e.v, kind: 'lute' }); };
+  INST.harp = function (v, e) { v.pluck({ t: e.t, f: e.f, dur: Math.min(3, Math.max(1.2, e.d + 1.2)), bright: 0.3 + 0.3 * e.v, decay: 2.2, vol: 0.42 * e.v, kind: 'harp' }); };
+  INST.horn = function (v, e) {
+    const lp = v.lpOut(1800 + 1500 * e.v, 0.7);
+    v.fm({ t: e.t, f: e.f, ratio: 1, idx: 0.3, idxEnd: 1.2 + e.v, idxHold: 0.03, idxDecay: 0.25, dur: e.d, a: 0.07, d: 0.15, s: 0.85, r: 0.3, vol: 0.26 * e.v, dest: lp });
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: 4, dur: e.d, a: 0.09, d: 0.15, s: 0.8, r: 0.3, vol: 0.06 * e.v, dest: lp, vib: { rate: 4.5, cents: 5, delay: 0.4 } });
+  };
+  INST.brass = function (v, e) {
+    const lp = v.lpOut(2500 + 2000 * e.v, 1); const sh = v.shaper(1.6); sh.connect(lp);
+    v.fm({ t: e.t, f: e.f, ratio: 1, idx: 0.5, idxEnd: 2.2, idxHold: 0.02, idxDecay: 0.12, type: 'sawtooth', dur: e.d, a: 0.03, d: 0.1, s: 0.8, r: 0.15, vol: 0.2 * e.v, dest: sh });
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: -6, dur: e.d, a: 0.03, d: 0.1, s: 0.8, r: 0.15, vol: 0.1 * e.v, dest: sh });
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f * 2, detune: 5, dur: e.d, a: 0.03, d: 0.1, s: 0.7, r: 0.15, vol: 0.04 * e.v, dest: sh });
+  };
+  INST.strings = function (v, e) {
+    const lp = v.lpOut(900 + 1600 * e.v, 0.6); const vol = 0.09 * e.v, a = Math.min(0.35, e.d * 0.3);
+    for (let i = 0; i < 3; i++) v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: [-9, 0, 8][i], dur: e.d, a: a, d: 0.3, s: 0.9, r: 0.5, vol: vol, dest: lp, vib: { rate: 4.6 + i * 0.4, cents: 6, delay: 0.3 } });
+  };
+  INST.lowstrings = function (v, e) {
+    const lp = v.lpOut(500 + 900 * e.v, 0.8); const vol = 0.13 * e.v, a = Math.min(0.25, e.d * 0.3);
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: -7, dur: e.d, a: a, d: 0.2, s: 0.9, r: 0.4, vol: vol, dest: lp, vib: { rate: 4.2, cents: 5, delay: 0.3 } });
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: 7, dur: e.d, a: a, d: 0.2, s: 0.9, r: 0.4, vol: vol, dest: lp });
+    v.osc({ t: e.t, type: 'sine', f: e.f * 0.5, dur: e.d, a: a, r: 0.4, vol: vol * 0.8 });
+  };
+  INST.pizz = function (v, e) { v.pluck({ t: e.t, f: e.f, dur: 0.7, bright: 0.35, decay: 0.35, vol: 0.55 * e.v, kind: 'pizz' }); v.osc({ t: e.t, type: 'sine', f: e.f, dur: 0.05, a: 0.003, r: 0.15, vol: 0.2 * e.v }); };
+  INST.bass = function (v, e) {
+    const lp = v.lpOut(300 + 500 * e.v, 1);
+    v.osc({ t: e.t, type: 'triangle', f: e.f, dur: e.d, a: 0.01, d: 0.25, s: 0.6, r: 0.12, vol: 0.4 * e.v, dest: lp });
+    v.osc({ t: e.t, type: 'sine', f: e.f, dur: e.d, a: 0.01, d: 0.3, s: 0.7, r: 0.12, vol: 0.3 * e.v });
+  };
+  INST.bells = function (v, e) {
+    v.fm({ t: e.t, f: e.f, ratio: 3.5, idx: 1.4 * e.v, idxDecay: 0.5, dur: 0.1, a: 0.003, r: Math.max(1.2, e.d + 0.8), vol: 0.18 * e.v });
+    v.osc({ t: e.t, type: 'sine', f: e.f * 2, dur: 0.05, a: 0.003, r: 0.6, vol: 0.05 * e.v });
+  };
+  INST.glass = function (v, e) {
+    v.fm({ t: e.t, f: e.f, ratio: 2.0, idx: 0.8 * e.v, idxDecay: 0.8, dur: 0.15, a: 0.01, r: Math.max(1.8, e.d + 1.2), vol: 0.16 * e.v });
+    v.osc({ t: e.t, type: 'sine', f: e.f * 3.01, dur: 0.05, a: 0.005, r: 1.0, vol: 0.03 * e.v });
+    v.osc({ t: e.t, type: 'sine', f: e.f, dur: e.d, a: 0.3, r: 1.2, vol: 0.06 * e.v, vib: { rate: 3, cents: 4, delay: 0.5 } });
+  };
+  INST.anvil = function (v, e) {
+    v.fm({ t: e.t, f: e.f, ratio: 2.76, idx: 3, idxDecay: 0.1, dur: 0.03, a: 0.002, r: 0.5, vol: 0.2 * e.v });
+    v.fm({ t: e.t, f: e.f * 1.6, ratio: 1.41, idx: 2, idxDecay: 0.06, dur: 0.02, r: 0.25, vol: 0.1 * e.v });
+    v.noise({ t: e.t, filter: { type: 'highpass', f: 3000 }, dur: 0.01, r: 0.03, vol: 0.25 * e.v });
+  };
+  INST.drone = function (v, e) {
+    const lp = v.lpOut(240, 1); const a = Math.min(2, e.d * 0.4);
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: -5, dur: e.d, a: a, r: 2, vol: 0.12 * e.v, dest: lp });
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: 6, dur: e.d, a: a, r: 2, vol: 0.12 * e.v, dest: lp });
+    v.osc({ t: e.t, type: 'sine', f: e.f, dur: e.d, a: a, r: 2, vol: 0.28 * e.v });
+    v.osc({ t: e.t, type: 'sine', f: e.f * 0.5, dur: e.d, a: a, r: 2, vol: 0.18 * e.v });
+  };
+  INST.accordion = function (v, e) {
+    const bp = v.filter('bandpass', 1100, 0.9), lp = v.lpOut(3200, 0.6); bp.connect(lp); const vol = 0.07 * e.v;
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: -10, dur: e.d, a: 0.04, r: 0.1, vol: vol, dest: bp, vib: { rate: 6.5, cents: 4, delay: 0.1 } });
+    v.osc({ t: e.t, type: 'sawtooth', f: e.f, detune: 10, dur: e.d, a: 0.04, r: 0.1, vol: vol, dest: bp });
+    v.osc({ t: e.t, type: 'square', f: e.f, dur: e.d, a: 0.04, r: 0.1, vol: vol * 0.6, dest: lp });
+  };
+  INST.windpad = function (v, e) {
+    const src = v.track(bufN(noiseBuf('pink'), 1, true)); const bp = v.filter('bandpass', e.f * 2, 8), g = v.gain(0);
+    src.connect(bp); bp.connect(g); g.connect(v.out);
+    adsr(g.gain, e.t, Math.min(2, e.d * 0.4), 0, 1, 2, e.d, 0.25 * e.v);
+    v.lfo({ t: e.t, rate: 0.13, depth: e.f * 0.5, param: bp.frequency, stop: e.t + e.d + 2.5 });
+    src.start(e.t); src.stop(e.t + e.d + 2.5); v.end(e.t + e.d + 2.5);
+  };
+  // ---- percussion (pitch ignored) ----
+  INST.kick = function (v, e) { v.osc({ t: e.t, type: 'sine', f: 150, fenv: [[0.09, 42, 'e']], dur: 0.05, a: 0.002, r: 0.28, vol: 0.9 * e.v }); v.noise({ t: e.t, filter: { type: 'lowpass', f: 800 }, dur: 0.01, r: 0.04, vol: 0.3 * e.v }); };
+  INST.taiko = function (v, e) { v.osc({ t: e.t, type: 'sine', f: 95, fenv: [[0.15, 48, 'e']], dur: 0.12, a: 0.003, r: 0.55, vol: 1.0 * e.v }); v.noise({ t: e.t, kind: 'pink', filter: { type: 'lowpass', f: 600 }, dur: 0.04, r: 0.15, vol: 0.5 * e.v }); v.noise({ t: e.t, filter: { type: 'bandpass', f: 2500, q: 1 }, dur: 0.008, r: 0.03, vol: 0.15 * e.v }); };
+  INST.timpani = function (v, e) { v.osc({ t: e.t, type: 'sine', f: e.f || 82, fenv: [[0.5, (e.f || 82) * 0.9, 'e']], dur: 0.2, a: 0.004, r: 0.9, vol: 0.8 * e.v }); v.noise({ t: e.t, kind: 'pink', filter: { type: 'lowpass', f: 500 }, dur: 0.03, r: 0.12, vol: 0.4 * e.v }); };
+  INST.snare = function (v, e) { v.noise({ t: e.t, filter: { type: 'bandpass', f: 1900, q: 0.8 }, dur: 0.03, r: 0.14, vol: 0.55 * e.v }); v.noise({ t: e.t, filter: { type: 'highpass', f: 5000 }, dur: 0.02, r: 0.1, vol: 0.25 * e.v }); v.osc({ t: e.t, type: 'triangle', f: 190, fenv: [[0.05, 120, 'e']], dur: 0.02, r: 0.08, vol: 0.35 * e.v }); };
+  INST.tom = function (v, e) { v.osc({ t: e.t, type: 'sine', f: 130, fenv: [[0.2, 75, 'e']], dur: 0.05, a: 0.003, r: 0.3, vol: 0.7 * e.v }); v.noise({ t: e.t, kind: 'pink', filter: { type: 'lowpass', f: 900 }, dur: 0.02, r: 0.08, vol: 0.3 * e.v }); };
+  INST.hat = function (v, e) { v.noise({ t: e.t, filter: { type: 'highpass', f: 7500 }, dur: 0.01, r: 0.04 + 0.05 * e.v, vol: 0.28 * e.v }); };
+  INST.shaker = function (v, e) { v.noise({ t: e.t, filter: { type: 'bandpass', f: 6500, q: 1.2 }, dur: 0.03, a: 0.015, r: 0.07, vol: 0.22 * e.v }); };
+  INST.tamb = function (v, e) { v.noise({ t: e.t, filter: { type: 'highpass', f: 5500 }, dur: 0.03, r: 0.15, vol: 0.25 * e.v }); v.fm({ t: e.t, f: 4200, ratio: 1.7, idx: 1, idxDecay: 0.08, dur: 0.02, r: 0.14, vol: 0.06 * e.v }); };
+  INST.handdrum = function (v, e) { v.osc({ t: e.t, type: 'sine', f: 180, fenv: [[0.08, 90, 'e']], dur: 0.03, a: 0.002, r: 0.18, vol: 0.55 * e.v }); v.noise({ t: e.t, kind: 'pink', filter: { type: 'bandpass', f: 1200, q: 1 }, dur: 0.015, r: 0.05, vol: 0.25 * e.v }); };
+  INST.cymbal = function (v, e) { v.noise({ t: e.t, filter: { type: 'highpass', f: 4000, q: 0.5 }, dur: 0.05, a: 0.005, r: 1.4 * e.v + 0.3, vol: 0.3 * e.v }); v.fm({ t: e.t, f: 3500, ratio: 1.48, idx: 2, idxDecay: 0.3, dur: 0.05, r: 1.0, vol: 0.05 * e.v }); };
+
+  // ---- Player: schedules one theme with look-ahead on the audio clock ----
+  function Player(id, th) {
+    this.id = id; this.th = th; this.dead = false; this.done = false;
+    this.gain = gainN(0); this.gain.connect(duckGain);
+    this.tracks = th.tracks.map(function (tr) {
+      const g = gainN(tr.vol == null ? 0.6 : tr.vol), pn = panN(tr.pan || 0), send = gainN(tr.send == null ? 0.25 : tr.send);
+      if (pn) { g.connect(pn); pn.connect(this.gain); } else g.connect(this.gain);
+      g.connect(send); send.connect(hallSend);
+      return { def: tr, g: g, pn: pn, send: send, i: 0, nodes: [g, pn, send] };
+    }, this);
+    this.spb = 60 / th.tempo; this.loopBeats = th.bars * th.bpb; this.start = nowT() + 0.12; this.loop = 0;
+    const self = this;
+    this.gen = { next: this.start, tick: function (now, until) { self.schedule(now, until); }, resync: function (gap) { self.start += gap; } };
+    generators.add(this.gen);
+  }
+  Player.prototype = {
+    schedule: function (now, until) {
+      if (this.dead || this.done) return;
+      const th = this.th, spb = this.spb, lb = this.loopBeats; let guard = 0;
+      while (guard++ < 64) {
+        let allDone = true;
+        for (const tr of this.tracks) {
+          const ev = tr.def.ev;
+          while (tr.i < ev.length) {
+            const e = ev[tr.i]; const at = this.start + (this.loop * lb + e.t) * spb;
+            if (at >= until) break;
+            tr.i++;
+            if (at > now - 0.03) this.play(tr, e, at);
+          }
+          if (tr.i < ev.length) allDone = false;
+        }
+        const loopEnd = this.start + (this.loop + 1) * lb * spb;
+        if (!allDone || loopEnd >= until) { this.gen.next = Math.max(now, Math.min(until, loopEnd)) - 0.01; break; }
+        if (th.loop === false) { this.done = true; this.endAt = loopEnd + 4; this.gen.next = this.endAt; break; }
+        this.loop++; for (const tr of this.tracks) tr.i = 0;
+      }
+      this.gen.next = now;   // always re-evaluated on next tick
+      if (this.done && nowT() > this.endAt) this.finish();
+    },
+    play: function (tr, e, at) {
+      const inst = INST[tr.def.inst]; if (!inst) return;
+      const d = Math.max(0.05, e.d * this.spb * (tr.def.gate == null ? 0.95 : tr.def.gate));
+      for (const m of e.n) note(tr.g, { t: at, f: hz(m + (tr.def.tr || 0)), d: d, v: _clamp(e.v * (tr.def.vel == null ? 1 : tr.def.vel), 0.05, 1.2), m: m }, inst);
+    },
+    fadeIn: function (sec) { const t = nowT(); this.gain.gain.setValueAtTime(0, t); this.gain.gain.linearRampToValueAtTime(1, t + sec); },
+    fadeOut: function (sec) {
+      const t = nowT(); this.gain.gain.cancelScheduledValues(t); this.gain.gain.setValueAtTime(this.gain.gain.value, t); this.gain.gain.linearRampToValueAtTime(0, t + sec);
+      this.done = true; generators.delete(this.gen); const self = this; setTimeout(function () { self.kill(); }, (sec + 0.3) * 1000);
+    },
+    finish: function () { const self = this; this.kill(); if (current === self) { current = null; A.currentTheme = null; if (G.emit) G.emit('musicEnded', self.id); } },
+    kill: function () {
+      if (this.dead) return; this.dead = true; generators.delete(this.gen);
+      for (const tr of this.tracks) for (const n of tr.nodes) { try { if (n) n.disconnect(); } catch (e) {} }
+      try { this.gain.disconnect(); } catch (e) {}
+    },
+  };
+  let current = null;
+  const THEMES = {};             // id → builder fn → {tempo, bpb, bars, loop, tracks:[{inst, vol, pan, send, gate, ev}]}
+  const compiled = {};
+  function compileTheme(id) {
+    if (compiled[id]) return compiled[id];
+    const th = THEMES[id](); const lb = th.bars * th.bpb;
+    th.tracks = th.tracks.filter(function (tr) { return tr && tr.ev; });
+    for (const tr of th.tracks) { tr.ev = tr.ev.filter(function (e) { return e.t < lb - 1e-6; }).sort(function (a, b) { return a.t - b.t; }); }
+    compiled[id] = th; return th;
+  }
+  A.music = function (id) {
+    if (id == null) { A.stopMusic(); return; }
+    wantTheme = id;
+    if (!ctx || !THEMES[id]) return;
+    if (current && current.id === id && !current.done) return;
+    if (current) { current.fadeOut(2); current = null; }
+    let th; try { th = compileTheme(id); } catch (e) { return; }
+    current = new Player(id, th); current.fadeIn(current.th.fadeIn == null ? 2 : current.th.fadeIn);
+    A.currentTheme = id;
+  };
+  A.stopMusic = function (fade) { wantTheme = null; if (current) current.fadeOut(fade == null ? 2 : fade); current = null; A.currentTheme = null; };
+  A.duck = function (on) { A.ducked = !!on; if (!ctx) return; duckGain.gain.setTargetAtTime(on ? 0.3 : 1, nowT(), 0.35); };
+  A.themes = [];
+  function theme(id, fn) { THEMES[id] = fn; A.themes.push(id); }

@@ -23,3 +23,8 @@
 - `G.Data.xp`: `forLevel(L)`, `needFor(L)`, `levelForXP(xp)`, `progress(xp)`, `questXP(level, type)`, `killXP(mobLevel, playerLevel, mult?)`, `goldReward(level, type)`, `abilityCost(level)`, `storyLevel(i)` (recommended level of story quest i), `sideLevel(i)`. Quest authors MUST use `questXP`/`goldReward` for rewards. total80 = 1,813,050 XP.
 - `G.Data.classTraits[cls]` 8 traits (L10..80); `G.Data.traitsFor(cls, L)`, `nextTrait`, `describeBonus`. `G.Data.stats.preview(cls, race, level)` for char-create.
 - Minstrel `rangedWeapon` is 'staff'.
+
+## 17_postfx.js
+- `G.PostFX.init(renderer, scene, camera)` should be called AFTER Sky/Veg exist (init applies `G.state.quality`). Main must call `G.PostFX.resize(w,h)` on window resize (it calls `renderer.setSize(w,h,false)` itself). `render(scene?, camera?)`.
+- `setQuality('auto'|'ultra'|'high'|'medium'|'low')` returns applied name, emits `qualityChanged(q)`. Params: `bloom, exposure, vignette, saturation, contrast, bloomThreshold, bloomRadius, grain, sharpen, tint, aberration, tonemap`. `stats {ms,...}`, `enabled`, `failed`, `warmup()`.
+- Character-panel / char-create previews must use their OWN small WebGLRenderer (PostFX does not render previews).

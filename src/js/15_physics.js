@@ -685,3 +685,201 @@
     if (_camOut.y < floor) _camOut.y = floor;
     return _camOut;
   }
+
+  // ---------------------------------------------------------------- area queries
+  const overlapOut = [];
+  function overlapCircle(x, z, r, minY, maxY) {
+    overlapOut.length = 0;
+    if (typeof x !== 'number' || typeof z !== 'number') return overlapOut;
+    r = (r > 0) ? r : 0.5;
+    const vert = typeof minY === 'number' && typeof maxY === 'number';
+    const n = gather(x - r, z - r, x + r, z + r);
+    for (let i = 0; i < n; i++) {
+      const c = near[i];
+      if (vert && (c.maxY <= minY || c.minY >= maxY)) continue;
+      if (circleVs(x, z, r, c)) overlapOut.push(c);
+    }
+    return overlapOut;
+  }
+  const lastGround = { y: 0, collider: null };
+  function groundY(x, z, feetY) {
+    if (typeof x !== 'number' || typeof z !== 'number') return 0;
+    const th = terrainH(x, z);
+    const n = gather(x - 0.5, z - 0.5, x + 0.5, z + 0.5);
+    const y = groundFrom(x, z, feetY, n, 0.2, th);
+    lastGround.y = y; lastGround.collider = gCollider;
+    return y;
+  }
+  let freeY = 0;
+  function isFree(x, z, r) {
+    if (typeof x !== 'number' || typeof z !== 'number') return false;
+    r = (r > 0) ? r : 0.4;
+    if (x < -WORLD_LIMIT || x > WORLD_LIMIT || z < -WORLD_LIMIT || z > WORLD_LIMIT) return false;
+    const th = terrainH(x, z);
+    const n = gather(x - r - 0.5, z - r - 0.5, x + r + 0.5, z + r + 0.5);
+    const g = groundFrom(x, z, undefined, n, 0.2, th);
+    const onFloor = gCollider !== null;
+    if (!onFloor) {
+      if (th < seaLevel() + 0.15) return false;
+      if (terrainSlope(x, z) > SLOPE_LIMIT) return false;
+    }
+    const lo = g + STEP_HEIGHT, hi = g + 1.8;
+    for (let i = 0; i < n; i++) {
+      const c = near[i];
+      if (c.maxY <= lo || c.minY >= hi) continue;
+      if (circleVs(x, z, r, c)) return false;
+    }
+    freeY = g;
+    return true;
+  }
+  function nearestFree(x, z, r) {
+    x = num(x, 0); z = num(z, 0); r = (r > 0) ? r : 0.4;
+    if (isFree(x, z, r)) return { x: x, z: z, y: freeY };
+    for (let ring = 1; ring <= 48; ring++) {
+      const dirs = Math.min(32, 8 + ring * 4);
+      const rot = ring * 0.37;                      // stagger the samples between rings
+      for (let i = 0; i < dirs; i++) {
+        const a = rot + i * (Math.PI * 2 / dirs);
+        const px = x + Math.cos(a) * ring, pz = z + Math.sin(a) * ring;
+        if (isFree(px, pz, r)) return { x: px, z: pz, y: freeY };
+      }
+    }
+    return { x: x, z: z, y: groundY(x, z) };
+  }
+
+  // ---------------------------------------------------------------- debug wireframes (admin panel)
+  const dbg = { group: null, scene: null, cx: 0, cz: 0, timer: 0, built: false, radius: 220 };
+  const _tmp = new THREE.Vector3();
+  function pushEdge(arr, ax, ay, az, bx, by, bz) { arr.push(ax, ay, az, bx, by, bz); }
+  function boxEdges(arr, x0, y0, z0, x1, y1, z1) {
+    pushEdge(arr, x0, y0, z0, x1, y0, z0); pushEdge(arr, x1, y0, z0, x1, y0, z1); pushEdge(arr, x1, y0, z1, x0, y0, z1); pushEdge(arr, x0, y0, z1, x0, y0, z0);
+    pushEdge(arr, x0, y1, z0, x1, y1, z0); pushEdge(arr, x1, y1, z0, x1, y1, z1); pushEdge(arr, x1, y1, z1, x0, y1, z1); pushEdge(arr, x0, y1, z1, x0, y1, z0);
+    pushEdge(arr, x0, y0, z0, x0, y1, z0); pushEdge(arr, x1, y0, z0, x1, y1, z0); pushEdge(arr, x1, y0, z1, x1, y1, z1); pushEdge(arr, x0, y0, z1, x0, y1, z1);
+  }
+  function wallCorner(c, su, sv, y, out) {
+    out.x = c.x + su * c.hl * c.ax - sv * c.ht * c.az;
+    out.z = c.z + su * c.hl * c.az + sv * c.ht * c.ax;
+    out.y = y;
+    return out;
+  }
+  function lineMesh(arr, color) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    const mat = new THREE.LineBasicMaterial({ color: color, depthTest: true, transparent: true, opacity: 0.9 });
+    const m = new THREE.LineSegments(geo, mat);
+    m.frustumCulled = false;
+    return m;
+  }
+  function disposeChildren(group) {
+    for (let i = group.children.length - 1; i >= 0; i--) {
+      const ch = group.children[i];
+      group.remove(ch);
+      if (ch.geometry) ch.geometry.dispose();
+      if (ch.material) ch.material.dispose();
+    }
+  }
+  function debugRebuild(cx, cz) {
+    const g = dbg.group;
+    if (!g) return;
+    disposeChildren(g);
+    const boxes = [], floors = [], cyls = [], walls = [];
+    const R = dbg.radius, R2 = R * R;
+    const c1 = { x: 0, z: 0 }, c2 = { x: 0, z: 0 }, c3 = { x: 0, z: 0 }, c4 = { x: 0, z: 0 };
+    byId.forEach(function (c) {
+      const ddx = c.x - cx, ddz = c.z - cz;
+      if (ddx * ddx + ddz * ddz > R2) return;
+      if (c.type === T_BOX) boxEdges(c.floor ? floors : boxes, c.minX, c.minY, c.minZ, c.maxX, c.maxY, c.maxZ);
+      else if (c.type === T_CYL) {
+        const seg = 12;
+        for (let i = 0; i < seg; i++) {
+          const a0 = i / seg * Math.PI * 2, a1 = (i + 1) / seg * Math.PI * 2;
+          const x0 = c.x + Math.cos(a0) * c.r, z0 = c.z + Math.sin(a0) * c.r, x1 = c.x + Math.cos(a1) * c.r, z1 = c.z + Math.sin(a1) * c.r;
+          pushEdge(cyls, x0, c.maxY, z0, x1, c.maxY, z1);
+          pushEdge(cyls, x0, c.minY + 1, z0, x1, c.minY + 1, z1);
+          if (i % 3 === 0) pushEdge(cyls, x0, c.minY + 1, z0, x0, c.maxY, z0);
+        }
+      } else {
+        wallCorner(c, -1, -1, 0, c1); wallCorner(c, 1, -1, 0, c2); wallCorner(c, 1, 1, 0, c3); wallCorner(c, -1, 1, 0, c4);
+        const ys = [c.minY, c.maxY];
+        for (let k = 0; k < 2; k++) {
+          const y = ys[k];
+          pushEdge(walls, c1.x, y, c1.z, c2.x, y, c2.z); pushEdge(walls, c2.x, y, c2.z, c3.x, y, c3.z);
+          pushEdge(walls, c3.x, y, c3.z, c4.x, y, c4.z); pushEdge(walls, c4.x, y, c4.z, c1.x, y, c1.z);
+        }
+        pushEdge(walls, c1.x, c.minY, c1.z, c1.x, c.maxY, c1.z); pushEdge(walls, c2.x, c.minY, c2.z, c2.x, c.maxY, c2.z);
+        pushEdge(walls, c3.x, c.minY, c3.z, c3.x, c.maxY, c3.z); pushEdge(walls, c4.x, c.minY, c4.z, c4.x, c.maxY, c4.z);
+      }
+    });
+    if (boxes.length) g.add(lineMesh(boxes, 0x44ff66));
+    if (floors.length) g.add(lineMesh(floors, 0x4488ff));
+    if (cyls.length) g.add(lineMesh(cyls, 0xffdd33));
+    if (walls.length) g.add(lineMesh(walls, 0x33ffee));
+    dbg.cx = cx; dbg.cz = cz; dbg.built = true; dbg.timer = 0; dirty = false;
+  }
+  function debugCenter() {
+    const st = G.state, p = st && st.player;
+    if (p && p.pos) { _tmp.set(p.pos.x, 0, p.pos.z); return _tmp; }
+    _tmp.set(dbg.cx, 0, dbg.cz);
+    return _tmp;
+  }
+  function debugTick(dt) {
+    if (!dbg.group || !dbg.group.visible) return;
+    dbg.timer += (typeof dt === 'number' ? dt : 0.016);
+    if (dbg.timer < 0.5 && dbg.built) return;
+    const c = debugCenter();
+    const moved = Math.abs(c.x - dbg.cx) > 40 || Math.abs(c.z - dbg.cz) > 40;
+    if (!dbg.built || dirty || moved) debugRebuild(c.x, c.z);
+    dbg.timer = 0;
+  }
+  let debugHooked = false;
+  function debugMesh(scene) {
+    if (!dbg.group) {
+      dbg.group = new THREE.Group();
+      dbg.group.name = 'physicsDebug';
+      dbg.group.visible = false;
+    }
+    if (scene && dbg.scene !== scene) {
+      if (dbg.scene) dbg.scene.remove(dbg.group);
+      scene.add(dbg.group);
+      dbg.scene = scene;
+    }
+    dbg.group.visible = !dbg.group.visible;
+    if (dbg.group.visible) {
+      const c = debugCenter();
+      debugRebuild(c.x, c.z);
+      if (!debugHooked && G.on) { debugHooked = true; G.on('update', debugTick); }
+    } else {
+      disposeChildren(dbg.group);
+      dbg.built = false;
+    }
+    return dbg.group;
+  }
+
+  // ---------------------------------------------------------------- namespace
+  let inited = false;
+  function init() {
+    if (inited) return;
+    inited = true;
+    if (G.log) G.log('[Physics] ready — cell ' + CELL + ' m, gravity ' + gravity() + ', sea ' + seaLevel());
+  }
+  function list() { return Array.from(byId.values()); }
+
+  G.Physics = {
+    init: init,
+    addBox: addBox, addCylinder: addCylinder, addWall: addWall,
+    remove: remove, clearTag: clearTag,
+    get: function (id) { return byId.get(id) || null; },
+    list: list,
+    colliderCount: function () { return count; },
+    moveEntity: moveEntity,
+    groundY: groundY, terrainY: terrainH, lastGround: lastGround,
+    raycast: raycast, sweep: sweep, lineOfSight: lineOfSight, cameraClamp: cameraClamp,
+    overlapCircle: overlapCircle, isFree: isFree, nearestFree: nearestFree,
+    debugMesh: debugMesh,
+    get debugVisible() { return !!(dbg.group && dbg.group.visible); },
+    get cameraIgnoresCylinders() { return cameraIgnoresCylinders; },
+    set cameraIgnoresCylinders(v) { cameraIgnoresCylinders = !!v; },
+    STEP_HEIGHT: STEP_HEIGHT, SLOPE_LIMIT: SLOPE_LIMIT, SWIM_DEPTH: SWIM_DEPTH, CAM_PAD: CAM_PAD, WORLD_LIMIT: WORLD_LIMIT, CELL: CELL,
+    TYPE_BOX: T_BOX, TYPE_CYLINDER: T_CYL, TYPE_WALL: T_WALL,
+  };
+})();

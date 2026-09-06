@@ -46,10 +46,10 @@
 
   // per-kind targets (every field is cross-faded over WEATHER_TRANSITION seconds)
   const WEATHER = {
-    clear:  { cloud: 0.30, grey: 0.00, darken: 0.00, rain: 0.0, snow: 0.0, sunMul: 1.00, wind: 1.0, fogFar: FOG_FAR, hazeMul: 1.0, storm: 0.0 },
+    clear:  { cloud: 0.36, grey: 0.00, darken: 0.00, rain: 0.0, snow: 0.0, sunMul: 1.00, wind: 1.0, fogFar: FOG_FAR, hazeMul: 1.0, storm: 0.0 },
     cloudy: { cloud: 0.74, grey: 0.35, darken: 0.10, rain: 0.0, snow: 0.0, sunMul: 0.62, wind: 1.7, fogFar: 760,     hazeMul: 1.1, storm: 0.0 },
     rain:   { cloud: 0.93, grey: 0.75, darken: 0.27, rain: 1.0, snow: 0.0, sunMul: 0.38, wind: 2.3, fogFar: 500,     hazeMul: 1.25, storm: 0.0 },
-    snow:   { cloud: 0.88, grey: 0.60, darken: 0.16, rain: 0.0, snow: 1.0, sunMul: 0.50, wind: 1.2, fogFar: 460,     hazeMul: 1.45, storm: 0.0 },
+    snow:   { cloud: 0.90, grey: 0.72, darken: 0.18, rain: 0.0, snow: 1.0, sunMul: 0.50, wind: 1.2, fogFar: 460,     hazeMul: 1.45, storm: 0.0 },
     storm:  { cloud: 1.00, grey: 1.00, darken: 0.50, rain: 1.6, snow: 0.0, sunMul: 0.22, wind: 3.6, fogFar: 380,     hazeMul: 1.25, storm: 1.0 },
   };
   const WPARAMS = Object.keys(WEATHER.clear);
@@ -214,14 +214,16 @@
       float muP = max(mu, 0.0);
 
       // ---- gradient + haze + scattering toward the sun
+      // gradient colours arrive in gamma (sRGB) space so the blend looks painterly, then go linear
       float up = clamp(y, 0.0, 1.0);
-      vec3 col = mix(uHorizon, uZenith, pow(up, 0.55));
+      vec3 col = mix(uHorizon, uZenith, (1.0 - exp(-up * 3.2)) * 1.0425);
       float below = clamp(-y * 6.0, 0.0, 1.0);
       col = mix(col, uGround, below);
       float hazeBand = exp(-max(y, 0.0) * 5.0) * (1.0 - below);
       float sunSide = 0.35 + 0.65 * pow(muP, 2.0);
-      col += uHaze * hazeBand * uHazeAmt * sunSide * 0.5;
-      col += uSunColor * (pow(muP, 6.0) * 0.12 + pow(muP, 24.0) * 0.20) * uGlow * uSunVis * (0.6 + 0.8 * hazeBand);
+      col += uHaze * hazeBand * uHazeAmt * sunSide * 0.32;
+      col = pow(max(col, vec3(0.0)), vec3(2.2));
+      col += uSunColor * (pow(muP, 6.0) * 0.10 + pow(muP, 24.0) * 0.16) * uGlow * uSunVis * (0.6 + 0.8 * hazeBand);
 
       // ---- stars + milky way (night)
       if (uStars > 0.001 && y > -0.05) {
@@ -258,27 +260,31 @@
 
       // ---- sun disc
       float disc = smoothstep(0.99955, 0.99985, mu);
-      col += uSunColor * disc * 2.5 * uSunVis;
+      col += uSunColor * disc * 1.8 * uSunVis;
 
-      // ---- clouds: fbm on a projected plane, lit from the sun side
+      // ---- clouds: domain-warped fbm on a projected plane; white edges, grey cores, lit from the sun side
       float cl = 0.0;
       if (y > -0.02 && uCloud > 0.001) {
         float hy = max(y, 0.0);
         vec2 cuv = dir.xz / (hy + 0.15) * 0.75 + uCloudOff;
-        float n = fbm5(cuv);
-        float cover = mix(0.72, 0.36, uCloud);
-        float dens = smoothstep(cover, cover + 0.30, n);
+        vec2 warp = vec2(fbm3(cuv * 0.9 + 3.1), fbm3(cuv * 0.9 + 7.3)) - 0.5;
+        vec2 cw = cuv + warp * 0.45;
+        float n = fbm5(cw);
+        float cover = mix(0.70, 0.40, uCloud);
+        float edge = smoothstep(cover, cover + 0.14, n);
+        float thick = smoothstep(cover + 0.02, cover + 0.42, n);
         vec2 toSun = normalize(uSunDir.xz + vec2(0.0005, 0.0003));
-        float n2 = fbm5(cuv + toSun * 0.09);
-        float lit = clamp(0.5 + (n - n2) * 7.0, 0.0, 1.0);
-        vec3 ccol = mix(uCloudShade, uCloudLit, lit) * (1.0 - dens * 0.22);
-        ccol += uSunColor * pow(muP, 40.0) * 0.6 * (1.0 - dens) * uSunVis;
-        cl = dens * smoothstep(0.0, 0.11, y);
+        float n2 = fbm5(cw + toSun * 0.07);
+        float lit = clamp(0.5 + (n - n2) * 6.0, 0.0, 1.0);
+        vec3 ccol = mix(uCloudLit, uCloudShade, thick);
+        ccol = mix(ccol, uCloudLit, lit * (1.0 - thick) * 0.7);
+        ccol += uSunColor * pow(muP, 40.0) * 0.5 * (1.0 - thick) * uSunVis;
+        cl = edge * smoothstep(0.0, 0.11, y);
         col = mix(col, ccol, cl);
       }
 
       // ---- glow that survives thin clouds, lightning
-      col += uSunColor * (pow(muP, 120.0) * 0.55 + pow(muP, 400.0) * 0.8) * uSunVis * (1.0 - cl * 0.85);
+      col += uSunColor * (pow(muP, 120.0) * 0.35 + pow(muP, 400.0) * 0.55) * uSunVis * (1.0 - cl * 0.85);
       col += uFlash * vec3(0.72, 0.78, 1.0) * (0.35 + cl * 1.4);
 
       gl_FragColor = vec4(col, 1.0);
@@ -417,13 +423,13 @@
 
     // --- precipitation
     const rng = (typeof G.rng === 'function') ? G.rng(4242) : _rng(4242);
-    const rainTex = makeTexture(16, 64, (ctx, w, h) => {
+    const rainTex = makeTexture(32, 128, (ctx, w, h) => {
       ctx.clearRect(0, 0, w, h);
       const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.25, 'rgba(255,255,255,0.55)');
-      g.addColorStop(0.75, 'rgba(255,255,255,0.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g; ctx.fillRect(w * 0.5 - 1.5, 0, 3, h);
-      ctx.globalAlpha = 0.35; ctx.fillRect(w * 0.5 - 3, 0, 6, h);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.3, 'rgba(255,255,255,0.6)');
+      g.addColorStop(0.8, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; ctx.fillRect(w * 0.5 - 1, 0, 2, h);
+      ctx.globalAlpha = 0.3; ctx.fillRect(w * 0.5 - 2, 0, 4, h);
     });
     const snowTex = makeTexture(32, 32, (ctx, w, h) => {
       ctx.clearRect(0, 0, w, h);
@@ -457,8 +463,8 @@
       pts.frustumCulled = false; pts.renderOrder = 900; pts.visible = false; pts.matrixAutoUpdate = false;
       return pts;
     }
-    rain = makePrecip(RAIN_COUNT, rainTex, 0, 0xcfe0ff, 0.5, THREE.AdditiveBlending, 0.34, 0.62); rain.name = 'rain';
-    snow = makePrecip(SNOW_COUNT, snowTex, 1, 0xffffff, 0.85, THREE.NormalBlending, 0.10, 0.22); snow.name = 'snow';
+    rain = makePrecip(RAIN_COUNT, rainTex, 0, 0xcfe0ff, 0.42, THREE.AdditiveBlending, 0.26, 0.5); rain.name = 'rain';
+    snow = makePrecip(SNOW_COUNT, snowTex, 1, 0xffffff, 0.85, THREE.NormalBlending, 0.07, 0.16); snow.name = 'snow';
     rainMat = rain.material; snowMat = snow.material;
     scene.add(rain); scene.add(snow);
 
@@ -594,7 +600,7 @@
     if (!T.paused && dt > 0) {
       const dayLen = (T.dayLengthMinutes > 0 ? T.dayLengthMinutes : 24) * 60;
       let h = (typeof T.dayTime === 'number' ? T.dayTime : 8) + dt * 24 / dayLen;
-      if (h >= 24) { h -= 24; if (h >= 24) h = mod(h, 24); _dayIndex++; }
+      if (h >= 24) h = mod(h, 24);
       T.dayTime = h;
     }
     const hour = mod(typeof T.dayTime === 'number' ? T.dayTime : 8, 24);
@@ -614,8 +620,8 @@
     const dawnGlow = 1 - smooth(0, 0.18, Math.abs(e));
 
     // ---- weather transition + automatic weather + lightning
-    if (_wt < 1) {
-      _wt = Math.min(1, _wt + (dt > 0 ? dt / WEATHER_TRANSITION : 1));
+    if (_wt < 1 && dt > 0) {
+      _wt = Math.min(1, _wt + dt / WEATHER_TRANSITION);
       const s = _wt * _wt * (3 - 2 * _wt);
       const tw = WEATHER[_targetWeather];
       for (let i = 0; i < WPARAMS.length; i++) { const p = WPARAMS[i]; _wc[p] = _wf[p] + (tw[p] - _wf[p]) * s; }
@@ -647,7 +653,8 @@
     const hazeAmt = _wc.hazeMul * (0.85 + 1.1 * dawnGlow);
 
     // ---- dome uniforms
-    U.uZenith.value.copy(_zen); U.uHorizon.value.copy(_hor); U.uHaze.value.copy(_haze); U.uGround.value.copy(_ground);
+    U.uZenith.value.copy(_zen).convertLinearToSRGB(); U.uHorizon.value.copy(_hor).convertLinearToSRGB();
+    U.uHaze.value.copy(_haze).convertLinearToSRGB(); U.uGround.value.copy(_ground).convertLinearToSRGB();
     U.uSunDir.value.copy(_sunDir); U.uMoonDir.value.copy(_moonDir);
     U.uSunColor.value.copy(_sunDisc);
     U.uSunVis.value = sunVis;
@@ -750,7 +757,7 @@
       _fallAcc = mod(_fallAcc + RAIN_FALL * dt, PRECIP_BOX * 10);
       const u = rainMat.uniforms;
       u.uCam.value.copy(cpos); u.uFallAcc.value = _fallAcc; u.uWindAcc.value.set(_windX, _windZ);
-      u.uScale.value = scale; u.uOpacity.value = 0.55 * Math.min(1, rainVis); u.uSizeMul.value = 0.9 + 0.25 * Math.min(1, rainLevel / 1.6);
+      u.uScale.value = scale; u.uOpacity.value = 0.45 * Math.min(1, rainVis); u.uSizeMul.value = 0.9 + 0.25 * Math.min(1, rainLevel / 1.6);
       u.uTime.value = _t % SWAY_PERIOD;
       rain.visible = true;
     } else rain.visible = false;
