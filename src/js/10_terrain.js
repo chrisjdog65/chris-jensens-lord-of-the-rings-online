@@ -13,11 +13,14 @@
      mapCanvas(size) → cached HTMLCanvasElement of the whole world
    Extras (documented, on G.Terrain):
      groundColor(x,z,out) → linear {r,g,b}      water (near water Mesh), waterFar (far ring), group (chunk Group),
-     horizon (Mesh), material (terrain MeshStandardMaterial), waterMaterial, heightTexture (DataTexture, world height)
+     horizon (Mesh), material (terrain MeshStandardMaterial), waterMaterial, detailTexture, heightTexture (DataTexture,
+     world height, sqrt-encoded around sea level in .r; .g = road weight, .b = shore factor), CHUNK (128), VIEW_RADIUS (960)
      setSun(dir, color, intensity?)  setSkyColor(hexOrColor)   — fed by G.Sky
      coarseHeight(x,z) (8 m grid, bilinear, cheap)  zoneWeight(zoneId,x,z) 0..1  townAt(x,z) → town|null
      worldToMap(x,z,size,out) / mapToWorld(px,py,size,out)   warmup(x,z,radius?) (synchronous chunk build)
-     stats() → {chunks, queued, builds, avgBuildMs, maxBuildMs, triangles}   ready (bool)
+     stats() → {chunks, queued, builds, avgBuildMs, maxBuildMs, lastBuildMs, triangles, pooled}   ready (bool)
+   Towns whose data has hasDock (or that own an entry in G.Data.world.docks) are flattened at the water line (~5.5 m);
+   roads crossing lakes/sea become narrow causeways; roads crossing rivers become shallow fords (bed −0.9 m).
    Data read: G.C.WORLD_SIZE/SEA_LEVEL, G.Data.world.zones/towns/roads and G.Data.world.water
    (seaWestX, seaNorthZ, lakes, rivers, bays, landmasses, islands) — §9 defaults are used for anything missing.
    Private helpers (rule 2): _ss/_clamp/_lerp (inlined math), everything else is internal. ==== */
@@ -1036,6 +1039,7 @@
   let built = false;
   let scanX = 1e9, scanZ = 1e9, scanTimer = 0;
   const stats = { builds: 0, buildMs: 0, maxBuildMs: 0, lastBuildMs: 0 };
+  const lodCost = [3, 0.9, 0.3];              // running average build cost per LOD (ms), used to predict frame cost
 
   function ckey(ci, cj) { return (ci + 128) * 256 + (cj + 128); }
   function desiredLod(d, cur) {
@@ -1105,18 +1109,20 @@
     const ms = performance.now() - t0;
     stats.builds++; stats.buildMs += ms; stats.lastBuildMs = ms;
     if (ms > stats.maxBuildMs) stats.maxBuildMs = ms;
+    lodCost[lod] += (ms - lodCost[lod]) * 0.15;
   }
   function processQueue(maxBuilds, budgetMs) {
     const t0 = performance.now();
     let n = 0;
     while (queue.length && n < maxBuilds) {
-      const rec = queue.pop();
+      const rec = queue[queue.length - 1];
+      if (rec.want >= 0 && rec.want !== rec.lod && n > 0 && performance.now() - t0 + lodCost[rec.want] > budgetMs) break;   // would not fit this frame
+      queue.pop();
       rec.queued = false;
       if (rec.want < 0 || rec.want === rec.lod) continue;
       if (chunks.get(ckey(rec.ci, rec.cj)) !== rec) continue;
       buildInto(rec, rec.want);
       n++;
-      if (performance.now() - t0 > budgetMs) break;
     }
     return n;
   }
@@ -1233,7 +1239,7 @@
       // depth from the baked world height texture
       vec2 huv = (vWorld.xz + uHalfWorld) / (2.0 * uHalfWorld);
       float ground = decodeH(texture2D(uHeightMap, clamp(huv, 0.0, 1.0)).r);
-      float depth = uSea - ground;
+      float depth = uSea - ground + 0.5;    // slight bias: the terrain mesh depth-tests the true shoreline exactly
       // colour: shallow → deep, fresnel toward the sky, sun highlight
       float NdotV = max(dot(N, V), 0.0);
       float F = 0.035 + 0.965 * pow(1.0 - NdotV, 5.0);
@@ -1259,7 +1265,7 @@
       // alpha: more opaque at grazing angles and in deep water, fading out at the water line
       float alpha = mix(0.74, 0.97, F);
       alpha = mix(alpha, 1.0, foam * 0.5);
-      alpha *= smoothstep(-0.25, 1.1, depth);
+      alpha *= smoothstep(-0.2, 0.7, depth);
       gl_FragColor = vec4(col, alpha);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>

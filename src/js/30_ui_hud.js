@@ -1619,3 +1619,463 @@
     if (mm.zone) mm.zone.textContent = zb.name.textContent;
   };
   function _updateZone(dt) { if (zb.t >= 0) { zb.t += dt; if (zb.t > 4.4) { zb.el.classList.remove('show'); zb.t = -1; } } }
+
+  // ------------------------------------------------------------------------------------------------ quest tracker
+  const qt = { el: null, list: null, count: null, toggle: null, collapsed: false, t: 0, sig: '' };
+  UI.tracker = { get collapsed() { return qt.collapsed; }, set collapsed(v) { _trackerCollapse(v); }, refresh: function () { qt.sig = ''; qt.t = 1; } };
+  function _trackerCollapse(v) {
+    qt.collapsed = !!v;
+    if (!qt.el) return;
+    qt.el.classList.toggle('collapsed', qt.collapsed);
+    qt.toggle.textContent = qt.collapsed ? '▸' : '▾';
+  }
+  function _questEntries() {
+    const Q = G.Quests;
+    if (!Q || typeof Q.active !== 'function') return [];
+    let arr = null;
+    try { arr = Q.active() || []; } catch (_) { return []; }
+    const out = [];
+    for (let i = 0; i < arr.length; i++) {
+      const q = arr[i];
+      const id = typeof q === 'string' ? q : (q && q.id);
+      if (!id) continue;
+      const data = _questData(id) || (q && typeof q === 'object' && Array.isArray(q.objectives) ? q : null);
+      const st = (Q.state && Q.state[id]) || (q && typeof q === 'object' && q.status ? q : null) || { status: 'active', progress: [] };
+      out.push({ id: id, data: data, st: st });
+    }
+    const tracked = Q.tracked;
+    if (tracked) out.sort(function (a, b) { return (b.id === tracked) - (a.id === tracked); });
+    return out;
+  }
+  function _objState(obj, st, i) {
+    const count = Math.max(1, _num(obj.count, 1) | 0);
+    const p = clamp(_num(st.progress && st.progress[i], 0) | 0, 0, count);
+    const done = st.status === 'complete' || st.status === 'done' || p >= count;
+    return { count: count, p: done ? count : p, done: done };
+  }
+  function _buildTracker(hud) {
+    qt.count = el('span', { class: 'qt-count', text: 'Quests' });
+    qt.toggle = el('span', { class: 'qt-toggle', text: '▾' });
+    const head = el('div', { class: 'qt-head', onclick: function () { _trackerCollapse(!qt.collapsed); } }, [qt.count, qt.toggle]);
+    UI.bindTooltip(head, '<div class="tt-name">Quest tracker</div><div class="tt-line">Click a quest name to track it; click an objective to open the journal (J).</div>');
+    qt.list = el('div', { class: 'qt-list' });
+    qt.el = el('div', { id: 'questTracker' }, [head, qt.list]);
+    qt.el.addEventListener('wheel', function (e) { e.stopPropagation(); }, { passive: true });
+    hud.appendChild(qt.el);
+  }
+  function _updateTracker(dt) {
+    qt.t += dt;
+    if (qt.t < 0.25) return;
+    qt.t = 0;
+    const entries = _questEntries();
+    const tracked = G.Quests && G.Quests.tracked;
+    let sig = (tracked || '') + '#';
+    for (let i = 0; i < entries.length; i++) { const e = entries[i]; sig += e.id + ':' + (e.st.status || '') + ':' + (Array.isArray(e.st.progress) ? e.st.progress.join('.') : '') + '|'; }
+    if (sig === qt.sig) return;
+    qt.sig = sig;
+    while (qt.list.firstChild) qt.list.removeChild(qt.list.firstChild);
+    qt.count.textContent = 'Quests' + (entries.length ? ' (' + entries.length + ')' : '');
+    if (!entries.length) { qt.list.appendChild(el('div', { class: 'qt-empty', text: 'No active quests. Look for ! above the heads of the folk in town.' })); return; }
+    const MAX = 6;
+    for (let i = 0; i < entries.length && i < MAX; i++) {
+      const e = entries[i], d = e.data, st = e.st;
+      const isTracked = e.id === tracked;
+      const type = (d && d.type) || (e.id.charAt(0) === 's' ? 'story' : 'side');
+      const name = (d && d.name) || G.titleCase(e.id);
+      const nameRow = el('div', { class: 'qt-name', title: 'Click to track' }, [
+        isTracked ? el('span', { class: 'qt-star', text: '★' }) : null,
+        el('span', { class: 'chip ' + type, text: type === 'story' ? 'Story' : 'Side' }),
+        el('span', { class: 'quest-name', text: name + (d && d.level ? ' (' + d.level + ')' : '') }),
+      ]);
+      (function (id) { nameRow.addEventListener('click', function () { if (_has(G.Quests, 'setTracked')) G.Quests.setTracked(id); qt.sig = ''; qt.t = 1; }); })(e.id);
+      const box = el('div', { class: 'qt-quest' + (isTracked ? ' tracked' : '') }, [nameRow]);
+      const objs = d && Array.isArray(d.objectives) ? d.objectives : [];
+      const allDone = st.status === 'complete' || st.status === 'done';
+      if (!allDone) for (let k = 0; k < objs.length; k++) {
+        const o = objs[k], os = _objState(o, st, k);
+        const showCount = os.count > 1 || o.type === 'kill' || o.type === 'collect' || o.type === 'use' || o.type === 'fish';
+        const row = el('div', { class: 'quest-obj' + (os.done ? ' done' : '') }, [
+          document.createTextNode(_str(o.label || G.titleCase(o.type || 'objective')) + (showCount ? ' ' : '')),
+          showCount ? el('span', { class: 'qo-count', text: os.p + '/' + os.count }) : null,
+        ]);
+        (function (id) { row.addEventListener('click', function () { if (panels.journal) UI.openPanel('journal', id); if (G.UI.Journal && typeof G.UI.Journal.select === 'function') G.UI.Journal.select(id); }); })(e.id);
+        box.appendChild(row);
+      }
+      if (allDone) box.appendChild(el('div', { class: 'qt-ready', text: 'Ready to turn in — talk to ' + _npcName((d && (d.turnin || d.giver)) || '') }));
+      qt.list.appendChild(box);
+    }
+    if (entries.length > MAX) qt.list.appendChild(el('div', { class: 'qt-more', text: '+' + (entries.length - MAX) + ' more in your journal (J)' }));
+  }
+
+  // ------------------------------------------------------------------------------------------------ minimap
+  const MM_SIZE = 200, MM_ZOOMS = [0.5, 1, 2];
+  const mm = { el: null, canvas: null, ctx: null, zone: null, clock: null, coords: null, zoom: 1, t: 0, pulse: 0, dpr: 1, npcMarks: new Map(), last: {} };
+  UI.minimap = {
+    get zoom() { return mm.zoom; },
+    set zoom(z) { UI.minimap.setZoom(z); },
+    setZoom: function (z) { z = _num(z, 1); let best = MM_ZOOMS[0]; for (let i = 0; i < MM_ZOOMS.length; i++) if (Math.abs(MM_ZOOMS[i] - z) < Math.abs(best - z)) best = MM_ZOOMS[i]; mm.zoom = best; mm.t = 1; },
+    zoomStep: function (dir) { const i = MM_ZOOMS.indexOf(mm.zoom); UI.minimap.setZoom(MM_ZOOMS[clamp(i + dir, 0, MM_ZOOMS.length - 1)]); },
+    redraw: function () { mm.t = 1; },
+    worldAt: function (sx, sy) { const p = _player(); if (!p || !p.pos) return null; return { x: p.pos.x + (sx - MM_SIZE / 2) / mm.zoom, z: p.pos.z + (sy - MM_SIZE / 2) / mm.zoom }; },
+  };
+  function _buildMinimap(hud) {
+    mm.canvas = el('canvas', { width: MM_SIZE, height: MM_SIZE });
+    mm.ctx = mm.canvas.getContext('2d');
+    const zoomBox = el('div', { class: 'mm-zoom' }, [
+      el('button', { class: 'btn', text: '+', title: 'Zoom in', onclick: function () { UI.minimap.zoomStep(1); } }),
+      el('button', { class: 'btn', text: '−', title: 'Zoom out', onclick: function () { UI.minimap.zoomStep(-1); } }),
+    ]);
+    const ring = el('div', { class: 'mm-ring' }, [mm.canvas, el('div', { class: 'mm-frame' }), el('div', { class: 'mm-n', text: 'N' }), zoomBox]);
+    mm.zone = el('div', { class: 'mm-zone', text: '' });
+    mm.clock = el('span', { class: 'mm-clock', text: '08:00' });
+    mm.coords = el('span', { class: 'mm-coords', text: '0, 0' });
+    const info = el('div', { class: 'mm-info' }, [mm.zone, el('div', { class: 'mm-sub' }, [el('span', { text: '🕓 ' }), mm.clock, el('span', { text: '⌖ ' }), mm.coords])]);
+    mm.el = el('div', { id: 'minimap', class: 'hud-frame' }, [ring, info]);
+    mm.canvas.addEventListener('wheel', function (e) { e.preventDefault(); e.stopPropagation(); UI.minimap.zoomStep(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+    mm.canvas.addEventListener('click', function (e) {
+      const r = mm.canvas.getBoundingClientRect();
+      const w = UI.minimap.worldAt((e.clientX - r.left) / r.width * MM_SIZE, (e.clientY - r.top) / r.height * MM_SIZE);
+      if (w) UI.setWaypoint(w.x, w.z, 'Minimap waypoint');
+    });
+    mm.canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); if (UI.waypoint) { UI.clearWaypoint(); UI.notify('Waypoint cleared.', 'info'); } });
+    UI.bindTooltip(mm.canvas, function (node, e) {
+      const r = mm.canvas.getBoundingClientRect();
+      const w = UI.minimap.worldAt((e.clientX - r.left) / r.width * MM_SIZE, (e.clientY - r.top) / r.height * MM_SIZE);
+      return '<div class="tt-name">Minimap</div><div class="tt-line">' + (w ? Math.round(w.x) + ', ' + Math.round(w.z) : '') + ' · zoom ×' + mm.zoom + '</div><div class="tt-sub">Click to set a waypoint · right-click clears · wheel zooms · M opens the map</div>';
+    }, { live: true });
+    hud.appendChild(mm.el);
+  }
+  function _npcMark(e) {
+    if (e.questMark !== undefined && e.questMark !== null) return e.questMark ? _str(e.questMark) : '';
+    const Q = G.Quests;
+    if (!Q) return '';
+    const key = e.typeId || e.npcId || e.id;
+    const now = _now();
+    let c = mm.npcMarks.get(key);
+    if (c && now - c.t < 1) return c.mark;
+    let mark = '';
+    try {
+      if (typeof Q.turnins === 'function' && (Q.turnins(key) || []).length) mark = '?';
+      else if (typeof Q.available === 'function' && (Q.available(key) || []).length) mark = '!';
+      else if (Q.state) { for (const id in Q.state) { const s = Q.state[id]; if (s && s.status === 'active') { const d = _questData(id); if (d && d.turnin === key) { mark = '?grey'; break; } } } }
+    } catch (_) { mark = ''; }
+    if (!c) { c = { mark: mark, t: now }; mm.npcMarks.set(key, c); } else { c.mark = mark; c.t = now; }
+    return mark;
+  }
+  function _drawEdgeMarker(ctx, dx, dy, color, kind, pulse) {
+    const R = MM_SIZE / 2, d = Math.sqrt(dx * dx + dy * dy);
+    const inside = d < R - 10;
+    let x = R + dx, y = R + dy;
+    if (!inside) { const k = (R - 9) / d; x = R + dx * k; y = R + dy * k; }
+    ctx.save();
+    ctx.shadowColor = color; ctx.shadowBlur = 8;
+    ctx.fillStyle = color;
+    if (kind === 'quest') {
+      const s = inside ? 5 + pulse * 2.5 : 5;
+      ctx.globalAlpha = inside ? 0.75 + pulse * 0.25 : 0.9;
+      ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath(); ctx.fill();
+      if (inside) { ctx.globalAlpha = 0.35 * (1 - pulse); ctx.beginPath(); ctx.arc(x, y, 6 + pulse * 10, 0, Math.PI * 2); ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke(); }
+    } else {
+      ctx.beginPath(); ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y - 5); ctx.lineTo(x, y + 4); ctx.closePath(); ctx.fill();
+    }
+    if (!inside) {                                                                       // direction arrow on the ring
+      const a = Math.atan2(dy, dx);
+      ctx.translate(x, y); ctx.rotate(a);
+      ctx.globalAlpha = 1; ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(2, -4); ctx.lineTo(2, 4); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+  function _drawMinimap() {
+    const p = _player();
+    const ctx = mm.ctx;
+    if (!p || !ctx) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (mm.dpr !== dpr) { mm.dpr = dpr; mm.canvas.width = Math.round(MM_SIZE * dpr); mm.canvas.height = Math.round(MM_SIZE * dpr); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const R = MM_SIZE / 2, zoom = mm.zoom, px = p.pos ? p.pos.x : 0, pz = p.pos ? p.pos.z : 0;
+    const visM = MM_SIZE / zoom;
+    ctx.clearRect(0, 0, MM_SIZE, MM_SIZE);
+    ctx.save();
+    ctx.beginPath(); ctx.arc(R, R, R, 0, Math.PI * 2); ctx.clip();
+    let map = null;
+    try { map = (G.Terrain && typeof G.Terrain.mapCanvas === 'function') ? G.Terrain.mapCanvas(1024) : null; } catch (_) { map = null; }
+    if (map && map.width) {
+      const world = (G.C && G.C.WORLD_SIZE) || 4096, half = world / 2;
+      const mpp = map.width / world;                                                     // map pixels per metre
+      const sw = visM * mpp, sh = visM * (map.height / world);
+      const sx = (px + half) * mpp - sw / 2, sy = (pz + half) * (map.height / world) - sh / 2;
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      ctx.fillStyle = '#132a3a'; ctx.fillRect(0, 0, MM_SIZE, MM_SIZE);
+      ctx.drawImage(map, sx, sy, sw, sh, 0, 0, MM_SIZE, MM_SIZE);
+    } else { ctx.fillStyle = '#26361a'; ctx.fillRect(0, 0, MM_SIZE, MM_SIZE); }
+    // subtle grid every 50 m (only at zoom ≥ 1)
+    if (zoom >= 1) {
+      ctx.strokeStyle = 'rgba(0,0,0,.10)'; ctx.lineWidth = 1;
+      const step = 50 * zoom, ox = R - ((px % 50) + 50) % 50 * zoom, oy = R - ((pz % 50) + 50) % 50 * zoom;
+      ctx.beginPath();
+      for (let x = ox - Math.ceil(R / step) * step; x <= MM_SIZE; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, MM_SIZE); }
+      for (let y = oy - Math.ceil(R / step) * step; y <= MM_SIZE; y += step) { ctx.moveTo(0, y); ctx.lineTo(MM_SIZE, y); }
+      ctx.stroke();
+    }
+    // town / place labels
+    const w = G.Data && G.Data.world;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const labelSets = [w && w.towns, w && w.pois, G.state.customPlaces, UI.customPlaces];
+    for (let s = 0; s < labelSets.length; s++) {
+      const arr = labelSets[s];
+      if (!Array.isArray(arr)) continue;
+      for (let i = 0; i < arr.length; i++) {
+        const t = arr[i]; const tp = t && (t.pos || t);
+        if (!tp || typeof tp.x !== 'number') continue;
+        const dx = (tp.x - px) * zoom, dy = (tp.z - pz) * zoom;
+        if (dx * dx + dy * dy > R * R * 1.1) continue;
+        if (s === 1 && zoom < 1) continue;
+        ctx.font = (s === 0 ? 'bold 10px ' : '9px ') + 'Cinzel, Georgia, serif';
+        ctx.fillStyle = s === 0 ? '#fff3c4' : '#dfd2b0';
+        ctx.shadowColor = '#000'; ctx.shadowBlur = 3;
+        ctx.fillText(_str(t.name), R + dx, R + dy - 6);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = s === 0 ? '#ffd54a' : '#c9b98a'; ctx.beginPath(); ctx.arc(R + dx, R + dy, 2, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    // entities
+    if (G.Spatial && typeof G.Spatial.query === 'function') {
+      const list = G.Spatial.query(px, pz, visM * 0.72);
+      const npcs = [];
+      for (let i = 0; i < list.length; i++) {
+        const e = list[i];
+        if (!e || e === p || !e.pos || e.dead) continue;
+        const dx = (e.pos.x - px) * zoom, dy = (e.pos.z - pz) * zoom;
+        if (dx * dx + dy * dy > (R - 3) * (R - 3)) continue;
+        const x = R + dx, y = R + dy;
+        let color = null, r = 2.5;
+        switch (e.kind) {
+          case 'monster': color = e.hostile === false ? '#d9a06a' : '#ff4a3a'; r = e.boss ? 4.5 : e.elite ? 3.5 : 2.5; break;
+          case 'npc': npcs.push(e); continue;
+          case 'aiplayer': color = '#5aa0ff'; break;
+          case 'node': color = '#5fbf5a'; break;
+          case 'chest': color = '#ffd54a'; break;
+          case 'boat': case 'dock': case 'fishspot': color = '#5fe0ff'; r = 3; break;
+          default: continue;
+        }
+        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1; ctx.stroke();
+      }
+      for (let i = 0; i < npcs.length; i++) {
+        const e = npcs[i], x = R + (e.pos.x - px) * zoom, y = R + (e.pos.z - pz) * zoom;
+        const mark = _npcMark(e);
+        ctx.fillStyle = '#ffe86b'; ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1; ctx.stroke();
+        if (mark) {
+          ctx.font = 'bold 12px Cinzel, Georgia, serif'; ctx.fillStyle = mark === '?grey' ? '#b8b8b8' : '#ffe86b';
+          ctx.shadowColor = '#000'; ctx.shadowBlur = 3; ctx.fillText(mark.charAt(0), x, y - 8); ctx.shadowBlur = 0;
+        }
+      }
+    }
+    // tracked objective + waypoint
+    if (G.Quests && typeof G.Quests.nextObjective === 'function' && G.Quests.tracked) {
+      let o = null; try { o = G.Quests.nextObjective(G.Quests.tracked); } catch (_) { o = null; }
+      if (o && o.pos) _drawEdgeMarker(ctx, (o.pos.x - px) * zoom, (o.pos.z - pz) * zoom, '#ffd54a', 'quest', mm.pulse);
+    }
+    if (UI.waypoint) _drawEdgeMarker(ctx, (UI.waypoint.x - px) * zoom, (UI.waypoint.z - pz) * zoom, '#5fe0ff', 'wp', mm.pulse);
+    // player arrow
+    ctx.save();
+    ctx.translate(R, R); ctx.rotate(-_num(p.yaw, 0));
+    ctx.shadowColor = '#000'; ctx.shadowBlur = 4;
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(6, 6); ctx.lineTo(0, 3); ctx.lineTo(-6, 6); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#3a2b14'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
+    // view cone of the camera (light)
+    ctx.save();
+    ctx.translate(R, R); ctx.rotate(-_camYaw());
+    const cone = ctx.createRadialGradient(0, 0, 4, 0, 0, 70);
+    cone.addColorStop(0, 'rgba(255,240,200,.28)'); cone.addColorStop(1, 'rgba(255,240,200,0)');
+    ctx.fillStyle = cone; ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 70, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    // inner vignette
+    const vg = ctx.createRadialGradient(R, R, R * 0.7, R, R, R);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.55)');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, MM_SIZE, MM_SIZE);
+    ctx.restore();
+  }
+  function _updateMinimap(dt) {
+    mm.t += dt;
+    mm.pulse = (Math.sin(_now() * 4) + 1) * 0.5;
+    if (mm.t < 0.05) return;
+    mm.t = 0;
+    const p = _player();
+    if (!p) return;
+    _drawMinimap();
+    const zid = G.state.zone || (G.Terrain && typeof G.Terrain.zoneAt === 'function' && p.pos ? G.Terrain.zoneAt(p.pos.x, p.pos.z) : '');
+    const zd = _zoneData(zid);
+    _setText(mm.zone, (zd && zd.name) || G.titleCase(zid || 'Middle-earth'), mm.last, 'zone');
+    _setText(mm.clock, _clock(G.time && G.time.dayTime), mm.last, 'clock');
+    _setText(mm.coords, (p.pos ? Math.round(p.pos.x) + ', ' + Math.round(p.pos.z) : '0, 0'), mm.last, 'coords');
+  }
+
+  // ------------------------------------------------------------------------------------------------ key help (F1)
+  const KEY_GROUPS = [
+    { title: 'Movement', rows: [
+      [['W', 'A', 'S', 'D'], 'Move, relative to the camera'], [['Mouse'], 'Look around (pointer lock, or hold the right button and drag)'],
+      [['Wheel'], 'Zoom the camera in and out'], [['Space'], 'Jump'], [['Q'], 'Dodge roll — a brief moment of invulnerability'],
+      [['H'], 'Mount or dismount your horse'], [['NumLock'], 'Auto-run'] ] },
+    { title: 'Combat', rows: [
+      [['1', '2', '…', '9', '0'], 'Hotbar slots 1–10'], [['G', 'T', 'V', 'X', 'Y', 'Z', 'L', 'N', 'O', 'U'], 'Hotbar slots 11–20'],
+      [['Tab'], 'Target the next enemy'], [['LMB'], 'Select a target / attack'], [['R'], 'Ranged attack with your equipped bow, javelin, staff…'] ] },
+    { title: 'The World', rows: [
+      [['E'], 'Interact: talk, open doors, gather, loot, board boats, fish spots'], [['F'], 'Fish — stand at the water\'s edge'],
+      [['B'], 'Auto-quest: let the bot play through every quest'] ] },
+    { title: 'Windows', rows: [
+      [['I'], 'Inventory (200 slots)'], [['C'], 'Character sheet & equipment'], [['K'], 'Abilities & training'], [['J'], 'Quest journal'],
+      [['M'], 'World map'], [['P'], 'Players of Middle-earth'], [['Esc'], 'Close the top window, or open Settings'], [['F1'], 'This key list'] ] },
+    { title: 'Chat', rows: [
+      [['Enter'], 'Type in chat — Enter sends, Esc cancels'], [['/say', '/w', '/me'], 'Speak, whisper, emote'], [['/who', '/time', '/fps', '/help'], 'Handy commands'] ] },
+  ];
+  function _buildKeyHelp(body) {
+    const grid = el('div', { class: 'kh-grid' });
+    KEY_GROUPS.forEach(function (g) {
+      const box = el('div', { class: 'kh-group' }, [el('h4', { text: g.title })]);
+      g.rows.forEach(function (r) {
+        box.appendChild(el('div', { class: 'kh-row' }, [
+          el('div', { class: 'kh-keys' }, r[0].map(function (k) { return k === '…' ? el('span', { text: '…', class: 'muted' }) : el('span', { class: 'keycap', text: k }); })),
+          el('div', { class: 'kh-desc', text: r[1] }),
+        ]));
+      });
+      grid.appendChild(box);
+    });
+    body.appendChild(grid);
+    body.appendChild(el('div', { class: 'kh-note', text: 'Type the letters c-h-r-i-s at any time to open the admin panel. Windows can be dragged by their title bar; double-click a title to reset its position.' }));
+  }
+
+  // ------------------------------------------------------------------------------------------------ keys
+  function _handleKeys() {
+    const I = G.Input;
+    if (!I || I.typing || typeof I.pressed !== 'function') return;
+    const playing = G.state.phase === 'playing';
+    if (I.pressed('Escape')) {
+      I.consume('Escape');
+      if (!_closeTop() && playing && panels.settings && !UI.DeathScreen.visible) UI.togglePanel('settings');
+      return;
+    }
+    if (!playing) return;
+    const modal = UI.anyModal();
+    if (!modal && (I.pressed('Enter') || I.pressed('NumpadEnter'))) { I.consume('Enter'); I.consume('NumpadEnter'); UI.chatInput(); return; }
+    if (I.pressed('F1') || (I.pressed('Slash') && (I.down('ShiftLeft') || I.down('ShiftRight')))) { I.consume('F1'); UI.togglePanel('keyhelp'); return; }
+    if (I.pressed('KeyB')) { I.consume('KeyB'); _toggleAutoQuest(); return; }
+    if (modal) return;
+    for (const id in panels) {
+      const k = panels[id].def.key;
+      if (k && I.pressed(k)) { I.consume(k); UI.togglePanel(id); return; }
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------ init / update / showHUD
+  let _hudRoot = null, _inited = false, _errShown = false;
+  UI.hudVisible = false;
+  UI.init = function () {
+    if (_inited) return UI;
+    _inited = true;
+    UI.addCSS(HUD_CSS);
+    _ensureRoots();
+    const uiRoot = document.getElementById('ui') || document.body;
+    _hudRoot = document.getElementById('hud');
+    if (!_hudRoot) { _hudRoot = el('div', { id: 'hud', hidden: true }); uiRoot.appendChild(_hudRoot); }
+    let overlays = document.getElementById('overlays');
+    if (!overlays) { overlays = el('div', { id: 'overlays' }); uiRoot.appendChild(overlays); }
+    const hud = _hudRoot;
+    _buildCompass(hud);
+    _buildPlayerFrame(hud);
+    _buildTargetFrame(hud);
+    bf.el = el('div', { id: 'buffs' }); hud.appendChild(bf.el);
+    _buildAutoquest(hud);
+    fp.el = el('div', { id: 'fps', class: 'hud-frame', hidden: true }); hud.appendChild(fp.el);
+    _buildMinimap(hud);
+    _buildTracker(hud);
+    _noticesEl = el('div', { id: 'notices' }); hud.appendChild(_noticesEl);
+    _bigTitle = el('div', { class: 'big-title' }); _bigSub = el('div', { class: 'big-sub' });
+    _bigEl = el('div', { id: 'bigNotice' }, [_bigTitle, el('div', { class: 'big-rule' }), _bigSub]); hud.appendChild(_bigEl);
+    _buildZone(hud);
+    _ftLayer = el('div', { id: 'floatLayer' }); hud.appendChild(_ftLayer);
+    _buildHotbar(hud);
+    _buildCastbar(hud);
+    _buildInteract(hud);
+    _buildXpbar(hud);
+    _buildChat(hud);
+    _lootList = el('div', { class: 'lw-list' }); _lootGold = el('div', { class: 'lw-gold', hidden: true });
+    _lootEl = el('div', { id: 'lootWindow', class: 'hud-frame', hidden: true }, [el('div', { class: 'lw-title', text: 'Loot' }), _lootList, _lootGold]); hud.appendChild(_lootEl);
+    _buildDeath(overlays);
+    UI.registerPanel('keyhelp', { title: 'Key Bindings', key: 'F1', width: 720, pos: 'center', build: _buildKeyHelp });
+
+    // ---- wiring
+    G.on('gameStart', function () {
+      UI.showHUD(true);
+      UI.hotbarRefresh();
+      UI.tracker.refresh();
+      mm.npcMarks.clear();
+      const p = _player();
+      _sysLine('Welcome to Middle-earth' + (p && p.name ? ', ' + p.name : '') + '. Press F1 for the key bindings, Enter to chat, /help for commands.');
+      if (G.state.zone) UI.showZone(G.state.zone);
+    });
+    G.on('playerDeath', function () { UI.DeathScreen.show(); _chatAppend('You have been defeated.', 'combat', ''); });
+    G.on('playerRespawn', function () { UI.DeathScreen.hide(); });
+    G.on('playerLevelUp', function (level) { UI.notifyBig('Level ' + _num(level, (_player() || {}).level || 1), 'You have grown in strength and renown'); _chatAppend('You have reached level ' + _num(level, 1) + '!', 'system', ''); });
+    G.on('questAccepted', function () { UI.tracker.refresh(); });
+    G.on('questProgress', function () { UI.tracker.refresh(); });
+    G.on('questCompleted', function (id) { const d = _questData(id); UI.notifyBig('Quest Complete', d ? d.name : ''); UI.tracker.refresh(); mm.npcMarks.clear(); });
+    G.on('zoneChanged', function (id) { UI.showZone(id); });
+    G.on('abilityTrained', function () { UI.hotbarRefresh(); });
+    G.on('load', function () { UI.hotbarRefresh(); UI.tracker.refresh(); mm.npcMarks.clear(); });
+    G.on('pointerLock', function (locked) { if (locked) UI.tooltip.hide(); });
+    document.addEventListener('mousedown', function (e) {
+      const c = G.Input && G.Input.canvas;
+      if (_relockArmed && c && e.target === c && e.button === 0) {
+        _relockArmed = false;
+        if (!UI.anyOpen() && G.state.phase === 'playing' && typeof G.Input.requestLock === 'function') G.Input.requestLock();
+      }
+    }, true);
+    window.addEventListener('resize', function () {
+      for (const id in panels) { const p = panels[id]; if (p.open) _clampPanel(p, p.el.offsetLeft, p.el.offsetTop); }
+      cp.lastYaw = 1e9; mm.t = 1;
+    });
+    return UI;
+  };
+
+  UI.showHUD = function (visible) {
+    if (!_inited) UI.init();
+    UI.hudVisible = visible !== false;
+    _hudRoot.hidden = !UI.hudVisible;
+    if (UI.hudVisible) { UI.hotbarRefresh(); qt.sig = ''; qt.t = 1; mm.t = 1; cp.lastYaw = 1e9; }
+    else { UI.tooltip.hide(); }
+  };
+
+  UI.update = function (dt) {
+    if (!_inited) return;
+    dt = clamp(_num(dt, 0), 0, 0.1);
+    try {
+      _handleKeys();
+      _updateNotices(dt);
+      if (tooltip.visible && _ttOwner && !_ttOwner.isConnected) tooltip.hide();
+      if (!UI.hudVisible) return;
+      _updatePlayerFrame();
+      _updateTargetFrame();
+      _updateBuffs(dt);
+      _updateHotbar(dt);
+      _updateCastbar();
+      _updateXpbar();
+      _updateInteract(dt);
+      _updateCompass(dt);
+      _updateAutoquest(dt);
+      _updateFps(dt);
+      _updateDeath(dt);
+      _updateZone(dt);
+      _updateLoot(dt);
+      _updateFloatText(dt);
+      _updateTracker(dt);
+      _updateMinimap(dt);
+    } catch (err) {
+      if (!_errShown) { _errShown = true; if (G.reportError) G.reportError(err, 'UI.update'); G.warn('UI.update: ' + (err && err.message)); }
+    }
+  };
+
+  G.log('30_ui_hud ready');
+})();

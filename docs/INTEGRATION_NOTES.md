@@ -59,3 +59,8 @@
 - `G.Buildings.init(scene)` then `build()` places everything from `G.Data.world` (towns, POIs, docks). `update(playerPos, dt)`. Events: `enterBuilding`, `leaveBuilding`, `doorToggled`.
 - Buildings carry `interiorSpots` `[{x,y,z,yaw,role}]` (roles keeper/vendor/boatmaster/lord/forge/fire/table/bed/sit/pray/watch/idle); `G.Buildings.spotFor(npcId)` returns a spot for an interior NPC. Docks: `dock.building`, `dock.deckY`, building `dockEnd`.
 - Town walls for `town.walls` truthy or id 'bree'. POIs without `buildings` get generated ruins by kind. `nearest(pos, filter)`, `isInside(pos)`, `playerInside`, `openDoor/closeDoor/toggleDoor(ent)`, `stats()`.
+
+## 10_terrain.js
+- `init()` ≈ 300 ms, `build(scene)`; `update(playerPos, dt)`. Main should call `G.Terrain.warmup(x,z,radius)` around the spawn during loading and pre-warm `mapCanvas(1024)` (≈ 520 ms) to avoid a first M-press hitch.
+- Reads optional `G.Data.world.water` (seaWestX/seaNorthZ, lakes, rivers, bays, landmasses, islands) — §9 defaults otherwise. `slope()` = sin(angle). `groundType` never returns 'wood' (Player should treat `G.Buildings.isInside` / floor colliders as wood).
+- Extras: `groundColor(x,z,out)`, `townAt(x,z)`, `zoneWeight`, `worldToMap(x,z,size)`/`mapToWorld`, `coarseHeight`, `stats()`, `ready`, `water` mesh, `setSun`, `setSkyColor`.
