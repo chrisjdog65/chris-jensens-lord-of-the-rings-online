@@ -1234,3 +1234,512 @@
     if (facing(p, t) < 0.3) return;
     basicAttack(p, t, EMPTY);
   }
+
+  // ------------------------------------------------------------------------------------------------ death & loot
+  const lootBags = [];
+  let _sceneRef = null;
+  function sceneRef() {
+    if (_sceneRef && _sceneRef.isObject3D) return _sceneRef;
+    const GM = G.Game;
+    if (GM && GM.scene && GM.scene.isObject3D) { _sceneRef = GM.scene; return _sceneRef; }
+    const p = player();
+    const grp = p && p.rig && p.rig.group ? p.rig.group : (p && p.mesh ? p.mesh : null);
+    if (grp && grp.parent && grp.parent.isScene) { _sceneRef = grp.parent; return _sceneRef; }
+    return null;
+  }
+  function rarityHexOf(list) {
+    const I = G.Items; let best = 0;
+    const order = C.RARITY || ['common', 'uncommon', 'rare', 'incomparable', 'legendary'];
+    if (I && typeof I.rarityOf === 'function') for (let i = 0; i < list.length; i++) { const r = order.indexOf(I.rarityOf(list[i])); if (r > best) best = r; }
+    if (best <= 0) return 0xffe08a;
+    const col = C.RARITY_COLOR && C.RARITY_COLOR[order[best]];
+    if (typeof col === 'string' && col[0] === '#') return parseInt(col.slice(1), 16) || 0xffe08a;
+    return 0xffe08a;
+  }
+  function lootInteract(bag) { return lootBag(bag, player()); }
+  function attachLootMesh(bag) {
+    const scene = sceneRef(); const CH = G.Chars;
+    if (!scene || !CH || typeof CH.buildProp !== 'function') return;
+    try {
+      const prop = CH.buildProp('bundle');
+      const grp = prop && (prop.group || (prop.isObject3D ? prop : null));
+      if (!grp) return;
+      grp.position.set(bag.pos.x, bag.pos.y, bag.pos.z); grp.rotation.y = bag.yaw;
+      scene.add(grp);
+      bag.prop = prop; bag.mesh = grp;
+    } catch (e) { report(e, 'loot bag mesh'); }
+  }
+  function detachLootMesh(bag) {
+    if (bag.mesh && bag.mesh.parent) bag.mesh.parent.remove(bag.mesh);
+    if (bag.prop && typeof bag.prop.dispose === 'function') { try { bag.prop.dispose(); } catch (e) { /* ignore */ } }
+    bag.mesh = null; bag.prop = null;
+  }
+  function dropLoot(victim, forPlayer) {
+    const I = G.Items; if (!victim || !I || typeof I.lootFor !== 'function') return null;
+    const td = typeDataOf(victim) || { id: victim.typeId || null, name: victim.name, family: familyOf(victim), level: levelOf(victim), loot: Array.isArray(victim.loot) ? victim.loot : [], elite: !!victim.elite, boss: !!victim.boss };
+    let items = null;
+    try { items = I.lootFor(td, levelOf(victim)); } catch (e) { report(e, 'Items.lootFor'); return null; }
+    const gold = Math.max(0, Math.round(num(items && items.gold, 0)));
+    const list = Array.isArray(items) ? items.filter(Boolean) : [];
+    if (!list.length && gold <= 0) return null;
+    const p = posOf(victim); if (!p) return null;
+    const y = groundYAt(p.x, p.z, num(p.y));
+    const bag = {
+      id: G.uid(), kind: 'chest', subkind: 'lootbag', name: 'Loot', level: levelOf(victim),
+      pos: new V3(p.x, y, p.z), vel: new V3(0, 0, 0), yaw: num(victim.yaw, 0), radius: 0.35, height: 0.5,
+      alive: true, dead: false, loot: list, gold: gold, owner: forPlayer ? forPlayer.id : null, from: victim.name || '',
+      born: now(), expires: now() + LOOT_LIFE, interact: { label: 'Loot', range: 2.5, fn: lootInteract }, fx: null, mesh: null, prop: null,
+    };
+    G.addEntity(bag);
+    lootBags.push(bag);
+    if (nearPlayer(bag, 200)) { const o = fxReset(); o.color = rarityHexOf(list); bag.fx = fx('loot_glow', bag.pos, o); }
+    attachLootMesh(bag);
+    G.emit('lootDropped', bag);
+    return bag;
+  }
+  function removeBag(bag) {
+    if (!bag) return;
+    stopFx(bag.fx); bag.fx = null;
+    detachLootMesh(bag);
+    bag.alive = false; bag.dead = true;
+    const i = lootBags.indexOf(bag); if (i >= 0) lootBags.splice(i, 1);
+    G.removeEntity(bag);
+  }
+  function lootBag(bag, ent) {
+    ent = ent || player();
+    if (!bag || !ent || !isAlive(ent) || bag.subkind !== 'lootbag') return false;
+    const I = G.Items;
+    const list = bag.loot || (bag.loot = []);
+    const taken = []; let full = false;
+    for (let i = 0; i < list.length;) {
+      const inst = list[i];
+      let ok = false;
+      if (I && typeof I.addToInventory === 'function') { try { ok = !!I.addToInventory(ent, inst, true); } catch (e) { report(e, 'Items.addToInventory'); ok = false; } }
+      if (ok) { taken.push(inst); list.splice(i, 1); } else { full = true; i++; }
+    }
+    let gold = 0;
+    if (bag.gold > 0) { gold = bag.gold; bag.gold = 0; Progress.addGold(gold, { silent: true }); }
+    if (taken.length || gold > 0) {
+      counters.loot++;
+      sfx('loot', ent, 1, 1);
+      const U = ui();
+      if (U && typeof U.showLoot === 'function') { try { U.showLoot(taken, gold); } catch (e) { report(e, 'UI.showLoot'); } }
+      for (let i = 0; i < taken.length; i++) {
+        const v = itemView(taken[i]); const cnt = num(taken[i].count, 1);
+        chat('You loot: ' + (v ? v.name : taken[i].tid) + (cnt > 1 ? ' ×' + cnt : '') + '.', 'system');
+      }
+      if (gold > 0) chat('You receive ' + fmtMoney(gold) + '.', 'system');
+      G.emit('lootTaken', { items: taken, gold: gold, bag: bag });
+    }
+    if (full) {
+      const t = now();
+      if (t - num(bag._fullWarn, -10) > 2) { bag._fullWarn = t; notify('Your inventory is full', 'warning'); sfx('ui_error', null, 0.6, 1); }
+    }
+    if (!list.length && bag.gold <= 0) removeBag(bag);
+    return taken.length > 0 || gold > 0;
+  }
+  function autoLootEnabled() { const s = G.state.settings; return !(s && s.autoLoot === false); }
+  function tryAutoLoot() {
+    const p = player();
+    if (!p || !isAlive(p) || !p.pos || !lootBags.length || !autoLootEnabled()) return false;
+    let any = false;
+    for (let i = lootBags.length - 1; i >= 0; i--) {
+      const b = lootBags[i]; if (!b || !b.pos) continue;
+      const dx = b.pos.x - p.pos.x, dz = b.pos.z - p.pos.z, dy = b.pos.y - p.pos.y;
+      if (dx * dx + dz * dz <= AUTO_LOOT_RANGE * AUTO_LOOT_RANGE && Math.abs(dy) < 2.5) { if (lootBag(b, p)) any = true; }
+    }
+    return any;
+  }
+  function updateLootBags(t) {
+    for (let i = lootBags.length - 1; i >= 0; i--) { const b = lootBags[i]; if (!b || t > num(b.expires, 0)) removeBag(b); }
+  }
+
+  function kill(ent, killer) {
+    if (!ent || ent.dead === true) return false;
+    const st = G.state; const stats = statsObj(); const t = now();
+    if (isPlayer(ent) && st.godMode) { ent.morale = Math.max(1, num(ent.morale, 1)); return false; }
+    ent.alive = false; ent.dead = true; ent.deathTime = t; ent.morale = 0;
+    ent.autoAttack = false; ent.target = null;
+    cancelCast(ent, null);
+    clearEffects(ent);
+    if (ent.knockback && typeof ent.knockback === 'object') { ent.knockback.x = 0; ent.knockback.y = 0; ent.knockback.z = 0; }
+    clearThreat(ent);
+    playAnim(ent, 'death', true);
+    counters.kills++;
+    const fam = familyOf(ent);
+    const boss = isBoss(ent), elite = isElite(ent);
+    sfx(DEATH_SFX[fam] || 'death', ent, 1, isPlayer(ent) ? 0.9 : (boss ? 0.8 : 1));
+    if (nearPlayer(ent, 150)) { const o = fxReset(); o.scale = boss ? 2 : elite ? 1.4 : 1; fx('death_puff', posOf(ent), o); }
+    const credit = creditFor(killer);
+    G.emit('entityKilled', { victim: ent, killer: killer || null });
+    if (ent.kind === 'monster') {
+      if (credit) {
+        stats.kills += 1;
+        if (fam) stats.killsByFamily[fam] = num(stats.killsByFamily[fam], 0) + 1;
+        chat('You have defeated ' + nameOf(ent) + '.', 'combat');
+        const xpApi = G.Data && G.Data.xp;
+        const xp = (xpApi && typeof xpApi.killXP === 'function') ? Math.round(num(xpApi.killXP(levelOf(ent), levelOf(credit), boss ? 4 : elite ? 1.5 : 1), 0)) : 0;
+        if (xp > 0) Progress.addXP(xp, EMPTY);
+        const hk = credit.stats ? num(credit.stats.healOnKillPct, 0) : 0;
+        if (hk > 0 && isAlive(credit) && credit.stats) heal(credit, credit, credit.stats.maxMorale * hk / 100, _hotOpts);
+        if (boss) { notifyBig(nameOf(ent) + ' defeated', 'A great foe of the Free Peoples is no more'); sfx('achievement', null, 1, 1); }
+        dropLoot(ent, credit);
+        const Q = G.Quests;
+        if (Q && typeof Q.onKill === 'function') { try { Q.onKill(ent.typeId || (typeDataOf(ent) && typeDataOf(ent).id) || null, ent); } catch (e) { report(e, 'Quests.onKill'); } }
+        Progress.checkTitles();
+      }
+    } else if (isPlayer(ent)) {
+      stats.deaths += 1;
+      combatUntil = 0; bossFight = false;
+      dismountPlayer(ent);
+      chat('You have been defeated' + (killer ? ' by ' + nameOf(killer) : '') + '.', 'system');
+      G.emit('playerDeath');
+      const U = ui(); const ds = U && (U.deathScreen || U.DeathScreen);
+      if (ds && typeof ds.show === 'function') { try { ds.show(); } catch (e) { report(e, 'UI.deathScreen.show'); } }
+      const A = G.Audio;
+      if (A && typeof A.music === 'function') { try { A.music('death'); } catch (e) { report(e, 'Audio.music'); } musicMode = 'death'; }
+    }
+    return true;
+  }
+  function revive(ent, moraleFrac) {
+    if (!ent) return false;
+    ent.alive = true; ent.dead = false; ent.deathTime = 0;
+    ent.casting = null; ent.autoAttack = false; ent.target = null; ent.nextSwing = 0; ent.gcdReady = 0;
+    if (Array.isArray(ent.effects)) ent.effects.length = 0;
+    clearThreat(ent);
+    if (ent.knockback && typeof ent.knockback === 'object') { ent.knockback.x = 0; ent.knockback.y = 0; ent.knockback.z = 0; }
+    recompute(ent);
+    const frac = (typeof moraleFrac === 'number') ? Math.max(0.01, Math.min(1, moraleFrac)) : 0.1;
+    const s = ent.stats || {};
+    ent.morale = Math.max(1, Math.round(num(s.maxMorale, num(ent.morale, 1)) * frac));
+    ent.power = Math.max(0, Math.round(num(s.maxPower, num(ent.power, 0)) * Math.max(frac, 0.5)));
+    ent.lastCombat = -1e9;
+    if (isPlayer(ent)) { combatUntil = 0; bossFight = false; musicMode = null; }
+    playAnim(ent, 'idle', true);
+    G.emit('effectsChanged', ent);
+    return true;
+  }
+  function fallDamage(ent, fallSpeed) {
+    const s = num(fallSpeed, 0);
+    if (!ent || !isAlive(ent) || s < 14) return 0;
+    if (isPlayer(ent) && G.state.godMode) return 0;
+    const max = ent.stats ? num(ent.stats.maxMorale, 100) : 100;
+    const mult = ent.stats ? num(ent.stats.fallDamageMult, 1) : 1;
+    const amt = Math.round(max * Math.min(1.5, (s - 14) / 22) * mult);
+    if (amt <= 0) return 0;
+    _fallOpts.sfx = 'land';
+    return damage(null, ent, amt, 'fall', _fallOpts);
+  }
+  const _fallOpts = { crit: false, ability: null, kind: 'fall', threat: 1, sfx: 'land', fxKind: null, raw: true, noFx: false, noAnim: false, small: false, silent: false, dot: false };
+
+  // ------------------------------------------------------------------------------------------------ per-frame update
+  let _threatAcc = 0;
+  function regen(e, dt, t) {
+    const s = e.stats; if (!s) return;
+    const inC = (t - num(e.lastCombat, -1e9)) < COMBAT_TIMEOUT;
+    const maxM = num(s.maxMorale, 0);
+    if (maxM > 0 && typeof e.morale === 'number' && e.morale < maxM) {
+      const r = inC ? num(s.moraleRegenCombat, 0) : num(s.moraleRegen, 0);
+      if (r > 0) e.morale = Math.min(maxM, e.morale + r * dt);
+    }
+    const maxP = num(s.maxPower, 0);
+    if (maxP > 0 && typeof e.power === 'number' && e.power < maxP) {
+      const r = inC ? num(s.powerRegenCombat, 0) : num(s.powerRegen, 0);
+      if (r > 0) e.power = Math.min(maxP, e.power + r * dt);
+    }
+  }
+  function update(dt) {
+    dt = num(dt, 0); if (dt <= 0) return;
+    const st = G.state; const P = st.player; const ents = st.entities; const t = now();
+    const px = (P && P.pos) ? P.pos.x : 0, pz = (P && P.pos) ? P.pos.z : 0;
+    _threatAcc += dt;
+    const doThreat = _threatAcc >= 1; const threatDt = _threatAcc; if (doThreat) _threatAcc = 0;
+    const far2 = FAR_DIST * FAR_DIST, regen2 = REGEN_RADIUS * REGEN_RADIUS;
+    for (let i = 0; i < ents.length; i++) {
+      const e = ents[i];
+      if (!e || !e.pos) continue;
+      const hasEff = !!(e.effects && e.effects.length);
+      if (!e.stats && !hasEff && !e.casting && !e.threat) continue;
+      const dx = e.pos.x - px, dz = e.pos.z - pz; const d2 = dx * dx + dz * dz;
+      let edt = dt;
+      if (d2 > far2 && e !== P) {
+        e._cbAcc = num(e._cbAcc, 0) + dt;
+        if (e._cbAcc < FAR_TICK) continue;
+        edt = e._cbAcc; e._cbAcc = 0;
+      }
+      if (e.casting) updateCast(e);
+      if (hasEff) tickEffects(e, edt);
+      if (isAlive(e) && e.stats && (d2 <= regen2 || e === P)) regen(e, edt, t);
+      if (doThreat && e.threat && d2 <= far2 * 4) decayThreat(e, threatDt);
+    }
+    if (P) updateAutoAttack(P, t);
+    if (lootBags.length) updateLootBags(t);
+    updateCombatState();
+  }
+
+  // ------------------------------------------------------------------------------------------------ progression
+  function ensureAbilities(p) {
+    if (!p) return null;
+    if (!(p.abilities instanceof Set)) {
+      const src = p.abilities;
+      p.abilities = new Set(Array.isArray(src) ? src : (src && typeof src === 'object') ? Object.keys(src) : []);
+    }
+    return p.abilities;
+  }
+  function ensurePlayerShape(p) {
+    if (!p || typeof p !== 'object') return p;
+    ensureAbilities(p);
+    if (!Array.isArray(p.hotbar)) p.hotbar = new Array(HOTBAR_SIZE).fill(null);
+    else while (p.hotbar.length < HOTBAR_SIZE) p.hotbar.push(null);
+    if (!p.cooldowns || typeof p.cooldowns !== 'object') p.cooldowns = {};
+    if (!Array.isArray(p.effects)) p.effects = [];
+    if (!p.threat || typeof p.threat !== 'object') p.threat = {};
+    if (typeof p.xp !== 'number' || !isFinite(p.xp)) p.xp = 0;
+    if (typeof p.gold !== 'number' || !isFinite(p.gold)) p.gold = 0;
+    if (!Array.isArray(p.titles)) p.titles = [];
+    if (typeof p.level !== 'number' || !isFinite(p.level)) p.level = 1;
+    if (typeof p.gcdReady !== 'number') p.gcdReady = 0;
+    if (typeof p.nextSwing !== 'number') p.nextSwing = 0;
+    return p;
+  }
+  function hasAbility(p, id) { return !!p && abilitiesHas(p.abilities, id); }
+  function firstFreeHotbar(p) {
+    p = p || player(); if (!p) return -1;
+    ensurePlayerShape(p);
+    for (let i = 0; i < HOTBAR_SIZE; i++) if (!p.hotbar[i]) return i;
+    return -1;
+  }
+  function hotbarSlotOf(id, p) {
+    p = p || player(); if (!p || !Array.isArray(p.hotbar) || !id) return -1;
+    for (let i = 0; i < p.hotbar.length; i++) if (p.hotbar[i] === id) return i;
+    return -1;
+  }
+  function setHotbar(slot, abilityId) {
+    const p = player(); if (!p) return false;
+    ensurePlayerShape(p);
+    slot = slot | 0;
+    if (slot < 0 || slot >= HOTBAR_SIZE) return false;
+    if (abilityId) {
+      if (!resolveAbility(abilityId)) return false;
+      const prev = hotbarSlotOf(abilityId, p);
+      if (prev >= 0 && prev !== slot) p.hotbar[prev] = p.hotbar[slot] || null;   // swap so drag-and-drop feels natural
+      p.hotbar[slot] = abilityId;
+    } else p.hotbar[slot] = null;
+    G.emit('hotbarChanged', slot);
+    return true;
+  }
+  function xpApi() { return (G.Data && G.Data.xp) ? G.Data.xp : null; }
+  function xpForLevel(L) { const x = xpApi(); return (x && typeof x.forLevel === 'function') ? num(x.forLevel(L), 0) : 0; }
+  function xpToNext() {
+    const p = player(); if (!p) return 0;
+    if (levelOf(p) >= LEVEL_CAP) return 0;
+    return Math.max(0, xpForLevel(levelOf(p) + 1) - num(p.xp, 0));
+  }
+  function xpProgress() {
+    const p = player(); if (!p) return 0;
+    const L = levelOf(p);
+    if (L >= LEVEL_CAP) return 1;
+    const a = xpForLevel(L), b = xpForLevel(L + 1);
+    if (!(b > a)) return 0;
+    return Math.max(0, Math.min(1, (num(p.xp, 0) - a) / (b - a)));
+  }
+  function addXP(n, opts) {
+    const p = player(); if (!p) return 0;
+    ensurePlayerShape(p);
+    n = Math.round(num(n, 0)); if (n <= 0) return 0;
+    opts = opts || EMPTY;
+    const cap = xpForLevel(LEVEL_CAP);
+    if (p.level >= LEVEL_CAP) { if (cap > 0 && p.xp < cap) p.xp = cap; return 0; }
+    const before = num(p.xp, 0);
+    p.xp = cap > 0 ? Math.min(cap, before + n) : before + n;
+    const gained = p.xp - before;
+    if (gained <= 0) return 0;
+    if (!opts.silent) chat('You gain ' + fmtNum(gained) + ' experience.', 'combat');
+    G.emit('xpGained', gained);
+    let guard = 0;
+    while (p.level < LEVEL_CAP && p.xp >= xpForLevel(p.level + 1) && guard++ < LEVEL_CAP) { if (!levelUp()) break; }
+    return gained;
+  }
+  function levelUp() {
+    const p = player(); if (!p) return false;
+    ensurePlayerShape(p);
+    if (p.level >= LEVEL_CAP) return false;
+    p.level += 1;
+    const L = p.level;
+    const need = xpForLevel(L); if (p.xp < need) p.xp = need;
+    recompute(p);
+    if (p.stats) { p.morale = num(p.stats.maxMorale, p.morale); p.power = num(p.stats.maxPower, p.power); }
+    if (p.pos) { const o = fxReset(); o.scale = 1; fx('levelup', p.pos, o); }
+    sfx('level_up', null, 1, 1);
+    const unlocked = [];
+    const list = abilitiesFor(p.cls);
+    for (let i = 0; i < list.length; i++) if (list[i].level === L) unlocked.push(list[i]);
+    let trait = null;
+    const traits = G.Data && G.Data.classTraits && G.Data.classTraits[p.cls];
+    if (Array.isArray(traits)) for (let i = 0; i < traits.length; i++) if (traits[i] && traits[i].level === L) { trait = traits[i]; break; }
+    let sub = '';
+    if (unlocked.length) sub = 'New ' + (unlocked.length > 1 ? 'abilities' : 'ability') + ': ' + unlocked.map(function (a) { return a.name; }).join(', ') + ' — visit a trainer (K)';
+    if (trait) sub += (sub ? ' · ' : '') + 'Trait gained: ' + trait.name;
+    notifyBig('Level ' + L, sub);
+    chat('You have reached level ' + L + '!', 'system');
+    for (let i = 0; i < unlocked.length; i++) chat('New ability available: ' + unlocked[i].name + (unlocked[i].cost > 0 ? ' (train for ' + fmtMoney(unlocked[i].cost) + ')' : '') + '.', 'system');
+    if (trait) chat('Class trait gained: ' + trait.name + '.', 'system');
+    G.emit('playerLevelUp', L);
+    checkTitles();
+    return true;
+  }
+  function setLevel(L) {
+    const p = player(); if (!p) return false;
+    ensurePlayerShape(p);
+    L = Math.max(1, Math.min(LEVEL_CAP, Math.round(num(L, 1))));
+    p.level = L; p.xp = xpForLevel(L);
+    recompute(p);
+    if (p.stats) { p.morale = num(p.stats.maxMorale, p.morale); p.power = num(p.stats.maxPower, p.power); }
+    G.emit('playerLevelUp', L);
+    checkTitles();
+    return true;
+  }
+  function addGold(copper, opts) {
+    const p = player(); if (!p) return 0;
+    ensurePlayerShape(p);
+    opts = opts || EMPTY;
+    const c = Math.round(num(copper, 0)); if (!c) return p.gold;
+    p.gold = Math.max(0, p.gold + c);
+    if (c > 0 && !opts.silent) { sfx('coin', null, 0.8, 1); chat('You receive ' + fmtMoney(c) + '.', 'system'); }
+    G.emit('goldChanged', p.gold);
+    return p.gold;
+  }
+  function spendGold(copper) {
+    const p = player(); if (!p) return false;
+    ensurePlayerShape(p);
+    const c = Math.round(num(copper, 0));
+    if (c <= 0) return true;
+    if (p.gold < c) { notify('You do not have enough coin', 'warning'); sfx('ui_error', null, 0.6, 1); return false; }
+    p.gold -= c;
+    sfx('coin', null, 0.8, 1);
+    G.emit('goldChanged', p.gold);
+    return true;
+  }
+  function trainCostOf(a) { const D = G.Data; if (D && typeof D.trainCost === 'function') return num(D.trainCost(a), 0); return num(a && a.cost, 0); }
+  const _trainRes = { ok: false, reason: '', cost: 0 };
+  function canTrain(id) {
+    const r = _trainRes; r.ok = false; r.reason = ''; r.cost = 0;
+    const p = player(); const a = resolveAbility(id);
+    if (!p) { r.reason = 'No character'; return r; }
+    if (!a || a.cls === 'monster') { r.reason = 'Unknown ability'; return r; }
+    ensurePlayerShape(p);
+    if (a.cls !== p.cls) { r.reason = 'Not an ability of your class'; return r; }
+    if (p.abilities.has(a.id)) { r.reason = 'Already trained'; return r; }
+    if (levelOf(p) < num(a.level, 1)) { r.reason = 'Requires level ' + a.level; return r; }
+    r.cost = trainCostOf(a);
+    if (p.gold < r.cost) { r.reason = 'Not enough coin (costs ' + fmtMoney(r.cost) + ')'; return r; }
+    r.ok = true; return r;
+  }
+  function trainAbility(id) {
+    const chk = canTrain(id);
+    const out = { ok: chk.ok, reason: chk.reason };
+    if (!chk.ok) { if (chk.reason) { notify(chk.reason, 'warning'); sfx('ui_error', null, 0.6, 1); } return out; }
+    const p = player(); const a = resolveAbility(id);
+    if (chk.cost > 0 && !spendGold(chk.cost)) { out.ok = false; out.reason = 'Not enough coin'; return out; }
+    p.abilities.add(a.id);
+    if (hotbarSlotOf(a.id, p) < 0) { const slot = firstFreeHotbar(p); if (slot >= 0) setHotbar(slot, a.id); }
+    notify('You have learned ' + a.name, 'level');
+    chat('You have learned the ability ' + a.name + '.', 'system');
+    sfx('achievement', null, 0.9, 1);
+    G.emit('abilityTrained', a.id);
+    return out;
+  }
+  function untrainedAvailable() {
+    const p = player(); if (!p) return [];
+    ensurePlayerShape(p);
+    const out = [], list = abilitiesFor(p.cls), L = levelOf(p);
+    for (let i = 0; i < list.length; i++) { const a = list[i]; if (a.level <= L && !p.abilities.has(a.id)) out.push(a); }
+    return out;
+  }
+  function grantStarterAbilities(p) {
+    p = p || player(); if (!p) return 0;
+    ensurePlayerShape(p);
+    const list = abilitiesFor(p.cls); let n = 0;
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i]; if (a.level > 1) continue;
+      if (!p.abilities.has(a.id)) { p.abilities.add(a.id); n++; }
+      if (hotbarSlotOf(a.id, p) < 0) { const slot = firstFreeHotbar(p); if (slot >= 0) p.hotbar[slot] = a.id; }
+    }
+    if (n) G.emit('hotbarChanged', -1);
+    return n;
+  }
+  function awardTitle(id) {
+    const p = player(); if (!p || !id) return false;
+    ensurePlayerShape(p);
+    if (p.titles.indexOf(id) >= 0) return false;
+    const D = G.Data; let name = id;
+    if (D && typeof D.titleName === 'function') { try { name = D.titleName(id, p.gender) || id; } catch (e) { /* ignore */ } }
+    p.titles.push(id);
+    if (!p.activeTitle) p.activeTitle = id;
+    notify('Title earned: ' + name, 'level');
+    chat('You have earned the title "' + name + '".', 'system');
+    sfx('achievement', null, 1, 1);
+    G.emit('titleEarned', id);
+    return true;
+  }
+  function checkTitles() {
+    const p = player(); const D = G.Data;
+    if (!p || !D || !Array.isArray(D.titles)) return 0;
+    ensurePlayerShape(p);
+    const st = statsObj(); let n = 0;
+    for (let i = 0; i < D.titles.length; i++) {
+      const t = D.titles[i]; if (!t || !t.req || p.titles.indexOf(t.id) >= 0) continue;
+      const q = t.req; let ok = false;
+      if (t.kind === 'level' && typeof q.level === 'number') ok = levelOf(p) >= q.level;
+      else if (t.kind === 'deed') {
+        if (typeof q.family === 'string' && typeof q.count === 'number') ok = num(st.killsByFamily[q.family], 0) >= q.count;
+        else if (typeof q.kills === 'number') ok = num(st.kills, 0) >= q.kills;
+        else if (typeof q.deaths === 'number' && typeof q.level === 'number') ok = levelOf(p) >= q.level && num(st.deaths, 0) <= q.deaths;
+        else if (typeof q.mounts === 'number') ok = Array.isArray(p.mounts) && p.mounts.length >= q.mounts;
+      }
+      if (ok && awardTitle(t.id)) n++;
+    }
+    return n;
+  }
+
+  // ------------------------------------------------------------------------------------------------ namespaces
+  const Combat = {
+    useAbility: useAbility, basicAttack: basicAttack, damage: damage, heal: heal,
+    addEffect: addEffect, removeEffect: removeEffect, clearEffects: clearEffects, hasEffect: hasEffect, getEffect: getEffect,
+    kill: kill, update: update,
+    isHostile: isHostile, isFriendly: isFriendly, canSee: canSee, distance: distance, distanceXZ: distanceXZ, inRange: inRange,
+    facing: facing, faceTarget: faceTarget, headPos: headPos, chestPos: chestPos, handPos: handPos,
+    canUse: canUse, abilityReady: abilityReady, cooldownLeft: cooldownLeft, cooldownFrac: cooldownFrac,
+    cancelCast: cancelCast, interrupt: interrupt, isCasting: isCasting, castProgress: castProgress,
+    hostilesNear: hostilesNear, friendliesNear: friendliesNear, nearestHostile: nearestHostile,
+    addThreat: addThreat, threatOf: threatOf, topThreat: topThreat, clearThreat: clearThreat, taunt: taunt,
+    tryAutoLoot: tryAutoLoot, lootBag: lootBag, dropLoot: dropLoot, lootBags: lootBags, autoLootEnabled: autoLootEnabled,
+    revive: revive, fallDamage: fallDamage, markCombat: markCombat, inCombatFor: inCombatFor,
+    basicAttackDamage: basicAttackDamage, weaponSpeed: weaponSpeed, resolveAbility: resolveAbility,
+    dtypeColor: function (d) { return DTYPE_COLOR[d] || COLOR_DEALT; }, isPhysical: function (d) { return !!PHYSICAL[d]; },
+    lastAbility: lastAbility, lastHit: lastHit, lastError: '',
+    stats: function () { return counters; },
+    GCD: GCD, COMBAT_TIMEOUT: COMBAT_TIMEOUT, LOOT_LIFE: LOOT_LIFE, AUTO_LOOT_RANGE: AUTO_LOOT_RANGE, CRIT_MULT: CRIT_MULT,
+  };
+  const Progress = {
+    addXP: addXP, levelUp: levelUp, setLevel: setLevel, addGold: addGold, spendGold: spendGold,
+    trainAbility: trainAbility, canTrain: canTrain, untrainedAvailable: untrainedAvailable,
+    setHotbar: setHotbar, hotbarSlotOf: hotbarSlotOf, firstFreeHotbar: firstFreeHotbar,
+    xpToNext: xpToNext, xpProgress: xpProgress, grantStarterAbilities: grantStarterAbilities,
+    ensurePlayerShape: ensurePlayerShape, awardTitle: awardTitle, checkTitles: checkTitles, hasAbility: hasAbility,
+    LEVEL_CAP: LEVEL_CAP, HOTBAR_SIZE: HOTBAR_SIZE,
+  };
+  G.Combat = Combat;
+  G.Progress = Progress;
+
+  // ------------------------------------------------------------------------------------------------ lifecycle hooks
+  function resetState() {
+    for (let i = lootBags.length - 1; i >= 0; i--) removeBag(lootBags[i]);
+    combatUntil = 0; bossFight = false; musicMode = null; _threatAcc = 0; _sceneRef = null;
+    _lastFailReason = ''; _lastFailAt = -10; _lastHurtAt = -10;
+    if (G.state) G.state.inCombat = false;
+  }
+  G.on('gameStart', function () { resetState(); const p = player(); if (p) { ensurePlayerShape(p); if (!p.abilities.size) grantStarterAbilities(p); } });
+  G.on('load', function () { const p = player(); if (p) ensurePlayerShape(p); });
+  G.on('playerRespawn', function () { combatUntil = 0; bossFight = false; musicMode = null; const p = player(); if (p && !isAlive(p)) revive(p, 0.1); });
+})();
