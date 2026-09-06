@@ -37,7 +37,9 @@
    G.UI.Vendor.open(npc, stock), G.UI.Travel.openStable(npc)/openDock(dock), G.UI.openPanel/isOpen/notify/chat,
    G.Progress.addGold/spendGold, G.Combat.heal, G.Save.save, G.Player.camera — every call is guarded and the
    module degrades gracefully without them (private gold fallbacks `_addGold/_spendGold` touch player.gold only
-   when G.Progress is absent). ==== */
+   when G.Progress is absent; `_ensureNodeItem` registers a plain template via G.Data.addItem only for gather items
+   that no data module defines). Registry conventions honoured: interior:{town,index} + building.npcInside,
+   boat-masters' `dock`, gatherNodes' `name`. ==== */
 (function () {
   'use strict';
   const G = window.G;
@@ -965,8 +967,23 @@
       default: return 'Gather ' + (name || 'herbs');
     }
   }
+  // The registry may reference gather items that no data module defines (e.g. before the quest file lands). To keep
+  // gathering functional, register a plain material/quest template for each missing id (never overrides a real one).
+  const NODE_ICON = { herb: ['🌿', 0x3d6b2f], mushroom: ['🍄', 0x6b3d2f], ore: ['⛏', 0x55575c], wood: ['🪵', 0x6b4a2a], relic: ['📜', 0x4a4a6b], chest: ['💰', 0x6b5a2a], bundle: ['🎒', 0x6b5a3a], crate: ['📦', 0x6b5a3a] };
+  function _ensureNodeItem(gn) {
+    const tid = gn && gn.itemTid; if (!tid || !hasFn(G.Data, 'addItem')) return;
+    if (G.Data.items && G.Data.items[tid]) return;
+    const kind = gn.kind || 'herb', ic = NODE_ICON[kind] || NODE_ICON.crate;
+    const name = titleCase(tid.replace(/^(herb|mushroom|ore|wood|relic|chest|bundle|crate)_/, '').replace(/_/g, ' '));
+    const questy = kind === 'relic' || kind === 'chest' || /^(relic|quest|treasure)/.test(tid);
+    warn('[NPCs] gather item "' + tid + '" is not defined by any data module — registering a plain ' + (questy ? 'quest' : 'material') + ' template');
+    try {
+      G.Data.addItem({ id: tid, name, type: questy ? 'quest' : 'material', subtype: kind, level: clamp((+gn.level || zoneLevel(gn.zone)) | 0, 1, 80), rarity: 'common', icon: ic[0], iconBg: ic[1], value: questy ? 0 : 8 + zoneLevel(gn.zone) * 2, maxStack: questy ? 20 : 100, desc: questy ? 'Something someone in Middle-earth is looking for.' : 'Gathered in the wild. Useful to cooks, smiths and healers.' });
+    } catch (err) { report(err, 'node item ' + tid); }
+  }
   function makeNodes(gn) {
     if (!gn || !gn.id || !gn.pos) return;
+    _ensureNodeItem(gn);
     const count = clamp((gn.count | 0) || 1, 1, 24), radius = Math.max(0, +gn.radius || 0);
     const r = rngOf('node:' + gn.id);
     const kind = gn.kind || 'herb', propKind = PROP_KIND[kind] || 'crate';
@@ -984,7 +1001,7 @@
       }
       if (!ok) { x = cx + (i ? Math.sin(i * 2.1) * 2 : 0); z = cz + (i ? Math.cos(i * 2.1) * 2 : 0); }
       const ent = {
-        id: 'node_' + gn.id + '_' + i, kind: 'node', nodeId: gn.id, itemTid: gn.itemTid || null, nodeKind: kind, propKind, name, label, level, zone: gn.zone || null, index: i,
+        id: 'node_' + gn.id + '_' + i, kind: 'node', nodeId: gn.id, itemTid: gn.itemTid || null, nodeKind: kind, propKind, name: gn.name || name, itemName: name, label, level, zone: gn.zone || null, index: i,
         pos: new THREE.Vector3(x, groundAt(x, z), z), yaw: r() * TAU, vel: new THREE.Vector3(), radius: 0.4, height: 1,
         alive: true, dead: false, hostile: false, faction: 'neutral', effects: [], cooldowns: {}, target: null, mesh: null, rig: null, prop: null, anim: 'idle', animTime: 0,
         depleted: false, respawnAt: 0, _interact: null, _sparkle: null, _d2: Infinity, data: gn, interact: null,

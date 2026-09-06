@@ -121,7 +121,7 @@
 #tooltip .tt-warn { color: var(--red); }
 
 /* ---- notices ---- */
-#notices { position: absolute; left: 50%; top: 140px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; width: 640px; max-width: 90vw; }
+#notices { position: absolute; left: 50%; top: 37%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; width: 640px; max-width: 90vw; }
 #notices .notice { position: static; transform: none; font-size: 17px; letter-spacing: .04em; padding: 2px 10px; animation: noticeIn .25s ease-out; display: flex; align-items: center; gap: 8px; text-shadow: 0 2px 6px #000, 0 0 12px rgba(0,0,0,.6); transition: opacity .4s ease, transform .4s ease; }
 #notices .notice .n-ico { font-size: 15px; opacity: .9; }
 #notices .notice.out { opacity: 0; transform: translateY(-8px); }
@@ -130,13 +130,13 @@
 #notices .n-level { color: #fff7d6; text-shadow: 0 2px 6px #000, 0 0 16px rgba(255,220,120,.8); font-size: 20px; }
 #notices .n-warning { color: #ff7a66; } #notices .n-loot { color: #a6e39f; } #notices .n-gold { color: #ffd54a; }
 @keyframes noticeIn { from { opacity: 0; transform: translateY(-14px) scale(.96); } to { opacity: 1; transform: none; } }
-#bigNotice { position: absolute; left: 50%; top: 34%; transform: translate(-50%, -50%); text-align: center; opacity: 0; }
+#bigNotice { position: absolute; left: 50%; top: 27%; transform: translate(-50%, -50%); text-align: center; opacity: 0; }
 #bigNotice.show { animation: bigIn 3s ease-out forwards; }
 #bigNotice .big-title { font-family: var(--font-head); font-weight: 700; font-size: 46px; letter-spacing: .12em; color: #fff3c4; text-shadow: 0 0 18px rgba(255,205,90,.9), 0 0 42px rgba(255,180,60,.55), 0 3px 8px #000; white-space: nowrap; }
 #bigNotice .big-sub { font-family: var(--font-head); font-size: 20px; color: var(--gold-bright); letter-spacing: .08em; margin-top: 6px; text-shadow: 0 2px 6px #000, 0 0 10px rgba(255,200,80,.5); }
 #bigNotice .big-rule { width: 320px; height: 2px; margin: 8px auto 0; background: linear-gradient(90deg, transparent, var(--gold-bright), transparent); }
 @keyframes bigIn { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.8); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); } 20% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -56%) scale(1); } }
-#zoneBanner { position: absolute; left: 50%; top: 26%; transform: translate(-50%, -50%); text-align: center; opacity: 0; }
+#zoneBanner { position: absolute; left: 50%; top: 19%; transform: translate(-50%, -50%); text-align: center; opacity: 0; }
 #zoneBanner.show { animation: zoneIn 4.2s ease-out forwards; }
 #zoneBanner .zb-name { font-family: var(--font-head); font-size: 40px; font-weight: 700; letter-spacing: .18em; color: #f3e6c2; text-shadow: 0 3px 10px #000, 0 0 24px rgba(255,220,140,.45); white-space: nowrap; }
 #zoneBanner .zb-sub { font-family: var(--font-head); font-size: 15px; letter-spacing: .3em; color: var(--gold); text-transform: uppercase; margin-top: 4px; text-shadow: 0 2px 6px #000; }
@@ -923,21 +923,22 @@
   let _confirmState = null;
   UI.confirm = function (text, onYes, onNo, opts) {
     opts = opts || {};
-    _confirmState = { text: _str(text), onYes: onYes, onNo: onNo, yes: opts.yes || 'Yes', no: opts.no || 'No' };
+    _confirmState = { text: _str(text), onYes: onYes, onNo: onNo, yes: opts.yes || 'Yes', no: opts.no || 'No', title: opts.title || 'Confirm', answered: false };
     if (!panels.confirm) {
       UI.registerPanel('confirm', {
         title: 'Confirm', modal: true, pos: 'center', remember: false, width: 360,
         build: function (body, p) {
           const s = _confirmState || {};
-          p.setTitle(opts.title || 'Confirm');
+          p.setTitle(s.title || 'Confirm');
           body.appendChild(el('div', { class: 'confirm-text', text: s.text || '' }));
           if (p.footer) while (p.footer.firstChild) p.footer.removeChild(p.footer.firstChild);
-          p.addButton(s.no || 'No', function () { const cb = s.onNo; UI.closePanel('confirm'); if (typeof cb === 'function') cb(); });
-          p.addButton(s.yes || 'Yes', function () { const cb = s.onYes; s.onNo = null; UI.closePanel('confirm'); if (typeof cb === 'function') cb(); }, 'primary');
+          const answer = function (yes) { if (s.answered) return; s.answered = true; UI.closePanel('confirm'); const cb = yes ? s.onYes : s.onNo; if (typeof cb === 'function') cb(); };
+          p.addButton(s.no || 'No', function () { answer(false); });
+          p.addButton(s.yes || 'Yes', function () { answer(true); }, 'primary');
         },
-        onClose: function () { const s = _confirmState; _confirmState = null; if (s && typeof s.onNo === 'function' && !s._answered) { s._answered = true; s.onNo(); } },
+        onClose: function () { const s = _confirmState; _confirmState = null; if (s && !s.answered) { s.answered = true; if (typeof s.onNo === 'function') s.onNo(); } },   // Esc / × count as "No"
       });
-    } else { panels.confirm.def.title = opts.title || 'Confirm'; }
+    }
     UI.refresh('confirm');
     UI.openPanel('confirm');
   };
@@ -1483,6 +1484,7 @@
     }
     ctx.globalAlpha = 1;
     // markers
+    let lastLabelX = -1e9;
     for (let i = 0; i < _cpMarkers.length; i++) {
       const m = _cpMarkers[i];
       let rd = G.deg(m.rel);
@@ -1499,7 +1501,8 @@
       ctx.fill();
       ctx.shadowBlur = 0;
       if (off) { ctx.beginPath(); const dir = rd < 0 ? -1 : 1; ctx.moveTo(x + dir * 8, 9); ctx.lineTo(x + dir * 4, 5); ctx.lineTo(x + dir * 4, 13); ctx.closePath(); ctx.fill(); }
-      if (m.kind !== 'target' || m.dist > 8) {
+      if ((m.kind !== 'target' || m.dist > 8) && Math.abs(x - lastLabelX) > 30) {
+        lastLabelX = x;
         ctx.font = '9px "Crimson Pro", Georgia, serif'; ctx.fillStyle = '#e8dcc0'; ctx.shadowColor = '#000'; ctx.shadowBlur = 2;
         ctx.fillText(m.dist >= 1000 ? (m.dist / 1000).toFixed(1) + 'km' : Math.round(m.dist) + 'm', x, ch - 9);
         ctx.shadowBlur = 0;
@@ -1616,7 +1619,7 @@
     zb.sub.textContent = z && Array.isArray(z.level) ? 'Levels ' + z.level[0] + ' – ' + z.level[1] : '';
     zb.el.classList.remove('show'); void zb.el.offsetWidth; zb.el.classList.add('show');
     zb.t = 0;
-    if (mm.zone) mm.zone.textContent = zb.name.textContent;
+    if (mm.zone) { mm.zone.textContent = zb.name.textContent; mm.last.zone = zb.name.textContent; }
   };
   function _updateZone(dt) { if (zb.t >= 0) { zb.t += dt; if (zb.t > 4.4) { zb.el.classList.remove('show'); zb.t = -1; } } }
 

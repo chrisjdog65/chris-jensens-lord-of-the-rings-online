@@ -11,8 +11,11 @@
      zoneAt(x, z) → zone id (nearest zone by centre distance / radius; 'wild' fallback = nearest),
      townAt(x, z) → town|null,
      helpers: yawTo(fx, fz), distToRoad(x, z), nearestTown(x, z).
+   Item ids (loot, fish, gather nodes) are 03_data_items ids; W.itemIdsReferenced lists them, W.itemIdsMissingIn03 the two not yet defined.
    CONVENTIONS (read by 13_buildings / 23_npcs / 10_terrain):
      * yaw is radians, 0 faces −Z (north); forward = (−sin yaw, 0, −cos yaw). A building's door faces forward.
+     * Bree/Archet/Aughaire/the Chetwood camp carry walls:true (+wallRadius, wallStyle:'palisade', gates:[{x,z}]) — 13_buildings
+       builds the wall ring and its gates from those; the data lists no wall_segment pieces of its own.
      * Linear recipes (wall_segment, fence, ruin_wall) are centred on (x,z) with their LENGTH along local X (perpendicular
        to forward); `len` metres (defaults: wall_segment 16, fence 8, ruin_wall 12). `gate` opening spans local X, forward = outward,
        `width` default 12. `bridge` spans along forward (`len` default 30, centred). `dock` pier extends forward 14 m from (x,z).
@@ -284,7 +287,7 @@
 
   // ---- Bree-land -----------------------------------------------------------------------------------------------------------
   town({ id: 'bree', name: 'Bree', zone: 'breeland', pos: { x: -250, z: -20 }, radius: 160, style: 'man', hasStable: true, hasDock: false, hasInn: true,
-    rallyPoint: { x: -256, z: -30 }, walled: true, desc: 'The chief town of Bree-land, walled and gated, where the Greenway meets the Great East Road at the door of the Prancing Pony.' });
+    rallyPoint: { x: -256, z: -30 }, walls: true, wallRadius: 122, gates: [{ x: -360, z: -20 }, { x: -250, z: 90 }, { x: -140, z: -20 }], desc: 'The chief town of Bree-land, walled and gated, where the Greenway meets the Great East Road at the door of the Prancing Pony.' });
   B('inn', -60, -24, 180, { name: 'The Prancing Pony' });                       // 0
   B('shop', -24, 22, 0, { name: 'Bree Armoury' });                              // 1
   B('shop', 24, 22, 0, { name: 'The Bree Smithy' });                            // 2
@@ -307,17 +310,6 @@
   B('man_house', 86, -72, null);                                                // 19
   B('man_house', -30, 96, -90);                                                 // 20
   B('man_house', 32, 94, 90);                                                   // 21
-  B('tower', -110, -110, null, { name: 'North-west Tower' });                   // 22
-  B('tower', 110, -110, null, { name: 'North-east Tower' });                    // 23
-  B('tower', -110, 110, null, { name: 'South-west Tower' });                    // 24
-  B('tower', 110, 110, null, { name: 'South-east Tower' });                     // 25
-  B('gate', -110, 0, 90, { name: 'The West-gate', width: 20 });                 // 26
-  B('gate', 0, 110, 180, { name: 'The South-gate', width: 20 });                // 27
-  B('gate', 110, 0, -90, { name: 'The East-gate', width: 20 });                 // 28
-  wallRun(-110, -110, 110, -110, 0);                                            // north wall
-  wallRun(-110, 110, -10, 110, 180); wallRun(10, 110, 110, 110, 180);           // south wall (gate gap)
-  wallRun(-110, -110, -110, -10, 90); wallRun(-110, 10, -110, 110, 90);         // west wall
-  wallRun(110, -110, 110, -10, -90); wallRun(110, 10, 110, 110, -90);           // east wall
   P('well', 0, -16, 0); P('market_stall', -12, 10, 0); P('market_stall', 12, 10, 0); P('market_stall', -14, -8, 0);
   P('lamp', -30, -8, 0); P('lamp', 30, -8, 0); P('lamp', -8, 30, 0); P('lamp', 8, 60, 0); P('lamp', -100, -8, 0); P('lamp', 96, 8, 0); P('lamp', -8, 96, 0);
   P('sign', -96, 8, 0, { text: 'West-gate — Bywater & the Shire' }); P('sign', 8, 100, 0, { text: 'South-gate — Staddle · the Old Forest' });
@@ -338,8 +330,8 @@
   P('well', 12, 14, 0); P('lamp', 12, -18, 0); P('lamp', -8, 24, 0); P('sign', 6, 4, 0, { text: 'Combe — Bree S · Archet N' });
   P('fence', -40, 8, 90, { len: 12 }); P('crate', 22, -6, 0); P('hay', -20, 40, 0); P('barrel', -22, -20, 0);
 
-  town({ id: 'archet', name: 'Archet', zone: 'breeland', pos: { x: -60, z: -260 }, radius: 65, style: 'man', hasStable: true, hasDock: false, hasInn: true,
-    rallyPoint: { x: -60, z: -246 }, desc: 'A palisaded hunters\' village at the edge of the Chetwood, rebuilt after the Blackwold raids.' });
+  town({ id: 'archet', name: 'Archet', zone: 'breeland', pos: { x: -60, z: -260 }, radius: 75, style: 'man', hasStable: true, hasDock: false, hasInn: true,
+    rallyPoint: { x: -60, z: -246 }, walls: true, wallStyle: 'palisade', wallRadius: 72, desc: 'A palisaded hunters\' village at the edge of the Chetwood, rebuilt after the Blackwold raids.' });
   B('inn', 28, -24, null, { name: 'The Badger and Bow' });
   B('man_house_2', -30, -30, null, { name: 'Archet Hall' });
   B('shop', 34, 10, null, { name: 'Archet Provisions' });
@@ -368,8 +360,8 @@
   P('fence', 18, -22, 0, { len: 10 }); P('hay', -24, 26, 0); P('crate', 28, 18, 0); P('cart', -46, 30, 0);
 
   // ---- Chetwood & Midgewater (25th town: the spec's town list names 24) ---------------------------------------------
-  town({ id: 'chetwoodcamp', name: "Chetwood Hunters' Camp", zone: 'souththicket', pos: { x: 20, z: 340 }, radius: 45, style: 'camp', hasStable: false, hasDock: false, hasInn: false,
-    rallyPoint: { x: 26, z: 348 }, desc: 'A palisaded camp of Bree-land hunters and a lone Ranger on the Midgewater path, the only friendly fire between Staddle and the Forsaken Inn.' });
+  town({ id: 'chetwoodcamp', name: "Chetwood Hunters' Camp", zone: 'souththicket', pos: { x: 20, z: 340 }, radius: 55, style: 'camp', hasStable: false, hasDock: false, hasInn: false,
+    rallyPoint: { x: 26, z: 348 }, walls: true, wallStyle: 'palisade', wallRadius: 50, gates: [{ x: -20, z: 300 }, { x: 70, z: 310 }], desc: 'A palisaded camp of Bree-land hunters and a lone Ranger on the Midgewater path, the only friendly fire between Staddle and the Forsaken Inn.' });
   B('man_house_2', 0, 20, 0, { name: "Hunters' Lodge" });
   B('tent', -24, -4, null);
   B('tent', 26, -6, null);
@@ -520,8 +512,8 @@
   P('banner', 12, -10, 0); P('barrel', -14, -8, 0);
 
   // ---- Angmar --------------------------------------------------------------------------------------------------------------
-  town({ id: 'aughaire', name: 'Aughaire', zone: 'angmar', pos: { x: 900, z: -1150 }, radius: 60, style: 'camp', hasStable: true, hasDock: false, hasInn: false,
-    rallyPoint: { x: 910, z: -1146 }, desc: 'The palisaded camp of the Trév Gállorg hillmen, the last free folk on the borders of Angmar.' });
+  town({ id: 'aughaire', name: 'Aughaire', zone: 'angmar', pos: { x: 900, z: -1150 }, radius: 70, style: 'camp', hasStable: true, hasDock: false, hasInn: false,
+    rallyPoint: { x: 910, z: -1146 }, walls: true, wallStyle: 'palisade', wallRadius: 64, desc: 'The palisaded camp of the Trév Gállorg hillmen, the last free folk on the borders of Angmar.' });
   B('man_house_2', 20, -36, null, { name: 'Hall of the Trév Gállorg' });
   B('tent', -30, -30, null);
   B('tent', 30, -4, null);
@@ -1352,26 +1344,26 @@
   // ---------------------------------------------------------------- monster types --------------------------------------------
   // Per-family base multipliers; M(level, family) → base numbers, MT() applies elite/boss scaling and overrides.
   const FAM = {
-    wolf:           { hp: 0.85, dmg: 1.00, arm: 0.6, speed: 7.5, size: 1.0, color: 0x8a8378, aggro: 14, loot: 'wolf_pelt', ability: null },
-    boar:           { hp: 1.00, dmg: 0.90, arm: 0.8, speed: 6.5, size: 0.9, color: 0x5e4a36, aggro: 10, loot: 'boar_hide', ability: 'boar_charge' },
-    bear:           { hp: 1.50, dmg: 1.25, arm: 0.9, speed: 6.0, size: 1.5, color: 0x4a3626, aggro: 12, loot: 'bear_claw', ability: 'bear_maul' },
-    spider:         { hp: 0.80, dmg: 1.05, arm: 0.5, speed: 7.0, size: 1.0, color: 0x3a3a3a, aggro: 12, loot: 'spider_silk', ability: 'spider_venom' },
-    goblin:         { hp: 0.80, dmg: 0.95, arm: 0.7, speed: 6.5, size: 0.8, color: 0x6a7a3a, aggro: 15, loot: 'goblin_ear', ability: 'goblin_poison_arrow' },
-    orc:            { hp: 1.10, dmg: 1.10, arm: 1.0, speed: 6.0, size: 1.05, color: 0x4f5a3a, aggro: 15, loot: 'orc_blade_shard', ability: 'orc_cleave' },
-    brigand:        { hp: 1.00, dmg: 1.00, arm: 0.9, speed: 6.2, size: 1.0, color: 0x6b5a48, aggro: 14, loot: 'brigand_map', ability: 'brigand_throw' },
-    troll:          { hp: 2.40, dmg: 1.60, arm: 1.2, speed: 5.5, size: 2.2, color: 0x6e6a5a, aggro: 13, loot: 'troll_tooth', ability: 'troll_smash' },
-    wight:          { hp: 1.20, dmg: 1.15, arm: 0.8, speed: 5.5, size: 1.05, color: 0x9aa8a0, aggro: 13, loot: 'wight_dust', ability: 'wight_drain' },
-    bat:            { hp: 0.60, dmg: 0.80, arm: 0.3, speed: 8.5, size: 0.6, color: 0x3a2e3a, aggro: 12, loot: 'bat_wing', ability: null },
-    warg:           { hp: 1.05, dmg: 1.15, arm: 0.7, speed: 8.0, size: 1.25, color: 0x5a4f46, aggro: 16, loot: 'warg_fang', ability: 'warg_bite' },
-    crawler:        { hp: 0.90, dmg: 0.85, arm: 1.1, speed: 5.0, size: 0.8, color: 0x5a6a4a, aggro: 10, loot: 'crawler_shell', ability: null },
-    lynx:           { hp: 0.80, dmg: 1.10, arm: 0.5, speed: 8.0, size: 0.9, color: 0xb59a70, aggro: 13, loot: 'lynx_pelt', ability: null },
-    drake:          { hp: 1.80, dmg: 1.40, arm: 1.2, speed: 6.5, size: 1.8, color: 0x8a3a2a, aggro: 16, loot: 'drake_scale', ability: 'drake_breath' },
-    giant:          { hp: 2.80, dmg: 1.70, arm: 1.1, speed: 5.5, size: 2.8, color: 0x8a8a90, aggro: 14, loot: 'giant_toe', ability: 'giant_stomp' },
-    slug:           { hp: 1.00, dmg: 0.70, arm: 0.5, speed: 3.0, size: 0.9, color: 0x8aa04a, aggro: 8, loot: 'slug_slime', ability: null },
-    uruk:           { hp: 1.30, dmg: 1.20, arm: 1.2, speed: 6.2, size: 1.15, color: 0x3a3a38, aggro: 16, loot: 'uruk_helm', ability: 'uruk_warcry' },
-    sorcerer:       { hp: 0.90, dmg: 1.30, arm: 0.6, speed: 5.8, size: 1.0, color: 0x3a2a4a, aggro: 18, loot: 'dark_tome', ability: 'sorcerer_shadow_bolt' },
-    'lossoth-bear': { hp: 1.70, dmg: 1.30, arm: 1.0, speed: 6.5, size: 1.7, color: 0xe8ecf0, aggro: 13, loot: 'ice_bear_pelt', ability: 'bear_maul' },
-    'sea-serpent':  { hp: 2.20, dmg: 1.40, arm: 1.1, speed: 6.0, size: 2.4, color: 0x2e6a70, aggro: 15, loot: 'serpent_scale', ability: 'serpent_spray' },
+    wolf:           { hp: 0.85, dmg: 1.00, arm: 0.6, speed: 7.5, size: 1.0, color: 0x8a8378, aggro: 14, loot: 'mat_wolf_pelt', ability: null },
+    boar:           { hp: 1.00, dmg: 0.90, arm: 0.8, speed: 6.5, size: 0.9, color: 0x5e4a36, aggro: 10, loot: 'mat_boar_hide', ability: 'boar_charge' },
+    bear:           { hp: 1.50, dmg: 1.25, arm: 0.9, speed: 6.0, size: 1.5, color: 0x4a3626, aggro: 12, loot: 'mat_bear_pelt', ability: 'bear_maul' },
+    spider:         { hp: 0.80, dmg: 1.05, arm: 0.5, speed: 7.0, size: 1.0, color: 0x3a3a3a, aggro: 12, loot: 'mat_spider_silk', ability: 'spider_venom' },
+    goblin:         { hp: 0.80, dmg: 0.95, arm: 0.7, speed: 6.5, size: 0.8, color: 0x6a7a3a, aggro: 15, loot: 'junk_goblin_ear', ability: 'goblin_poison_arrow' },
+    orc:            { hp: 1.10, dmg: 1.10, arm: 1.0, speed: 6.0, size: 1.05, color: 0x4f5a3a, aggro: 15, loot: 'junk_orc_tooth', ability: 'orc_cleave' },
+    brigand:        { hp: 1.00, dmg: 1.00, arm: 0.9, speed: 6.2, size: 1.0, color: 0x6b5a48, aggro: 14, loot: 'junk_bent_coin', ability: 'brigand_throw' },
+    troll:          { hp: 2.40, dmg: 1.60, arm: 1.2, speed: 5.5, size: 2.2, color: 0x6e6a5a, aggro: 13, loot: 'mat_troll_hide', ability: 'troll_smash' },
+    wight:          { hp: 1.20, dmg: 1.15, arm: 0.8, speed: 5.5, size: 1.05, color: 0x9aa8a0, aggro: 13, loot: 'junk_barrow_relic', ability: 'wight_drain' },
+    bat:            { hp: 0.60, dmg: 0.80, arm: 0.3, speed: 8.5, size: 0.6, color: 0x3a2e3a, aggro: 12, loot: 'junk_bat_wing', ability: null },
+    warg:           { hp: 1.05, dmg: 1.15, arm: 0.7, speed: 8.0, size: 1.25, color: 0x5a4f46, aggro: 16, loot: 'mat_warg_hide', ability: 'warg_bite' },
+    crawler:        { hp: 0.90, dmg: 0.85, arm: 1.1, speed: 5.0, size: 0.8, color: 0x5a6a4a, aggro: 10, loot: 'junk_crawler_shell', ability: null },
+    lynx:           { hp: 0.80, dmg: 1.10, arm: 0.5, speed: 8.0, size: 0.9, color: 0xb59a70, aggro: 13, loot: 'mat_lynx_fur', ability: null },
+    drake:          { hp: 1.80, dmg: 1.40, arm: 1.2, speed: 6.5, size: 1.8, color: 0x8a3a2a, aggro: 16, loot: 'mat_drake_scale', ability: 'drake_breath' },
+    giant:          { hp: 2.80, dmg: 1.70, arm: 1.1, speed: 5.5, size: 2.8, color: 0x8a8a90, aggro: 14, loot: 'junk_giant_tooth', ability: 'giant_stomp' },
+    slug:           { hp: 1.00, dmg: 0.70, arm: 0.5, speed: 3.0, size: 0.9, color: 0x8aa04a, aggro: 8, loot: 'junk_slug_slime', ability: null },
+    uruk:           { hp: 1.30, dmg: 1.20, arm: 1.2, speed: 6.2, size: 1.15, color: 0x3a3a38, aggro: 16, loot: 'junk_uruk_iron', ability: 'uruk_warcry' },
+    sorcerer:       { hp: 0.90, dmg: 1.30, arm: 0.6, speed: 5.8, size: 1.0, color: 0x3a2a4a, aggro: 18, loot: 'junk_dark_tome_scrap', ability: 'sorcerer_shadow_bolt' },
+    'lossoth-bear': { hp: 1.70, dmg: 1.30, arm: 1.0, speed: 6.5, size: 1.7, color: 0xe8ecf0, aggro: 13, loot: 'mat_white_bear_pelt', ability: 'bear_maul' },
+    'sea-serpent':  { hp: 2.20, dmg: 1.40, arm: 1.1, speed: 6.0, size: 2.4, color: 0x2e6a70, aggro: 15, loot: 'mat_serpent_scale', ability: 'serpent_spray' },
   };
   /** Base combat numbers for a monster of `level` in `family` (before elite/boss scaling). */
   function M(level, family) {
@@ -1536,18 +1528,18 @@
   MT('himling_gaunt_champion', 'Gaunt-champion', 'wight', 'himling', 78, 80, 'A wight-lord in ancient plate, Draugmar\'s right hand.', { elite: true, color: 0x6a7a90, size: 1.3 });
 
   // ---- Bosses (12) — boss:true, elite, abilities from G.Data.monsterAbilities ids
-  MT('gorkil', 'Gorkil, Goblin-chief of Rath Teraig', 'goblin', 'eredluin', 15, 15, 'The goblin-chief who holds the pass of Rath Teraig against the dwarves.', { boss: true, abilities: ['goblin_poison_arrow'], loot: [['goblin_ear', 1.0]], color: 0x4a5a2a });
-  MT('halgar', 'Halgar the Blackwold', 'brigand', 'souththicket', 22, 22, 'Captain of the Blackwolds, who sold Bree-land to Angmar for a bag of silver.', { boss: true, abilities: ['brigand_throw'], color: 0x3a2a1a });
-  MT('sambrog', 'Sambrog, the Wight-lord', 'wight', 'oldforest', 25, 25, 'The wight-lord of the Great Barrow, whose cold song wakes the Downs.', { boss: true, abilities: ['wight_drain'], color: 0x4a7a80, size: 1.3 });
-  MT('ugruk', 'Ugrûk, Orc-captain of the Weather Hills', 'orc', 'lonelands', 32, 32, 'The orc-captain besieging Weathertop for his masters in Angmar.', { boss: true, abilities: ['orc_cleave'], size: 1.3 });
-  MT('burzghash', 'Bûrzghâsh, War-chief of Fornost', 'uruk', 'northdowns', 40, 40, 'The uruk war-chief who rules the ruins of Fornost as if it were his throne.', { boss: true, abilities: ['uruk_warcry', 'orc_cleave'], size: 1.4 });
-  MT('ardaric', 'Ardaric the Tomb-robber', 'brigand', 'evendim', 45, 45, 'A tomb-robber of Dúnedain blood who has sold the crowns of Annúminas to Angmar.', { boss: true, abilities: ['brigand_throw'], color: 0x8a7a5a });
-  MT('thrugash', 'Thrúgash the Troll-chief', 'troll', 'trollshaws', 50, 50, 'A monstrous cave-troll who has made himself chief of all the trolls of the Shaws.', { boss: true, abilities: ['troll_smash'], size: 3.0 });
-  MT('grishkhal', 'The Great Goblin Grishkhâl', 'goblin', 'misty', 58, 58, 'The new Great Goblin, king of Goblin-town, bloated and cunning.', { boss: true, abilities: ['goblin_poison_arrow'], size: 1.6, color: 0x5a6a3a });
-  MT('gulmaethor', 'Gûlmaethor, Sorcerer of Carn Dûm', 'sorcerer', 'angmar', 65, 65, 'The Black Númenórean sorcerer who keeps the Witch-king\'s seat warm in Carn Dûm.', { boss: true, abilities: ['sorcerer_shadow_bolt', 'wight_drain'], color: 0x2a1a3a, size: 1.2 });
-  MT('kelvarhjar', 'Kelvarhjar, the White Matriarch', 'lossoth-bear', 'forochel', 70, 70, 'The matriarch of the ice-bears, old as the glacier and twice as cold.', { boss: true, abilities: ['bear_maul'], size: 2.4 });
-  MT('lomecar', 'Lómëcar, the Serpent of the Sundered Shore', 'sea-serpent', 'tolfuin', 72, 72, 'A sea-serpent from the days of the Drowning, coiled in the cove north of Ost Fuin.', { boss: true, abilities: ['serpent_spray', 'drake_breath'], size: 3.2 });
-  MT('draugmar', 'Draugmar the Gaunt-lord', 'wight', 'himling', 80, 80, 'The Gaunt-lord of Himling, who would raise all the dead of Beleriand and march them east.', { boss: true, abilities: ['wight_drain', 'sorcerer_shadow_bolt', 'giant_stomp'], size: 1.8, color: 0x3a4a60, morale: 60000, dmg: 260, armour: 1400 });
+  MT('gorkil', 'Gorkil, Goblin-chief of Rath Teraig', 'goblin', 'eredluin', 15, 15, 'The goblin-chief who holds the pass of Rath Teraig against the dwarves.', { boss: true, abilities: ['goblin_poison_arrow'], loot: [['junk_goblin_totem', 1.0]], color: 0x4a5a2a });
+  MT('halgar', 'Halgar the Blackwold', 'brigand', 'souththicket', 22, 22, 'Captain of the Blackwolds, who sold Bree-land to Angmar for a bag of silver.', { boss: true, abilities: ['brigand_throw'], loot: [['junk_tattered_banner', 1.0], ['q_brigand_map', 1.0]], color: 0x3a2a1a });
+  MT('sambrog', 'Sambrog, the Wight-lord', 'wight', 'oldforest', 25, 25, 'The wight-lord of the Great Barrow, whose cold song wakes the Downs.', { boss: true, abilities: ['wight_drain'], loot: [['junk_wight_shroud', 1.0], ['key_barrow', 1.0]], color: 0x4a7a80, size: 1.3 });
+  MT('ugruk', 'Ugrûk, Orc-captain of the Weather Hills', 'orc', 'lonelands', 32, 32, 'The orc-captain besieging Weathertop for his masters in Angmar.', { boss: true, abilities: ['orc_cleave'], loot: [['junk_cracked_shield_boss', 1.0]], size: 1.3 });
+  MT('burzghash', 'Bûrzghâsh, War-chief of Fornost', 'uruk', 'northdowns', 40, 40, 'The uruk war-chief who rules the ruins of Fornost as if it were his throne.', { boss: true, abilities: ['uruk_warcry', 'orc_cleave'], loot: [['junk_uruk_iron', 1.0], ['q_ancient_tome', 1.0]], size: 1.4 });
+  MT('ardaric', 'Ardaric the Tomb-robber', 'brigand', 'evendim', 45, 45, 'A tomb-robber of Dúnedain blood who has sold the crowns of Annúminas to Angmar.', { boss: true, abilities: ['brigand_throw'], loot: [['q_shard_of_arnor', 1.0], ['junk_bent_coin', 1.0]], color: 0x8a7a5a });
+  MT('thrugash', 'Thrúgash the Troll-chief', 'troll', 'trollshaws', 50, 50, 'A monstrous cave-troll who has made himself chief of all the trolls of the Shaws.', { boss: true, abilities: ['troll_smash'], loot: [['junk_troll_toenail', 1.0], ['q_troll_keystone', 1.0]], size: 3.0 });
+  MT('grishkhal', 'The Great Goblin Grishkhâl', 'goblin', 'misty', 58, 58, 'The new Great Goblin, king of Goblin-town, bloated and cunning.', { boss: true, abilities: ['goblin_poison_arrow'], loot: [['junk_goblin_totem', 1.0], ['q_goblin_orders', 1.0]], size: 1.6, color: 0x5a6a3a });
+  MT('gulmaethor', 'Gûlmaethor, Sorcerer of Carn Dûm', 'sorcerer', 'angmar', 65, 65, 'The Black Númenórean sorcerer who keeps the Witch-king\'s seat warm in Carn Dûm.', { boss: true, abilities: ['sorcerer_shadow_bolt', 'wight_drain'], loot: [['junk_angmarim_sigil', 1.0], ['key_carndum', 1.0]], color: 0x2a1a3a, size: 1.2 });
+  MT('kelvarhjar', 'Kelvarhjar, the White Matriarch', 'lossoth-bear', 'forochel', 70, 70, 'The matriarch of the ice-bears, old as the glacier and twice as cold.', { boss: true, abilities: ['bear_maul'], loot: [['junk_white_bear_claw', 1.0]], size: 2.4 });
+  MT('lomecar', 'Lómëcar, the Serpent of the Sundered Shore', 'sea-serpent', 'tolfuin', 72, 72, 'A sea-serpent from the days of the Drowning, coiled in the cove north of Ost Fuin.', { boss: true, abilities: ['serpent_spray', 'drake_breath'], loot: [['junk_serpent_fang', 1.0]], size: 3.2 });
+  MT('draugmar', 'Draugmar the Gaunt-lord', 'wight', 'himling', 80, 80, 'The Gaunt-lord of Himling, who would raise all the dead of Beleriand and march them east.', { boss: true, abilities: ['wight_drain', 'sorcerer_shadow_bolt', 'giant_stomp'], size: 1.8, color: 0x3a4a60, loot: [['junk_wight_shroud', 1.0], ['key_himring', 1.0], ['mat_mithril_flake', 0.5]], morale: 60000, dmg: 260, armour: 1400 });
 
   W.bosses = [
     { id: 'boss_gorkil', type: 'gorkil', pos: { x: -1150, z: -1050 }, respawn: 120, poi: 'poi_rath_teraig' },
@@ -1560,7 +1552,7 @@
     { id: 'boss_grishkhal', type: 'grishkhal', pos: { x: 1810, z: -575 }, respawn: 120, poi: 'poi_goblin_town_gate' },
     { id: 'boss_gulmaethor', type: 'gulmaethor', pos: { x: 1260, z: -1515 }, respawn: 120, poi: 'poi_carn_dum' },
     { id: 'boss_kelvarhjar', type: 'kelvarhjar', pos: { x: 770, z: -1740 }, respawn: 120, poi: 'poi_ice_bear_den' },
-    { id: 'boss_lomecar', type: 'lomecar', pos: { x: -1770, z: -1640 }, respawn: 120, poi: 'poi_serpent_cove' },
+    { id: 'boss_lomecar', type: 'lomecar', pos: { x: -1757, z: -1706 }, respawn: 120, poi: 'poi_serpent_cove', aquatic: true },
     { id: 'boss_draugmar', type: 'draugmar', pos: { x: -1810, z: -310 }, respawn: 180, poi: 'poi_himring_fortress' },
   ];
 
@@ -1735,7 +1727,7 @@
   S('tolfuin', 'fuin_spider', -1930, -1450, 30, 5, 'Western ruins');
   S('tolfuin', 'fuin_crawler', -1710, -1390, 30, 5);
   S('tolfuin', 'fuin_bat', -1860, -1360, 28, 5);
-  S('tolfuin', 'serpent_spawn', -1740, -1620, 30, 4, 'The Serpent\'s Cove');
+  S('tolfuin', 'serpent_spawn', -1745, -1680, 30, 4, 'The Serpent\'s Cove');
   S('tolfuin', 'fuin_orc_captain', -1940, -1580, 22, 3, 'Raider camp');
   S('tolfuin', 'fuin_spider', -1690, -1440, 25, 4);
   S('tolfuin', 'fuin_crawler', -1680, -1560, 25, 4);
@@ -1768,27 +1760,27 @@
     const s = { id, name, zone, pos: { x, z }, radius, fish: fish.map((f) => ({ tid: 'fish_' + f[0], weight: f[1] })) };
     W.fishingSpots.push(s); return s;
   }
-  FS('fs_bywater_pool', 'The Bywater Pool', 'shire', -966, -92, 14, [['trout', 5], ['perch', 4], ['carp', 3], ['pike', 1]]);
-  FS('fs_hobbiton_water', 'The Water at Hobbiton', 'shire', -1000, -165, 12, [['trout', 5], ['perch', 3], ['carp', 2]]);
-  FS('fs_brandywine_bridge', 'The Brandywine under the Bridge', 'shire', -620, -70, 12, [['salmon', 3], ['pike', 3], ['eel', 2], ['trout', 2]]);
-  FS('fs_brandywine_south', 'Brandywine Reach', 'shire', -626, -170, 12, [['trout', 3], ['salmon', 2], ['carp', 2], ['eel', 2]]);
-  FS('fs_brandywine_marches', 'The Brandywine at the Bree-land Marches', 'breeland', -598, -150, 12, [['pike', 3], ['perch', 3], ['trout', 2], ['eel', 2]]);
-  FS('fs_brandywine_hedge', 'The Brandywine at the Hedge', 'oldforest', -562, 380, 12, [['pike', 3], ['salmon', 2], ['perch', 2], ['eel', 2]]);
-  FS('fs_withywindle', 'The Withywindle', 'oldforest', -540, 700, 12, [['eel', 3], ['pike', 3], ['perch', 2], ['carp', 2]]);
-  FS('fs_lonelands_tarn', 'The Weather Hills Tarn', 'lonelands', 700, 172, 14, [['perch', 4], ['pike', 3], ['carp', 2], ['trout', 1]]);
-  FS('fs_hoarwell_bridge', 'The Hoarwell below the Last Bridge', 'trollshaws', 1045, -80, 12, [['salmon', 4], ['trout', 3], ['pike', 2], ['char', 1]]);
-  FS('fs_hoarwell_ford', 'The Hoarwell Ford', 'trollshaws', 1020, 200, 12, [['salmon', 3], ['trout', 3], ['eel', 2], ['sturgeon', 1]]);
-  FS('fs_hoarwell_angmar', 'The Hoarwell Headwaters', 'angmar', 1105, -1200, 12, [['trout', 3], ['char', 3], ['salmon', 2], ['sturgeon', 1]]);
-  FS('fs_tinnudir_shore', 'The Tinnudir Shallows', 'evendim', -215, -1130, 14, [['perch', 4], ['pike', 3], ['golden_perch', 1], ['sturgeon', 1]]);
-  FS('fs_evendim_east', 'The East Shore of Nenuial', 'evendim', 20, -900, 14, [['perch', 4], ['pike', 2], ['carp', 2], ['sturgeon', 1], ['golden_perch', 1]]);
-  FS('fs_annuminas_quay', 'The Drowned Quays of Annúminas', 'evendim', -512, -840, 14, [['sturgeon', 3], ['pike', 3], ['golden_perch', 2], ['perch', 2]]);
-  FS('fs_evendim_north', 'The North Shore of Nenuial', 'evendim', -250, -1172, 14, [['perch', 3], ['char', 2], ['pike', 2], ['golden_perch', 1]]);
-  FS('fs_celondim_quay', 'The Quay of Celondim', 'eredluin', -1485, -720, 14, [['cod', 4], ['herring', 4], ['mackerel', 3]]);
-  FS('fs_kheledul', 'The Kheledûl Shore', 'eredluin', -1486, -560, 14, [['cod', 3], ['herring', 3], ['mackerel', 3], ['eel', 1]]);
-  FS('fs_forochel_bay', 'The Ice-bay', 'forochel', 550, -1885, 14, [['char', 5], ['cod', 3], ['herring', 2]]);
-  FS('fs_tolfuin_cove', "The Serpent's Cove Shallows", 'tolfuin', -1780, -1678, 14, [['mackerel', 4], ['cod', 3], ['herring', 2], ['sturgeon', 1]]);
-  FS('fs_himling_shore', 'The Ras Himling Strand', 'himling', -1553, -380, 14, [['cod', 4], ['herring', 3], ['mackerel', 2]]);
-  FS('fs_morwen_harbour', 'Morwen Harbour', 'tolmorwen', -1705, 690, 14, [['herring', 4], ['mackerel', 3], ['cod', 2], ['sturgeon', 2]]);
+  FS('fs_bywater_pool', 'The Bywater Pool', 'shire', -966, -92, 14, [['trout', 5], ['bywater_perch', 4], ['golden_carp', 3], ['pike', 1]]);
+  FS('fs_hobbiton_water', 'The Water at Hobbiton', 'shire', -1000, -165, 12, [['trout', 5], ['bywater_perch', 3], ['carp', 2]]);
+  FS('fs_brandywine_bridge', 'The Brandywine under the Bridge', 'shire', -620, -70, 12, [['salmon', 3], ['nenuial_pike', 3], ['midgewater_eel', 2], ['trout', 2]]);
+  FS('fs_brandywine_south', 'Brandywine Reach', 'shire', -626, -170, 12, [['trout', 3], ['evendim_salmon', 2], ['golden_carp', 2], ['eel', 2]]);
+  FS('fs_brandywine_marches', 'The Brandywine at the Bree-land Marches', 'breeland', -598, -150, 12, [['pike', 3], ['bywater_perch', 3], ['brandywine_trout', 2], ['eel', 2]]);
+  FS('fs_brandywine_hedge', 'The Brandywine at the Hedge', 'oldforest', -562, 380, 12, [['pike', 3], ['evendim_salmon', 2], ['bywater_perch', 2], ['eel', 2]]);
+  FS('fs_withywindle', 'The Withywindle', 'oldforest', -540, 700, 12, [['eel', 3], ['nenuial_pike', 3], ['bywater_perch', 2], ['carp', 2]]);
+  FS('fs_lonelands_tarn', 'The Weather Hills Tarn', 'lonelands', 700, 172, 14, [['perch', 4], ['nenuial_pike', 3], ['golden_carp', 2], ['trout', 1]]);
+  FS('fs_hoarwell_bridge', 'The Hoarwell below the Last Bridge', 'trollshaws', 1045, -80, 12, [['salmon', 4], ['brandywine_trout', 3], ['nenuial_pike', 2], ['char', 1]]);
+  FS('fs_hoarwell_ford', 'The Hoarwell Ford', 'trollshaws', 1020, 200, 12, [['salmon', 3], ['brandywine_trout', 3], ['midgewater_eel', 2], ['sturgeon', 1]]);
+  FS('fs_hoarwell_angmar', 'The Hoarwell Headwaters', 'angmar', 1105, -1200, 12, [['trout', 3], ['hoarwell_grayling', 3], ['evendim_salmon', 2], ['sturgeon', 1]]);
+  FS('fs_tinnudir_shore', 'The Tinnudir Shallows', 'evendim', -215, -1130, 14, [['perch', 4], ['nenuial_pike', 3], ['silver_trout', 1], ['sturgeon', 1]]);
+  FS('fs_evendim_east', 'The East Shore of Nenuial', 'evendim', 20, -900, 14, [['perch', 4], ['nenuial_pike', 2], ['golden_carp', 2], ['himling_sturgeon', 1], ['golden_perch', 1]]);
+  FS('fs_annuminas_quay', 'The Drowned Quays of Annúminas', 'evendim', -512, -840, 14, [['sturgeon', 3], ['nenuial_pike', 3], ['silver_trout', 2], ['perch', 2]]);
+  FS('fs_evendim_north', 'The North Shore of Nenuial', 'evendim', -250, -1172, 14, [['perch', 3], ['hoarwell_grayling', 2], ['nenuial_pike', 2], ['golden_perch', 1]]);
+  FS('fs_celondim_quay', 'The Quay of Celondim', 'eredluin', -1485, -720, 14, [['cod', 4], ['lune_herring', 4], ['mackerel', 3]]);
+  FS('fs_kheledul', 'The Kheledûl Shore', 'eredluin', -1486, -560, 14, [['cod', 3], ['lune_herring', 3], ['tolfuin_seabass', 3], ['eel', 1]]);
+  FS('fs_forochel_bay', 'The Ice-bay', 'forochel', 550, -1885, 14, [['char', 5], ['forochel_icecod', 3], ['herring', 2]]);
+  FS('fs_tolfuin_cove', "The Serpent's Cove Shallows", 'tolfuin', -1780, -1678, 14, [['mackerel', 4], ['forochel_icecod', 3], ['lune_herring', 2], ['sturgeon', 1]]);
+  FS('fs_himling_shore', 'The Ras Himling Strand', 'himling', -1553, -380, 14, [['cod', 4], ['lune_herring', 3], ['mackerel', 2]]);
+  FS('fs_morwen_harbour', 'Morwen Harbour', 'tolmorwen', -1705, 690, 14, [['herring', 4], ['tolfuin_seabass', 3], ['forochel_icecod', 2], ['sturgeon', 2]]);
 
   // ---------------------------------------------------------------- gather nodes ---------------------------------------------
   W.gatherNodes = [];
@@ -1799,36 +1791,36 @@
     if (name) g.name = name;
     W.gatherNodes.push(g); return g;
   }
-  GN('shire', 'herb', 'herb_pipeweed_leaf', -1120, -40, 18, 5, 'Pipe-weed patch'); GN('shire', 'mushroom', 'mushroom_field', -920, -260, 16, 5); GN('shire', 'wood', 'wood_oak_branch', -1050, -300, 18, 5);
-  GN('shire', 'chest', 'treasure_cache', -1180, -330, 8, 1, "Old Tobold's cache"); GN('shire', 'ore', 'ore_copper', -1350, -150, 16, 4, 'Delving quarry');
-  GN('eredluin', 'ore', 'ore_copper', -1230, -1000, 16, 5); GN('eredluin', 'ore', 'ore_iron', -1400, -1180, 16, 5); GN('eredluin', 'relic', 'relic_dwarf_rune', -1160, -960, 14, 4, 'Rath Teraig rune-stones');
-  GN('eredluin', 'wood', 'wood_pine_log', -1260, -820, 18, 5); GN('eredluin', 'herb', 'herb_wild_garlic', -1470, -640, 14, 4);
-  GN('breeland', 'herb', 'herb_kingsfoil', -330, -200, 16, 5, 'Bree-hill hedgerows'); GN('breeland', 'mushroom', 'mushroom_field', -400, 240, 16, 5); GN('breeland', 'wood', 'wood_oak_branch', -60, -340, 18, 5);
-  GN('breeland', 'chest', 'treasure_cache', 30, -90, 8, 1, 'Blackwold stash'); GN('breeland', 'ore', 'ore_copper', -440, -330, 16, 4);
-  GN('souththicket', 'herb', 'herb_kingsfoil', 200, 420, 16, 5); GN('souththicket', 'mushroom', 'mushroom_bog', 120, 480, 16, 5); GN('souththicket', 'wood', 'wood_ash_bough', 0, 300, 18, 5);
-  GN('souththicket', 'relic', 'relic_arnor_shard', 250, 310, 12, 4, 'Chetwood lodge'); GN('souththicket', 'chest', 'treasure_cache', 60, 560, 8, 1, 'Blackwold plunder');
-  GN('oldforest', 'mushroom', 'mushroom_bog', -420, 700, 16, 5); GN('oldforest', 'herb', 'herb_wild_garlic', -350, 580, 16, 5); GN('oldforest', 'wood', 'wood_oak_branch', -480, 640, 16, 5, 'Bonfire Glade');
-  GN('oldforest', 'relic', 'relic_arnor_shard', -380, 840, 14, 4, 'Barrow of Cardolan'); GN('oldforest', 'chest', 'treasure_cache', -330, 880, 8, 1, 'Great Barrow hoard');
-  GN('lonelands', 'herb', 'herb_wild_garlic', 420, 180, 16, 5); GN('lonelands', 'ore', 'ore_iron', 560, -160, 16, 5, 'Weather Hills'); GN('lonelands', 'relic', 'relic_arnor_shard', 500, 40, 12, 4, 'Weathertop');
-  GN('lonelands', 'wood', 'wood_pine_log', 320, -160, 18, 5); GN('lonelands', 'chest', 'treasure_cache', 760, -100, 8, 1, 'Agamaur'); GN('lonelands', 'mushroom', 'mushroom_field', 660, 300, 16, 4);
-  GN('northdowns', 'ore', 'ore_iron', 300, -560, 16, 5); GN('northdowns', 'herb', 'herb_kingsfoil', 150, -720, 16, 5); GN('northdowns', 'relic', 'relic_arnor_shard', 250, -940, 14, 5, 'Fornost');
-  GN('northdowns', 'wood', 'wood_ash_bough', 420, -440, 18, 5); GN('northdowns', 'chest', 'treasure_cache', 270, -1000, 8, 1, 'Fornost treasury');
-  GN('evendim', 'relic', 'relic_arnor_shard', -530, -930, 14, 5, 'Annúminas'); GN('evendim', 'ore', 'ore_silver', -560, -1140, 16, 4); GN('evendim', 'herb', 'herb_kingsfoil', -380, -1200, 16, 5);
-  GN('evendim', 'wood', 'wood_ash_bough', -120, -1240, 18, 5); GN('evendim', 'chest', 'treasure_cache', -590, -860, 8, 1, "Robbers' loot");
-  GN('trollshaws', 'herb', 'herb_kingsfoil', 1200, 120, 16, 5); GN('trollshaws', 'ore', 'ore_iron', 1130, -240, 16, 5); GN('trollshaws', 'wood', 'wood_pine_log', 1350, 200, 18, 5);
-  GN('trollshaws', 'relic', 'relic_elf_gem', 1280, -20, 12, 4, 'Ford of Bruinen'); GN('trollshaws', 'chest', 'treasure_cache', 1240, -95, 8, 1, "Trolls' hoard");
-  GN('misty', 'ore', 'ore_silver', 1700, -380, 16, 5); GN('misty', 'herb', 'herb_frost_lichen', 1560, -540, 16, 5); GN('misty', 'relic', 'relic_dwarf_rune', 1780, -580, 12, 4, 'Goblin-town gate');
-  GN('misty', 'chest', 'treasure_cache', 1890, -460, 8, 1, 'Drake hoard'); GN('misty', 'wood', 'wood_pine_log', 1480, -300, 16, 4);
-  GN('angmar', 'ore', 'ore_iron', 1050, -1400, 16, 5); GN('angmar', 'herb', 'herb_frost_lichen', 760, -1300, 16, 5); GN('angmar', 'relic', 'relic_arnor_shard', 1180, -1480, 14, 5, 'Carn Dûm');
-  GN('angmar', 'chest', 'treasure_cache', 1235, -1540, 8, 1, "Sorcerer's vault"); GN('angmar', 'mushroom', 'mushroom_bog', 1000, -1400, 16, 5, 'Malenhad');
-  GN('forochel', 'herb', 'herb_frost_lichen', 640, -1900, 16, 5); GN('forochel', 'ore', 'ore_silver', 820, -1800, 16, 5); GN('forochel', 'relic', 'relic_arnor_shard', 700, -1980, 12, 4, "Wreck of the Lost King's ship");
-  GN('forochel', 'chest', 'treasure_cache', 760, -1700, 8, 1, 'Bear-den cache'); GN('forochel', 'wood', 'wood_pine_log', 420, -1700, 16, 5);
-  GN('tolfuin', 'relic', 'relic_elf_gem', -1920, -1430, 14, 5, 'Western ruins'); GN('tolfuin', 'herb', 'herb_kingsfoil', -1720, -1400, 16, 5); GN('tolfuin', 'wood', 'wood_ash_bough', -1860, -1360, 16, 5, 'Mallorn grove');
-  GN('tolfuin', 'chest', 'treasure_cache', -1900, -1600, 8, 1, "Raiders' plunder"); GN('tolfuin', 'ore', 'ore_silver', -1680, -1560, 14, 4);
-  GN('himling', 'relic', 'relic_elf_gem', -1800, -330, 14, 5, 'Himring'); GN('himling', 'ore', 'ore_iron', -1880, -320, 14, 4); GN('himling', 'chest', 'treasure_cache', -1660, -340, 8, 1, 'Barrow hoard');
-  GN('himling', 'herb', 'herb_frost_lichen', -1740, -250, 14, 4); GN('himling', 'wood', 'wood_ash_bough', -1700, -560, 14, 4, 'Driftwood');
-  GN('tolmorwen', 'herb', 'herb_wild_garlic', -1900, 620, 14, 5); GN('tolmorwen', 'mushroom', 'mushroom_field', -1790, 600, 14, 5); GN('tolmorwen', 'relic', 'relic_elf_gem', -1890, 650, 10, 3, 'Stone of the Hapless');
-  GN('tolmorwen', 'chest', 'treasure_cache', -1900, 820, 8, 1, "Wreckers' hoard"); GN('tolmorwen', 'wood', 'wood_oak_branch', -1950, 700, 14, 4);
+  GN('shire', 'herb', 'mat_pipeweed', -1120, -40, 18, 5, 'Pipe-weed patch'); GN('shire', 'mushroom', 'mat_mushroom', -920, -260, 16, 5); GN('shire', 'wood', 'mat_ash_branch', -1050, -300, 18, 5);
+  GN('shire', 'chest', 'misc_treasure_cache', -1180, -330, 8, 1, "Old Tobold's cache"); GN('shire', 'ore', 'mat_copper_ore', -1350, -150, 16, 4, 'Delving quarry');
+  GN('eredluin', 'ore', 'mat_copper_ore', -1230, -1000, 16, 5); GN('eredluin', 'ore', 'mat_dwarf_iron', -1400, -1180, 16, 5, 'Sarnûr seam'); GN('eredluin', 'relic', 'q_dwarf_deed', -1160, -960, 14, 4, 'Rath Teraig rune-stones');
+  GN('eredluin', 'wood', 'mat_rowan_wood', -1260, -820, 18, 5); GN('eredluin', 'herb', 'mat_moonflower', -1470, -640, 14, 4);
+  GN('breeland', 'herb', 'mat_athelas', -330, -200, 16, 5, 'Bree-hill hedgerows'); GN('breeland', 'mushroom', 'mat_mushroom', -400, 240, 16, 5); GN('breeland', 'wood', 'mat_ash_branch', -60, -340, 18, 5);
+  GN('breeland', 'chest', 'misc_treasure_cache', 30, -90, 8, 1, 'Blackwold stash'); GN('breeland', 'ore', 'mat_copper_ore', -440, -330, 16, 4);
+  GN('souththicket', 'herb', 'mat_athelas', 200, 420, 16, 5); GN('souththicket', 'mushroom', 'mat_mushroom', 120, 480, 16, 5); GN('souththicket', 'wood', 'mat_yew_bough', 0, 300, 18, 5);
+  GN('souththicket', 'relic', 'q_sealed_letter', 250, 310, 12, 4, 'Chetwood lodge'); GN('souththicket', 'chest', 'misc_treasure_cache', 60, 560, 8, 1, 'Blackwold plunder');
+  GN('oldforest', 'mushroom', 'mat_mushroom', -420, 700, 16, 5); GN('oldforest', 'herb', 'mat_nightshade', -350, 580, 16, 5); GN('oldforest', 'wood', 'mat_ash_branch', -480, 640, 16, 5, 'Bonfire Glade');
+  GN('oldforest', 'relic', 'junk_barrow_relic', -380, 840, 14, 4, 'Barrow of Cardolan'); GN('oldforest', 'chest', 'misc_treasure_cache', -330, 880, 8, 1, 'Great Barrow hoard');
+  GN('lonelands', 'herb', 'mat_moonflower', 420, 180, 16, 5); GN('lonelands', 'ore', 'mat_iron_ore', 560, -160, 16, 5, 'Weather Hills'); GN('lonelands', 'relic', 'q_shard_of_arnor', 500, 40, 12, 4, 'Weathertop');
+  GN('lonelands', 'wood', 'mat_rowan_wood', 320, -160, 18, 5); GN('lonelands', 'chest', 'misc_treasure_cache', 760, -100, 8, 1, 'Agamaur'); GN('lonelands', 'mushroom', 'mat_mushroom', 660, 300, 16, 4);
+  GN('northdowns', 'ore', 'mat_iron_ore', 300, -560, 16, 5); GN('northdowns', 'herb', 'mat_athelas', 150, -720, 16, 5); GN('northdowns', 'relic', 'q_ancient_tome', 250, -940, 14, 5, 'Fornost');
+  GN('northdowns', 'wood', 'mat_yew_bough', 420, -440, 18, 5); GN('northdowns', 'chest', 'misc_treasure_cache', 270, -1000, 8, 1, 'Fornost treasury');
+  GN('evendim', 'relic', 'q_shard_of_arnor', -530, -930, 14, 5, 'Annúminas'); GN('evendim', 'ore', 'mat_silver_ore', -560, -1140, 16, 4); GN('evendim', 'herb', 'mat_athelas', -380, -1200, 16, 5);
+  GN('evendim', 'wood', 'mat_yew_bough', -120, -1240, 18, 5); GN('evendim', 'chest', 'misc_treasure_cache', -590, -860, 8, 1, "Robbers' loot");
+  GN('trollshaws', 'herb', 'mat_athelas', 1200, 120, 16, 5); GN('trollshaws', 'ore', 'mat_iron_ore', 1130, -240, 16, 5); GN('trollshaws', 'wood', 'mat_rowan_wood', 1350, 200, 18, 5);
+  GN('trollshaws', 'relic', 'q_troll_keystone', 1280, -20, 12, 4, 'Ford of Bruinen'); GN('trollshaws', 'chest', 'misc_treasure_cache', 1240, -95, 8, 1, "Trolls' hoard");
+  GN('misty', 'ore', 'mat_mithril_flake', 1700, -380, 16, 3, 'Mithril seam'); GN('misty', 'herb', 'mat_snow_lichen', 1560, -540, 16, 5); GN('misty', 'relic', 'q_goblin_orders', 1780, -580, 12, 4, 'Goblin-town gate');
+  GN('misty', 'chest', 'misc_treasure_cache', 1890, -460, 8, 1, 'Drake hoard'); GN('misty', 'wood', 'mat_rowan_wood', 1480, -300, 16, 4);
+  GN('angmar', 'ore', 'mat_iron_ore', 1050, -1400, 16, 5); GN('angmar', 'herb', 'mat_nightshade', 760, -1300, 16, 5); GN('angmar', 'relic', 'q_angmar_dispatch', 1180, -1480, 14, 5, 'Carn Dûm');
+  GN('angmar', 'chest', 'misc_treasure_cache', 1235, -1540, 8, 1, "Sorcerer's vault"); GN('angmar', 'mushroom', 'mat_mushroom', 1000, -1400, 16, 5, 'Malenhad');
+  GN('forochel', 'herb', 'mat_snow_lichen', 640, -1900, 16, 5); GN('forochel', 'ore', 'mat_silver_ore', 820, -1800, 16, 5); GN('forochel', 'relic', 'q_lossoth_charm', 700, -1980, 12, 4, "Wreck of the Lost King's ship");
+  GN('forochel', 'chest', 'misc_treasure_cache', 760, -1700, 8, 1, 'Bear-den cache'); GN('forochel', 'wood', 'mat_rowan_wood', 420, -1700, 16, 5);
+  GN('tolfuin', 'relic', 'q_elf_lantern', -1920, -1430, 14, 5, 'Western ruins'); GN('tolfuin', 'herb', 'mat_athelas', -1720, -1400, 16, 5); GN('tolfuin', 'wood', 'mat_mallorn_wood', -1860, -1360, 16, 5, 'Mallorn grove');
+  GN('tolfuin', 'chest', 'misc_treasure_cache', -1900, -1600, 8, 1, "Raiders' plunder"); GN('tolfuin', 'ore', 'mat_silver_ore', -1680, -1560, 14, 4);
+  GN('himling', 'relic', 'q_himring_seal', -1800, -330, 14, 5, 'Himring'); GN('himling', 'ore', 'mat_iron_ore', -1880, -320, 14, 4); GN('himling', 'chest', 'misc_treasure_cache', -1660, -340, 8, 1, 'Barrow hoard');
+  GN('himling', 'herb', 'mat_snow_lichen', -1740, -250, 14, 4); GN('himling', 'wood', 'mat_yew_bough', -1700, -560, 14, 4, 'Driftwood');
+  GN('tolmorwen', 'herb', 'mat_moonflower', -1900, 620, 14, 5); GN('tolmorwen', 'mushroom', 'mat_mushroom', -1790, 600, 14, 5); GN('tolmorwen', 'relic', 'q_elven_missive', -1890, 650, 10, 3, 'Stone of the Hapless');
+  GN('tolmorwen', 'chest', 'misc_treasure_cache', -1900, 820, 8, 1, "Wreckers' hoard"); GN('tolmorwen', 'wood', 'mat_ash_branch', -1950, 700, 14, 4);
 
   // ---------------------------------------------------------------- points of interest ---------------------------------------
   W.pois = [];
@@ -1843,7 +1835,6 @@
   poi('poi_bag_end', 'Bag End', 'shire', -1058, -206, 'landmark', 'The finest hobbit-hole in the Shire, dug into the top of the Hill above Hobbiton. Its round green door has seen a dwarf or two.');
   poi('poi_party_tree', 'The Party Tree', 'shire', -1000, -220, 'landmark', 'The great tree in the Party Field where Bilbo held his famous eleventy-first birthday party.');
   poi('poi_brandywine_bridge', 'The Brandywine Bridge', 'shire', -604, -50, 'bridge', 'The stone bridge that carries the East Road over the Brandywine — the eastern gate of the Shire.');
-  PB('bridge', 0, 0, null, { yaw: yawTo(0.986, 0.164), len: 36, name: 'The Brandywine Bridge' });
   poi('poi_bywater_pool', 'The Bywater Pool', 'shire', -1000, -120, 'lake', 'The wide, willow-fringed pool of the Water beside Bywater, beloved of hobbit anglers.');
   poi('poi_greenfields', 'The Greenfields', 'shire', -1150, -330, 'landmark', 'The field where Bandobras Took knocked the goblin-king Golfimbul\'s head into a rabbit-hole and invented golf.');
   PB('shrine', 0, 0, 180, { name: 'Bullroarer\'s Stone' });
@@ -1910,7 +1901,6 @@
   poi('poi_rushingdale', 'Rushingdale Shore', 'evendim', -20, -720, 'landmark', 'A reedy inlet on the south-eastern shore of the lake.');
   // Trollshaws
   poi('poi_last_bridge', 'The Last Bridge', 'trollshaws', 1029, -50, 'bridge', 'The Last Bridge over the Hoarwell, where the Great East Road enters the Trollshaws.');
-  PB('bridge', 0, 0, null, { yaw: yawTo(0.87, -0.49), len: 36, name: 'The Last Bridge' });
   poi('poi_stone_trolls', "The Stone-trolls' Clearing", 'trollshaws', 1230, -110, 'landmark', 'Three trolls turned to stone by the sunrise, still arguing about how to cook a dwarf.');
   poi('poi_ford_of_bruinen', 'The Ford of Bruinen', 'trollshaws', 1270, -20, 'landmark', 'The ford at the border of Rivendell, guarded by the power of Elrond.');
   poi('poi_trollshaws_cave', 'The Troll-cave', 'trollshaws', 1180, 180, 'cave', 'A dank hole in the hills where the cave-trolls sleep out the day.');
@@ -2013,11 +2003,17 @@
   W.typesInZone = function (zoneId) { return W.monsterTypes.filter((m) => m.zone === zoneId); };
   W.spawnsInZone = function (zoneId) { return W.spawns.filter((s) => s.zone === zoneId); };
   W.startTowns = { hobbit: 'hobbiton', riverhobbit: 'hobbiton', man: 'archet', dunedain: 'archet', rohirrim: 'archet', beorning: 'archet', elf: 'celondim', highelf: 'celondim', dwarf: 'thorinshall', stoutaxe: 'thorinshall' };
-  // Item ids this registry references but does not define (03_data_items must provide them):
-  W.assumedItemIds = {
-    loot: ['wolf_pelt', 'boar_hide', 'bear_claw', 'spider_silk', 'goblin_ear', 'orc_blade_shard', 'brigand_map', 'troll_tooth', 'wight_dust', 'bat_wing', 'warg_fang', 'crawler_shell', 'lynx_pelt', 'drake_scale', 'giant_toe', 'slug_slime', 'uruk_helm', 'dark_tome', 'ice_bear_pelt', 'serpent_scale'],
-    fish: ['fish_trout', 'fish_salmon', 'fish_perch', 'fish_pike', 'fish_carp', 'fish_eel', 'fish_cod', 'fish_herring', 'fish_mackerel', 'fish_sturgeon', 'fish_char', 'fish_golden_perch'],
-    nodes: ['herb_pipeweed_leaf', 'herb_wild_garlic', 'herb_kingsfoil', 'herb_frost_lichen', 'mushroom_field', 'mushroom_bog', 'ore_copper', 'ore_iron', 'ore_silver', 'wood_oak_branch', 'wood_ash_bough', 'wood_pine_log', 'relic_arnor_shard', 'relic_dwarf_rune', 'relic_elf_gem', 'treasure_cache'],
-  };
+  // Item ids referenced by this registry (owned by 03_data_items). Everything is defined there except the two in `missing`.
+  W.itemIdsReferenced = (function () {
+    const set = new Set();
+    for (const m of W.monsterTypes) for (const l of m.loot) set.add(l.tid);
+    for (const s of W.fishingSpots) for (const f of s.fish) set.add(f.tid);
+    for (const g of W.gatherNodes) set.add(g.itemTid);
+    return Array.from(set).sort();
+  })();
+  W.itemIdsMissingIn03 = ['mat_mushroom', 'misc_treasure_cache'];
+  W.assumedItemIds = { loot: W.monsterTypes.reduce((a, m) => { for (const l of m.loot) if (a.indexOf(l.tid) < 0) a.push(l.tid); return a; }, []),
+    fish: ['fish_brandywine_trout', 'fish_bywater_perch', 'fish_midgewater_eel', 'fish_lune_herring', 'fish_hoarwell_grayling', 'fish_nenuial_pike', 'fish_evendim_salmon', 'fish_golden_carp', 'fish_forochel_icecod', 'fish_tolfuin_seabass', 'fish_himling_sturgeon', 'fish_silver_trout'],
+    nodes: W.gatherNodes.reduce((a, g) => { if (a.indexOf(g.itemTid) < 0) a.push(g.itemTid); return a; }, []) };
   G.Data.world = W;
 })();

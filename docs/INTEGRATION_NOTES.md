@@ -64,3 +64,10 @@
 - `init()` ≈ 300 ms, `build(scene)`; `update(playerPos, dt)`. Main should call `G.Terrain.warmup(x,z,radius)` around the spawn during loading and pre-warm `mapCanvas(1024)` (≈ 520 ms) to avoid a first M-press hitch.
 - Reads optional `G.Data.world.water` (seaWestX/seaNorthZ, lakes, rivers, bays, landmasses, islands) — §9 defaults otherwise. `slope()` = sin(angle). `groundType` never returns 'wood' (Player should treat `G.Buildings.isInside` / floor colliders as wood).
 - Extras: `groundColor(x,z,out)`, `townAt(x,z)`, `zoneWeight`, `worldToMap(x,z,size)`/`mapToWorld`, `coarseHeight`, `stats()`, `ready`, `water` mesh, `setSun`, `setSkyColor`.
+
+## 20_player.js
+- Scene: reads `G.Game.scene` or `G.Player.setScene(scene)`. Main must call `G.Player.resize(w,h)` on resize (camera aspect). Starter mount tid is `mount_starter`.
+- Calls if present: `G.UI.fade(seconds)`, `G.UI.anyOpen/notify/floatText`, `G.Combat.damage/useAbility/isHostile/tryAutoLoot`, `G.Progress.grantStarterAbilities`, `G.Boats.sailing`, `G.Fishing.state`, `player.casting`.
+- Esc handling: Player clears target/stops autoMove and consumes Escape only when a target existed and no panel is open; HUD's Esc (settings) runs otherwise.
+- Player fields other modules may read: `invulnerable`, `rollReady`, `mountRig`, `speedMult` (admin), `heightScale`, `spec` (creation spec). Events: `targetChanged`, `mounted`, `zoneChanged`, `playerRespawn`, `autoMoveArrived`, `autoMoveStopped`.
+- Extras: `getRight`, `mount(tid)`, `canMount()`, `rollCooldown()`, `interactLabel()`, `interactTarget {ent,label,name}`, `headPos/handPos(out)`, `autoMoving/autoStuck`, `snapCamera()`, `computeStats()`, `checkZone()`, `setCameraDistance(d)`, `useHotbar(i)`, `firstPerson`.

@@ -127,6 +127,14 @@
     g.setAttribute('color', new THREE.BufferAttribute(a, 3));
     return g;
   }
+  // paint by position: fn(x, y, z) → hex
+  function _paintFn(g, fn) {
+    const p = g.getAttribute('position'), n = p.count, a = new Float32Array(n * 3);
+    let last = null;
+    for (let i = 0; i < n; i++) { const h = fn(p.getX(i), p.getY(i), p.getZ(i)); if (h !== last) { _colTmp.setHex(toHex(h)); last = h; } a[i * 3] = _colTmp.r; a[i * 3 + 1] = _colTmp.g; a[i * 3 + 2] = _colTmp.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+    return g;
+  }
   // transform helper: returns g after translate/rotate/scale (applied in order: scale, rotate, translate)
   function T(g, x, y, z, rx, ry, rz, sx, sy, sz) {
     if (sx != null) g.scale(sx, sy == null ? sx : sy, sz == null ? sx : sz);
@@ -198,10 +206,10 @@
     wight:       { h: 1.05, head: 0.95, leg: 0.52, w: 0.80, ears: 'pointsmall', beard: 0, hair: [5, 5], nose: 0.8, hunch: 0.2, armLen: 1.1 },
   };
   const DEFAULT_CLOTHES = {
-    man: [0x5f7040, 0x4a3a2a], elf: [0x7f9c96, 0x38495a], dwarf: [0x7a3b2a, 0x3b3b3f], hobbit: [0x6c8e3b, 0x5a4020], highelf: [0xd9d2bb, 0x4a5a72],
-    beorning: [0x6a5a48, 0x3a2f24], stoutaxe: [0x7a5a2a, 0x3a3a3a], riverhobbit: [0x4a7d8c, 0x5a4020], dunedain: [0x3f4d3a, 0x2f2a25], rohirrim: [0x8c6a35, 0x4a3a2a],
-    goblin: [0x5a4a2a, 0x3a2f1c], orc: [0x3a3634, 0x2a2624], uruk: [0x2a2626, 0x1e1a1a], brigand: [0x5a4632, 0x3a2f24], sorcerer: [0x2c1f3a, 0x1c1426],
-    troll: [0x5a5048, 0x4a4038], giant: [0x6a6258, 0x4a4238], wight: [0x3a3c40, 0x2a2c30],
+    man: [0x5f7040, 0x4a3a2a, 0xd8ccb0, 'cloth'], elf: [0x7f9c96, 0x38495a, 0xe8e4d8, 'cloth'], dwarf: [0x7a3b2a, 0x3b3b3f, null, 'leather'], hobbit: [0x6c8e3b, 0x5a4020, 0xe8dcc0, 'vest'], highelf: [0xd9d2bb, 0x4a5a72, 0xb8b0c8, 'cloth'],
+    beorning: [0x6a5a48, 0x3a2f24, 'none', 'fur'], stoutaxe: [0x7a5a2a, 0x3a3a3a, null, 'leather'], riverhobbit: [0x4a7d8c, 0x5a4020, 0xd8d0b8, 'vest'], dunedain: [0x3f4d3a, 0x2f2a25, 0x8a8a7a, 'leather'], rohirrim: [0x8c6a35, 0x4a3a2a, 0xd8c8a0, 'cloth'],
+    goblin: [0x5a4a2a, 0x3a2f1c, 'none', 'leather'], orc: [0x3a3634, 0x2a2624, null, 'leather'], uruk: [0x2a2626, 0x1e1a1a, null, 'plate'], brigand: [0x5a4632, 0x3a2f24, null, 'leather'], sorcerer: [0x2c1f3a, 0x1c1426, null, 'robe'],
+    troll: [0x5a5048, 0x4a4038, 'none', 'bare'], giant: [0x6a6258, 0x4a4238, 'none', 'leather'], wight: [0x3a3c40, 0x2a2c30, null, 'robe'],
   };
   const BUILD_W = { slim: 0.9, normal: 1.0, stocky: 1.18 };
   function raceData(id) {
@@ -226,7 +234,7 @@
       neckLen: 0.05 * s,
       hipY: H * R.leg,
       shoulderHalf: 0.19 * s * w * (female ? 0.92 : 1),
-      armR: 0.058 * s * Math.sqrt(w), foreR: 0.05 * s * Math.sqrt(w),
+      armR: 0.064 * s * Math.sqrt(w), foreR: 0.056 * s * Math.sqrt(w),
       upperArm: 0.28 * s * (R.armLen || 1), foreArm: 0.25 * s * (R.armLen || 1), handLen: 0.115 * s,
       hipR: 0.15 * s * (female ? 1.1 : 1) * Math.sqrt(w) * (R.belly ? 1.25 : 1),
       legX: 0.09 * s * Math.sqrt(w) * (female ? 1.06 : 1),
@@ -271,7 +279,8 @@
   function faceGeo(d, opts) {
     opts = opts || {};
     const eye = opts.eye || 0x3a5a7a, brow = opts.brow || 0x3a2a1a, mouth = opts.mouth || 0x8a4a48, white = opts.white || 0xf4f2ee;
-    const key = 'face|' + d.key + '|' + eye + '|' + brow + '|' + mouth + '|' + white + '|' + (opts.tusks ? 't' : '') + (opts.mask ? 'k' + opts.mask : '') + (opts.angry ? 'a' : '') + (opts.eyeScale || 1);
+    const bs = opts.browScale || 1;
+    const key = 'face|' + d.key + '|' + eye + '|' + brow + '|' + mouth + '|' + white + '|' + (opts.tusks ? 't' : '') + (opts.mask ? 'k' + opts.mask : '') + (opts.angry ? 'a' : '') + (opts.eyeScale || 1) + '|' + bs;
     return cached(key, () => {
       const r = d.headR, list = [];
       const es = (opts.eyeScale || 1) * (d.female ? 1.08 : 1);
@@ -286,7 +295,7 @@
         const hi = sphere(r * 0.03 * es, 5, 4); hi.translate(sd * ex - sd * r * 0.045, ey + r * 0.05, ez - r * 0.2);
         list.push(_paint(hi, 0xffffff));
         // brow
-        const b = box(r * 0.38, r * 0.085, r * 0.1); b.rotateZ(sd * (opts.angry ? -0.38 : 0.1)); b.rotateY(sd * -0.45); b.translate(sd * ex, ey + r * 0.3 + (opts.angry ? -r * 0.04 : 0), ez - r * 0.02);
+        const b = box(r * 0.38, r * 0.085 * bs, r * 0.1); b.rotateZ(sd * (opts.angry ? -0.38 : bs < 0.9 ? 0.22 : 0.1)); b.rotateY(sd * -0.45); b.translate(sd * ex, ey + r * 0.3 + (opts.angry ? -r * 0.04 : 0), ez - r * 0.02);
         list.push(_paint(b, brow));
         if (opts.tusks) { const t = cone(r * 0.07, r * 0.28, 6); t.translate(sd * r * 0.22, -r * 0.35, -r * 0.92); list.push(_paint(t, 0xe8e0cc)); }
       }
@@ -334,31 +343,48 @@
     });
   }
   // torso: waist at y=0 (hips origin) up to shoulders. variant: cloth|leather|plate|robe|fur|bare
-  function torsoGeo(d, variant, col, col2, skin) {
-    const key = 'torso|' + d.key + '|' + variant + '|' + col + '|' + col2 + '|' + skin;
+  function torsoGeo(d, variant, col, col2, skin, shirt) {
+    const key = 'torso|' + d.key + '|' + variant + '|' + col + '|' + col2 + '|' + skin + '|' + shirt;
     return cached(key, () => {
       const L = d.torsoLen, wR = d.waistR, cR = d.chestR, list = [];
-      const female = d.female;
+      const female = d.female, zs = female ? 0.76 : 0.8;
       const prof = [[wR * 0.92, -0.02], [wR, L * 0.08], [wR * 0.97, L * 0.25], [lerp(wR, cR, 0.7), L * 0.5], [cR, L * 0.7], [cR * 1.03, L * 0.86], [cR * 1.0, L * 0.96], [cR * 0.72, L * 1.03], [0.0001, L * 1.05]];
       if (d.hunch) { prof[6][0] *= 1.05; }
-      const body = lathe(prof, 18); body.scale(1, 1, female ? 0.76 : 0.8);
-      list.push(_paint(body, col));
-      if (female) { const b = sphere(cR * 0.8, 12, 9); b.scale(1.3, 0.55, 0.62); b.translate(0, L * 0.7, -cR * 0.42); list.push(_paint(b, col)); }
+      const body = lathe(prof, 20); body.scale(1, 1, zs);
+      const sh = shirt != null && shirt !== 'none' ? shirt : null;
+      if (variant === 'vest' && sh != null) {
+        _paintFn(body, (x, y, z) => (z < 0 && Math.abs(x) < wR * 0.42 && y > L * 0.12) ? sh : col); list.push(body);
+        for (let i = 0; i < 3; i++) { const b = sphere(wR * 0.07, 6, 5); b.translate(0, L * (0.3 + i * 0.2), -wR * 0.95 - (i * 0.02)); list.push(_paint(b, col2)); }
+        for (const sd of [-1, 1]) { const lap = box(wR * 0.12, L * 0.55, wR * 0.08); lap.rotateZ(sd * 0.12); lap.translate(sd * wR * 0.42, L * 0.45, -wR * 0.9); list.push(_paint(lap, hexMul(col, 0.8))); }
+      } else if ((variant === 'cloth' || variant === 'leather') && sh != null) {
+        _paintFn(body, (x, y, z) => (z < 0 && y > L * 0.74 && Math.abs(x) < (y - L * 0.74) * 1.35 + cR * 0.05) ? sh : col); list.push(body);
+      } else if (variant === 'bare') { list.push(_paint(body, skin)); }
+      else list.push(_paint(body, col));
+      if (female) { const b = sphere(cR * 0.8, 12, 9); b.scale(1.3, 0.55, 0.62); b.translate(0, L * 0.7, -cR * 0.42); list.push(_paint(b, variant === 'bare' ? skin : col)); }
       // neck (skin)
       const neck = cyl(d.headR * 0.42, d.headR * 0.5, d.neckLen + d.headR * 0.6, 10); neck.translate(0, L + d.neckLen * 0.5 + d.headR * 0.1, 0);
       list.push(_paint(neck, skin));
-      // belt
-      if (variant !== 'bare') { const belt = cyl(wR * 1.04, wR * 1.06, L * 0.1, 18); belt.scale(1, 1, female ? 0.8 : 0.84); belt.translate(0, L * 0.05, 0); list.push(_paint(belt, col2)); const buckle = box(wR * 0.3, L * 0.09, wR * 0.12); buckle.translate(0, L * 0.05, -wR * 0.8); list.push(_paint(buckle, 0xc9a24a)); }
-      if (variant === 'leather' || variant === 'fur') { // shoulder strap across the chest
-        const strap = box(cR * 0.22, L * 0.95, cR * 0.1); strap.rotateZ(0.55); strap.translate(-cR * 0.0, L * 0.55, -cR * 0.72); list.push(_paint(strap, col2));
-        if (variant === 'fur') { const ruff = cyl(cR * 1.2, cR * 1.05, L * 0.22, 14); ruff.scale(1, 1, 0.8); ruff.translate(0, L * 0.93, 0); list.push(_paint(ruff, col2)); }
+      if (variant !== 'bare' && variant !== 'plate') { const collar = cyl(d.headR * 0.62, d.headR * 0.72, L * 0.07, 14); collar.scale(1, 1, 0.9); collar.translate(0, L * 1.0, 0); list.push(_paint(collar, variant === 'robe' ? col2 : sh != null ? sh : col2)); }
+      // belt + buckle
+      if (variant !== 'bare') { const belt = cyl(wR * 1.05, wR * 1.07, L * 0.1, 18); belt.scale(1, 1, zs * 1.05); belt.translate(0, L * 0.05, 0); list.push(_paint(belt, col2)); const buckle = box(wR * 0.3, L * 0.09, wR * 0.12); buckle.translate(0, L * 0.05, -wR * 0.85); list.push(_paint(buckle, 0xc9a24a)); }
+      // tunic hem hanging over the hips
+      if (variant === 'cloth' || variant === 'leather' || variant === 'vest' || variant === 'fur') {
+        const hemLen = L * (variant === 'vest' ? 0.22 : 0.34);
+        const hem = cyl(wR * 1.03, wR * (variant === 'vest' ? 1.12 : 1.22), hemLen, 18, 1, true); hem.scale(1, 1, zs * 1.02); hem.translate(0, -hemLen * 0.5 + L * 0.005, 0);
+        _paintFn(hem, (x, y, z) => y < -hemLen * 0.72 ? col2 : col); list.push(hem);
+        const pouch = box(wR * 0.32, L * 0.16, wR * 0.22); pouch.translate(wR * 0.8, -L * 0.06, -wR * 0.25); list.push(_paint(pouch, hexMul(col2, 0.9)));
       }
-      if (variant === 'plate') { // breastplate + collar
+      if (variant === 'leather' || variant === 'fur') { // shoulder strap across the chest
+        const strap = box(cR * 0.2, L * 0.95, cR * 0.1); strap.rotateZ(0.55); strap.translate(0, L * 0.55, -cR * 0.78); list.push(_paint(strap, col2));
+        if (variant === 'fur') { const ruff = cyl(cR * 1.18, cR * 1.05, L * 0.2, 14); ruff.scale(1, 1, 0.85); ruff.translate(0, L * 0.93, 0); list.push(_paint(ruff, hexMul(col, 0.8))); const ruff2 = cyl(cR * 1.02, cR * 1.12, L * 0.12, 14); ruff2.scale(1, 1, 0.85); ruff2.translate(0, L * 0.78, 0); list.push(_paint(ruff2, hexMul(col, 0.7))); }
+      }
+      if (variant === 'plate') { // breastplate + collar + tassets' belt
         const bp = sphere(cR * 1.0, 16, 12, 0, TAU, PI * 0.15, PI * 0.5); bp.scale(1.02, L * 0.62 / cR, 0.86); bp.translate(0, L * 0.4, -cR * 0.06); list.push(_paint(bp, col));
         const collar = cyl(cR * 0.62, cR * 0.7, L * 0.12, 12); collar.scale(1, 1, 0.8); collar.translate(0, L * 1.02, 0); list.push(_paint(collar, col2));
         const ridge = box(cR * 0.12, L * 0.55, cR * 0.15); ridge.translate(0, L * 0.55, -cR * 0.82); list.push(_paint(ridge, col2));
+        const skirt = cyl(wR * 1.03, wR * 1.18, L * 0.26, 16, 1, true); skirt.scale(1, 1, zs); skirt.translate(0, -L * 0.13, 0); _paintFn(skirt, (x, y, z) => (Math.floor((Math.atan2(z, x) + PI) / (PI / 4)) & 1) ? col2 : hexMul(col, 0.9)); list.push(skirt);
       }
-      if (variant === 'robe') { const trim = cyl(cR * 0.5, cR * 0.9, L * 0.9, 12, 1, true); trim.scale(1, 1, 0.75); trim.translate(0, L * 0.5, -cR * 0.05); list.push(_paint(trim, col2)); }
+      if (variant === 'robe') { const trim = cyl(cR * 0.5, cR * 0.9, L * 0.9, 12, 1, true); trim.scale(1, 1, 0.75); trim.translate(0, L * 0.5, -cR * 0.05); list.push(_paint(trim, col2)); const sash = cyl(wR * 1.06, wR * 1.08, L * 0.14, 16); sash.scale(1, 1, zs * 1.05); sash.translate(0, L * 0.02, 0); list.push(_paint(sash, hexLerp(col2, 0xc9a24a, 0.4))); }
       return _merge(list);
     });
   }
@@ -384,21 +410,24 @@
       return _merge(list);
     });
   }
-  function upperArmGeo(d, col, skin, sleeve) { // sleeve: 'full'|'short'|'none'|'plate'
-    return cached('uarm|' + d.key + '|' + col + '|' + skin + '|' + sleeve, () => {
+  function upperArmGeo(d, col, skin, sleeve, col2) { // sleeve: 'full'|'short'|'none'|'plate'
+    return cached('uarm|' + d.key + '|' + col + '|' + skin + '|' + sleeve + '|' + col2, () => {
       const list = [];
       const base = limb(d.armR, d.upperArm, d.armR * 1.15, d.armR * 0.85);
       list.push(_paint(base, sleeve === 'none' ? skin : col));
-      if (sleeve === 'short') { const cuff = cyl(d.armR * 1.2, d.armR * 1.15, d.upperArm * 0.5, 10); cuff.translate(0, -d.upperArm * 0.22, 0); list.push(_paint(cuff, col)); }
+      if (sleeve === 'none' && col2 != null) { const band = cyl(d.armR * 1.12, d.armR * 1.1, d.upperArm * 0.14, 10); band.translate(0, -d.upperArm * 0.55, 0); list.push(_paint(band, col2)); }
+      if (sleeve === 'short') { const cuff = cyl(d.armR * 1.2, d.armR * 1.15, d.upperArm * 0.5, 10); cuff.translate(0, -d.upperArm * 0.22, 0); list.push(_paint(cuff, col)); const edge = cyl(d.armR * 1.22, d.armR * 1.2, d.upperArm * 0.08, 10); edge.translate(0, -d.upperArm * 0.45, 0); list.push(_paint(edge, col2 != null ? col2 : hexMul(col, 0.8))); }
       if (sleeve === 'plate') { const v = cyl(d.armR * 1.25, d.armR * 1.05, d.upperArm * 0.55, 10); v.translate(0, -d.upperArm * 0.62, 0); list.push(_paint(v, col)); }
       return _merge(list);
     });
   }
-  function forearmGeo(d, col, skin, sleeve) {
-    return cached('farm|' + d.key + '|' + col + '|' + skin + '|' + sleeve, () => {
+  function forearmGeo(d, col, skin, sleeve, col2) {
+    return cached('farm|' + d.key + '|' + col + '|' + skin + '|' + sleeve + '|' + col2, () => {
       const list = [];
       const base = limb(d.foreR, d.foreArm, d.foreR * 1.1, d.foreR * 0.8);
       list.push(_paint(base, sleeve === 'none' || sleeve === 'short' ? skin : col));
+      if (sleeve === 'full') { const cuff = cyl(d.foreR * 1.02, d.foreR * 1.12, d.foreArm * 0.2, 10); cuff.translate(0, -d.foreArm * 0.86, 0); list.push(_paint(cuff, col2 != null ? col2 : hexMul(col, 0.8))); }
+      if (sleeve === 'none' && col2 != null) { const wrap = cyl(d.foreR * 1.0, d.foreR * 1.05, d.foreArm * 0.3, 10); wrap.translate(0, -d.foreArm * 0.75, 0); list.push(_paint(wrap, col2)); }
       if (sleeve === 'plate' || sleeve === 'bracer') { const b = cyl(d.foreR * 1.15, d.foreR * 1.05, d.foreArm * 0.55, 10); b.translate(0, -d.foreArm * 0.62, 0); list.push(_paint(b, col)); }
       return _merge(list);
     });
@@ -418,7 +447,8 @@
   function shinGeo(d, col, boot, bootCol) {
     return cached('shin|' + d.key + '|' + col + '|' + boot + '|' + bootCol, () => {
       const list = [_paint(limb(d.shinR, d.shin, d.shinR * 1.05, d.shinR * 0.72), col)];
-      if (boot === 'tall') { const b = cyl(d.shinR * 1.05, d.shinR * 1.0, d.shin * 0.6, 10); b.translate(0, -d.shin * 0.7, 0); list.push(_paint(b, bootCol)); }
+      if (boot === 'tall') { const b = cyl(d.shinR * 1.06, d.shinR * 1.0, d.shin * 0.62, 10); b.translate(0, -d.shin * 0.69, 0); list.push(_paint(b, bootCol)); const cuff = cyl(d.shinR * 1.2, d.shinR * 1.1, d.shin * 0.13, 10); cuff.translate(0, -d.shin * 0.42, 0); list.push(_paint(cuff, hexMul(bootCol, 0.8))); }
+      else if (boot === 'short') { const b = cyl(d.shinR * 1.06, d.shinR * 1.0, d.shin * 0.3, 10); b.translate(0, -d.shin * 0.85, 0); list.push(_paint(b, bootCol)); }
       else if (boot === 'plate') { const b = cyl(d.shinR * 1.12, d.shinR * 1.0, d.shin * 0.75, 10); b.translate(0, -d.shin * 0.6, 0); list.push(_paint(b, bootCol)); }
       return _merge(list);
     });
@@ -434,6 +464,7 @@
       } else {
         const f = capsule(W * 0.5, L * 0.55, 3, 10); f.rotateX(PI / 2); f.scale(1, Hh / (W * 0.5) * 1.05, 1); f.translate(0, -Hh * 0.45, -L * 0.28); list.push(_paint(f, col));
         const ankle = cyl(W * 0.56, W * 0.6, Hh * 1.4, 10); ankle.translate(0, 0, W * 0.05); list.push(_paint(ankle, col));
+        const sole = box(W * 1.02, Hh * 0.28, L * 0.92); sole.translate(0, -Hh * 0.88, -L * 0.25); list.push(_paint(sole, hexMul(col, 0.55)));
         if (kind === 'plate') { const cap = box(W * 1.05, Hh * 0.5, L * 0.35); cap.translate(0, -Hh * 0.1, -L * 0.5); list.push(_paint(cap, hexMul(col, 1.1))); }
       }
       return _merge(list);
@@ -456,7 +487,7 @@
     return cached('helm|' + d.key + '|' + type + '|' + col + '|' + col2, () => {
       const r = d.headR, list = [];
       if (type === 'cap') { const c = sphere(r * 1.12, 16, 10, 0, TAU, 0, PI * 0.5); c.scale(1, 0.85, 1); c.translate(0, r * 0.12, 0); list.push(_paint(c, col)); const brim = cyl(r * 1.25, r * 1.25, r * 0.08, 16); brim.translate(0, r * 0.12, 0); list.push(_paint(brim, col2)); }
-      else if (type === 'hood') { const h = sphere(r * 1.2, 16, 12, 0, TAU, 0, PI * 0.62); h.scale(1, 1.05, 1.08); h.translate(0, r * 0.12, r * 0.08); list.push(_paint(h, col)); const dr = cyl(r * 1.12, r * 1.45, r * 1.2, 14, 1, true); dr.translate(0, -r * 0.7, r * 0.15); list.push(_paint(dr, col)); const pk = cone(r * 0.35, r * 0.7, 8); pk.rotateX(0.7); pk.translate(0, r * 1.05, r * 0.55); list.push(_paint(pk, col)); }
+      else if (type === 'hood') { const h = sphere(r * 1.2, 16, 12, 0, TAU, 0, PI * 0.6); h.scale(1, 1.05, 1.08); h.rotateX(0.42); h.translate(0, r * 0.1, r * 0.1); list.push(_paint(h, col)); const dr = cyl(r * 1.12, r * 1.45, r * 1.2, 14, 1, true); dr.translate(0, -r * 0.7, r * 0.15); list.push(_paint(dr, col)); const pk = cone(r * 0.35, r * 0.7, 8); pk.rotateX(0.7); pk.translate(0, r * 1.05, r * 0.55); list.push(_paint(pk, col)); }
       else if (type === 'lcap') { const c = sphere(r * 1.12, 16, 10, 0, TAU, 0, PI * 0.55); c.translate(0, r * 0.1, 0); list.push(_paint(c, col)); const band = cyl(r * 1.15, r * 1.15, r * 0.2, 16); band.translate(0, -r * 0.05, 0); list.push(_paint(band, col2)); for (const sd of [-1, 1]) { const f = box(r * 0.3, r * 0.6, r * 0.5); f.translate(sd * r * 1.05, -r * 0.35, r * 0.1); list.push(_paint(f, col)); } }
       else if (type === 'helm' || type === 'hornhelm') {
         const c = sphere(r * 1.14, 16, 12, 0, TAU, 0, PI * 0.6); c.scale(1, 1.02, 1.02); c.translate(0, r * 0.08, 0); list.push(_paint(c, col));
@@ -608,7 +639,7 @@
       if (shape === 'staff') { const g = new THREE.OctahedronGeometry(0.06, 0); g.scale(0.75, 1.25, 0.75); g.translate(0, 1.42, 0); return g; }
       if (shape === 'runestone') { const g = new THREE.OctahedronGeometry(0.075, 0); g.scale(0.8, 1.3, 0.8); return g; }
       if (shape === 'sword' || shape === 'greatsword' || shape === 'dagger') { const L = shape === 'dagger' ? 0.32 : shape === 'greatsword' ? 1.15 : 0.82; const g = extrude(bladeShape(shape === 'dagger' ? 0.045 : 0.07, L * 1.02, 0.82), 0.004, 0.002); g.translate(0, 0.06, 0); return g; }
-      if (shape === 'axe' || shape === 'halberd' || shape === 'spear' || shape === 'javelin' || shape === 'mace' || shape === 'hammer') { const g = sphere(0.09, 8, 6); g.translate(0, shape === 'axe' || shape === 'mace' || shape === 'hammer' ? 0.52 : 1.3, 0); return g; }
+      if (shape === 'axe' || shape === 'halberd' || shape === 'spear' || shape === 'javelin' || shape === 'mace' || shape === 'hammer') { const g = sphere(0.055, 8, 6); g.translate(0, shape === 'axe' || shape === 'mace' || shape === 'hammer' ? 0.52 : 1.3, 0); return g; }
       const g = new THREE.OctahedronGeometry(0.05, 0); g.translate(0, 0.3, 0); return g;
     });
   }
@@ -622,7 +653,7 @@
     g.add(m);
     if (glow || shape === 'staff' || shape === 'runestone') {
       const gc = glow != null ? toHex(glow) : (shape === 'staff' ? 0x66ccff : (color || 0x66ccff));
-      const gm = mesh(weaponGlowGeo(shape), material(gc, { emissive: gc, emissiveIntensity: shape === 'staff' || shape === 'runestone' ? 1.6 : 0.9, rough: 0.3, opacity: (shape === 'sword' || shape === 'greatsword' || shape === 'dagger') ? 0.35 : 1 }), false);
+      const gm = mesh(weaponGlowGeo(shape), material(gc, { emissive: gc, emissiveIntensity: shape === 'staff' || shape === 'runestone' ? 1.6 : 0.9, rough: 0.3, opacity: (shape === 'sword' || shape === 'greatsword' || shape === 'dagger') ? 0.35 : (shape === 'staff' || shape === 'runestone') ? 1 : 0.55 }), false);
       g.add(gm); g.userData.glow = gm;
     }
     g.userData.shape = shape;
@@ -679,7 +710,7 @@
   }
   const lookKey = (o) => o ? (o.type || '') + '|' + (o.shape || '') + '|' + o.color + '|' + (o.glow || '') + '|' + (o.rarity || '') + '|' + (o.style || '') + '|' + (o.legendary ? 1 : 0) : '-';
   function bodyMat(type, legendary) {
-    if (legendary) return material(0xffffff, { vertexColors: true, rough: type === 'heavy' ? 0.35 : 0.7, metal: type === 'heavy' ? 0.75 : 0.05, emissive: 0xff9c3a, emissiveIntensity: 0.14 });
+    if (legendary) return material(0xffffff, { vertexColors: true, rough: type === 'heavy' ? 0.35 : 0.7, metal: type === 'heavy' ? 0.75 : 0.05, emissive: 0xff9c3a, emissiveIntensity: 0.07 });
     if (type === 'heavy') return MAT_VC(0.35, 0.75);
     if (type === 'medium') return MAT_VC(0.62, 0.06);
     if (type === 'skin') return MAT_VC(0.6, 0);
@@ -695,9 +726,9 @@
   function A(P, j, x, y, z) { P[j * 3] += x; P[j * 3 + 1] += y; P[j * 3 + 2] += z; }
   function restPose(P) {
     P.fill(0);
-    S(P, J.armL, 0.05, 0, -0.2); S(P, J.armR, 0.05, 0, 0.2);
-    S(P, J.foreL, 0.18, 0, 0.02); S(P, J.foreR, 0.18, 0, -0.02);
-    S(P, J.handL, -0.3, 0, 0); S(P, J.handR, -0.45, 0, 0);
+    S(P, J.armL, 0.12, 0, -0.22); S(P, J.armR, 0.12, 0, 0.22);
+    S(P, J.foreL, 0.3, 0, 0.04); S(P, J.foreR, 0.3, 0, -0.04);
+    S(P, J.handL, -0.35, 0, 0); S(P, J.handR, -0.5, 0, 0);
     S(P, J.legL, 0, 0, -0.03); S(P, J.legR, 0, 0, 0.03);
     S(P, J.shinL, -0.04, 0, 0); S(P, J.shinR, -0.04, 0, 0);
   }
@@ -729,7 +760,8 @@
     if (rd && rd.hairStyles && this.hairStyle !== 5) this.hairStyle = this.hairStyle % Math.max(1, Math.min(5, rd.hairStyles));
     this.beard = spec.beard != null ? spec.beard : (d.female ? 0 : d.R.beard || 0);
     this.eyeColor = toHex(spec.eyes != null ? spec.eyes : spec.eyeColor != null ? spec.eyeColor : (spec.race === 'elf' || spec.race === 'highelf' ? 0x5a8ab0 : spec.race === 'dwarf' || spec.race === 'stoutaxe' ? 0x4a3020 : 0x3a5a7a));
-    this.faceOpts = Object.assign({ eye: this.eyeColor, brow: hexMul(this.hairColor, 0.8) }, spec.faceOpts || {});
+    const rce = spec.race || 'man';
+    this.faceOpts = Object.assign({ eye: this.eyeColor, brow: hexMul(this.hairColor, 0.8), browScale: (rce === 'dwarf' || rce === 'stoutaxe' || rce === 'beorning') ? 1.45 : (rce === 'elf' || rce === 'highelf') ? 0.75 : d.female ? 0.8 : 1, mouth: d.female ? 0xa04a52 : 0x8a4a48 }, spec.faceOpts || {});
     this.meshes = {}; this.parts = {};
     // hierarchy
     const hips = this.parts.hips = grp(0, d.hipY, 0, this.body);
@@ -784,7 +816,7 @@
     const changed = (slots) => initial || slots.some(s => K[s] !== this.lookKeys[s]);
     const def = DEFAULT_CLOTHES[spec.race] || DEFAULT_CLOTHES.man;
     const isMon = !!spec.monster;
-    const chest = look.chest || { type: spec.armourType === 'heavy' && !isMon ? 'light' : 'light', color: def[0], rarity: 'common', none: true };
+    const chest = look.chest || { type: 'light', color: def[0], rarity: 'common', none: true, style: def[3], shirt: def[2] };
     const legs = look.legs || { type: 'light', color: def[1], rarity: 'common', none: true };
     const hands = look.hands, feet = look.feet;
     const shape = look.mainhand ? look.mainhand.shape : null;
@@ -811,16 +843,20 @@
     if (changed(['chest', 'hands', 'legs'])) {
       const v = chest.style || (isMon && chest.type === 'stone' ? 'bare' : chest.type === 'heavy' ? 'plate' : chest.type === 'medium' ? (spec.race === 'beorning' ? 'fur' : 'leather') : (spec.cls === 'loremaster' || spec.cls === 'runekeeper' || spec.cls === 'minstrel' || spec.robe) ? 'robe' : 'cloth');
       const c2 = chest.type === 'heavy' ? hexMul(chest.color, 0.65) : hexLerp(chest.color, 0x3a2a1c, 0.6);
-      this.setMesh('torso', this.parts.torso, torsoGeo(d, v, chest.color, c2, skin), bodyMat(chest.type, chest.legendary), true);
-      const sleeve = chest.none ? (d.R.hunch ? 'none' : 'full') : chest.type === 'heavy' ? 'plate' : chest.type === 'medium' ? 'short' : 'full';
+      const shirt = chest.shirt != null ? chest.shirt : (chest.none ? def[2] : null);
+      this.setMesh('torso', this.parts.torso, torsoGeo(d, v, chest.color, c2, skin, shirt === 'none' ? null : shirt), bodyMat(chest.type, chest.legendary), true);
+      const sleeve = shirt === 'none' ? 'none' : chest.none ? 'full' : chest.type === 'heavy' ? 'plate' : chest.type === 'medium' ? (v === 'fur' ? 'none' : 'short') : 'full';
+      const sleeveCol = (shirt != null && shirt !== 'none' && (v === 'vest' || v === 'cloth')) ? shirt : chest.color;
       const armMat = bodyMat(sleeve === 'none' ? 'skin' : chest.type, chest.legendary);
-      this.setMesh('armL', this.parts.armL, upperArmGeo(d, chest.color, skin, sleeve), armMat, true);
-      this.setMesh('armR', this.parts.armR, upperArmGeo(d, chest.color, skin, sleeve), armMat, true);
+      const armBand = sleeve === 'none' ? (isMon ? null : c2) : null;
+      this.setMesh('armL', this.parts.armL, upperArmGeo(d, sleeveCol, skin, sleeve, sleeve === 'none' ? armBand : chest.color), armMat, true);
+      this.setMesh('armR', this.parts.armR, upperArmGeo(d, sleeveCol, skin, sleeve, sleeve === 'none' ? armBand : chest.color), armMat, true);
       const fs = hands ? (hands.type === 'heavy' ? 'plate' : hands.type === 'medium' ? 'bracer' : 'full') : (sleeve === 'short' || sleeve === 'none' ? 'none' : 'full');
-      const fcol = hands && fs !== 'full' ? hands.color : chest.color;
+      const fcol = hands && fs !== 'full' ? hands.color : sleeveCol;
       const fmat = bodyMat(fs === 'none' ? 'skin' : (hands && fs !== 'full' ? hands.type : chest.type), hands ? hands.legendary : chest.legendary);
-      this.setMesh('forearmL', this.parts.forearmL, forearmGeo(d, fcol, skin, fs), fmat, false);
-      this.setMesh('forearmR', this.parts.forearmR, forearmGeo(d, fcol, skin, fs), fmat, false);
+      const fcuff = fs === 'full' ? (sleeveCol !== chest.color ? chest.color : c2) : fs === 'none' && !isMon && sleeve !== 'short' ? c2 : null;
+      this.setMesh('forearmL', this.parts.forearmL, forearmGeo(d, fcol, skin, fs, fcuff), fmat, false);
+      this.setMesh('forearmR', this.parts.forearmR, forearmGeo(d, fcol, skin, fs, fcuff), fmat, false);
     }
     if (changed(['hands', 'mainhand'])) {
       const gaunt = shape === 'gauntlets';
@@ -839,7 +875,7 @@
       this.setMesh('legL', this.parts.legL, thighGeo(d, legs.color), lm, true);
       this.setMesh('legR', this.parts.legR, thighGeo(d, legs.color), lm, true);
       const bare = !feet && (d.feetMul > 1 || isMon && (spec.race === 'troll' || spec.race === 'giant' || spec.race === 'goblin' || spec.race === 'wight'));
-      const boot = feet ? (feet.type === 'heavy' ? 'plate' : 'tall') : 'none';
+      const boot = feet ? (feet.type === 'heavy' ? 'plate' : 'tall') : bare ? 'none' : 'short';
       const bc = feet ? feet.color : hexMul(def[1], 0.7);
       this.setMesh('shinL', this.parts.shinL, shinGeo(d, legs.color, boot, bc), lm, true);
       this.setMesh('shinR', this.parts.shinR, shinGeo(d, legs.color, boot, bc), lm, true);
@@ -858,7 +894,7 @@
     }
     if (changed(['back'])) {
       const bl = look.back;
-      if (bl) { const len = d.hipY * 0.85 + d.torsoLen * 0.9; this.setMesh('cape', this.parts.capeGroup, capeGeo(d, bl.color, hexMul(bl.color, 0.7), len), material(0xffffff, { vertexColors: true, rough: 0.9, double: true, cape: true, emissive: bl.legendary ? 0xff9c3a : 0, emissiveIntensity: bl.legendary ? 0.12 : 0 }), true); }
+      if (bl) { const len = d.hipY * 0.85 + d.torsoLen * 0.9; this.setMesh('cape', this.parts.capeGroup, capeGeo(d, bl.color, hexMul(bl.color, 0.7), len), material(0xffffff, { vertexColors: true, rough: 0.9, double: true, cape: true, emissive: bl.legendary ? 0xff9c3a : 0, emissiveIntensity: bl.legendary ? 0.06 : 0 }), true); }
       else this.setMesh('cape', this.parts.capeGroup, null);
       this.parts.cape = this.meshes.cape || null;
     }
@@ -1518,15 +1554,20 @@
 
   // ------------------------------------------------------------------ WINGS (bat / drake)
   function wingGeo(span, chord, col, memCol, fingers) {
-    // wing extends along +X from the shoulder; membrane in the XZ plane (flat), slightly drooping
-    const list = [];
-    const pts = [[0, 0]]; const n = fingers || 3;
-    for (let i = 0; i <= n; i++) { const t = i / n; const x = span * (0.35 + 0.65 * t), z = chord * (0.25 + 0.75 * (1 - Math.abs(t - 0.45))); pts.push([x, z]); if (i < n) pts.push([x * 0.92 + span * 0.05, chord * (0.15 + 0.5 * (1 - t))]); }
-    pts.push([span * 0.25, chord * 0.55]); pts.push([0, chord * 0.5]);
-    const sh = shapeFrom(pts); const mem = extrude(sh, 0.012, 0); mem.rotateX(PI / 2); // shape xy → xz (z toward +Z = backward)
+    // wing extends along +X from the shoulder; membrane in the XZ plane; fingers radiate from the wrist
+    const list = [], n = fingers || 3, wx = span * 0.36;
+    const tips = [];
+    for (let i = 0; i <= n; i++) { const t = i / n; const a = -0.12 + t * 1.35; const L = span * 0.66 * (1 - 0.42 * t * t); tips.push([wx + cos(a) * L, sin(a) * L]); }
+    const edge = [[wx + span * 0.02, -chord * 0.06]];
+    for (let i = 0; i < tips.length; i++) { edge.push(tips[i]); if (i < tips.length - 1) { const m = [(tips[i][0] + tips[i + 1][0]) * 0.5, (tips[i][1] + tips[i + 1][1]) * 0.5]; edge.push([lerp(m[0], wx * 0.5, 0.22), lerp(m[1], chord * 0.1, 0.22)]); } }
+    edge.push([wx * 0.55, chord * 0.62]); edge.push([0, chord * 0.55]); edge.push([0, 0]);
+    const pos = [], nor = [], uv = [];
+    const c = [wx * 0.45, chord * 0.2];
+    for (let i = 0; i < edge.length - 1; i++) { const a = edge[i], b = edge[i + 1]; pos.push(c[0], 0, c[1], a[0], 0, a[1], b[0], 0, b[1]); nor.push(0, 1, 0, 0, 1, 0, 0, 1, 0); uv.push(0.5, 0.5, a[0] / span, a[1] / chord, b[0] / span, b[1] / chord); }
+    const mem = new THREE.BufferGeometry(); mem.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); mem.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); mem.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     list.push(_paint(mem, memCol));
-    const arm = capsule(span * 0.035, span * 0.4, 3, 6); arm.rotateZ(-PI / 2); arm.translate(span * 0.2, 0, 0.005); list.push(_paint(arm, col));
-    for (let i = 0; i <= n; i++) { const t = i / n; const x = span * (0.35 + 0.65 * t), z = chord * (0.25 + 0.75 * (1 - Math.abs(t - 0.45))); const L = Math.sqrt((x - span * 0.38) ** 2 + z * z); const f = capsule(span * 0.02, L, 2, 5); f.rotateZ(-PI / 2); f.translate(L * 0.5, 0, 0); f.rotateY(-Math.atan2(z, x - span * 0.38)); f.translate(span * 0.38, 0, 0.005); list.push(_paint(f, col)); }
+    const arm = capsule(span * 0.035, wx, 3, 6); arm.rotateZ(-PI / 2); arm.translate(wx * 0.5, 0, 0); list.push(_paint(arm, col));
+    for (const [tx, tz] of tips) { const L = Math.sqrt((tx - wx) ** 2 + tz * tz); const f = capsule(span * 0.018, L, 2, 5); f.rotateZ(-PI / 2); f.translate(L * 0.5, 0, 0); f.rotateY(-Math.atan2(tz, tx - wx)); f.translate(wx, 0, 0); list.push(_paint(f, col)); const cl = cone(span * 0.02, span * 0.05, 4); cl.rotateZ(-PI / 2); cl.rotateY(-Math.atan2(tz, tx - wx)); cl.translate(tx, 0, tz); list.push(_paint(cl, 0x1a1410)); }
     return _merge(list);
   }
   // ------------------------------------------------------------------ BAT
@@ -1575,8 +1616,8 @@
     const rig = new CreatureRig(fam, (R) => {
       const leg = 0.6, r = 0.36, len = 1.3, spineY = leg + r * 0.8;
       const body = R.joint('body', 0, spineY, 0);
-      const bl = []; const trunk = capsule(r, len * 0.55, 4, 14); trunk.rotateX(PI / 2); bl.push(_paint(trunk, col));
-      const chest = sphere(r * 1.1, 14, 10); chest.scale(1, 1, 1.15); chest.translate(0, 0, -len * 0.3); bl.push(_paint(chest, col));
+      const bl = []; const trunk = capsule(r, len * 0.85, 4, 14); trunk.rotateX(PI / 2); bl.push(_paint(trunk, col));
+      const chest = sphere(r * 1.02, 14, 10); chest.scale(1, 1, 1.15); chest.translate(0, 0, -len * 0.4); bl.push(_paint(chest, col));
       const bel = capsule(r * 0.8, len * 0.6, 3, 12); bel.rotateX(PI / 2); bel.translate(0, -r * 0.35, 0); bl.push(_paint(bel, belly));
       for (let i = 0; i < 6; i++) { const sp = cone(r * 0.18, r * 0.5, 5); sp.rotateX(-0.4); sp.translate(0, r * 0.92, -len * 0.4 + i * len * 0.17); bl.push(_paint(sp, dark)); }
       R.add('body', body, _merge(bl), M.body, true);
@@ -1797,8 +1838,8 @@
       case 'uruk': spec.faceOpts = { eye: 0xe0d040, angry: true, tusks: true, brow: 0x0a0a0a }; L.chest = { type: 'heavy', color: 0x26242a }; L.legs = { type: 'heavy', color: 0x1e1c20 }; L.shoulder = { type: 'heavy', color: 0x1e1c20 }; L.head = { type: 'heavy', color: 0x26242a, style: 'helm' }; L.hands = { type: 'heavy', color: 0x1e1c20 }; L.feet = { type: 'heavy', color: 0x1e1c20 }; L.mainhand = { shape: pick(['greatsword', 'axe', 'halberd']), color: 0x5a5a60 }; if (seed % 2) L.offhand = { shape: 'shield', color: 0x1e1c20 }; break;
       case 'brigand': spec.skin = DEFAULT_SKIN.brigand; spec.hairStyle = seed % 2 ? 0 : 5; spec.faceOpts = { eye: 0x3a3a3a, angry: true, mask: 0x2a2020 }; L.chest = { type: 'medium', color: hexLerp(0x5a4632, col, 0.4) }; L.legs = { type: 'light', color: 0x3a2f24 }; L.head = { type: 'light', color: hexLerp(0x3a3028, col, 0.3), style: seed % 2 ? 'hood' : 'bandana' }; L.mainhand = { shape: pick(['dagger', 'sword', 'mace']), color: null }; if (seed % 2) L.ranged = { shape: 'bow', color: null }; L.feet = { type: 'medium', color: 0x2a2018 }; break;
       case 'sorcerer': spec.skin = 0xd8c8b8; spec.beard = 1; spec.hairStyle = 5; spec.robe = true; spec.faceOpts = { eye: 0x9a40ff, angry: true, glowEyes: 0x9a40ff }; L.chest = { type: 'light', color: hexLerp(0x2c1f3a, col, 0.4), style: 'robe' }; L.legs = { type: 'light', color: hexLerp(0x1c1426, col, 0.3), style: 'robe' }; L.head = { type: 'light', color: hexLerp(0x2c1f3a, col, 0.4), style: 'hood' }; L.mainhand = { shape: 'staff', color: 0x3a2a4a, glow: 0x9a40ff }; L.back = { type: 'light', color: hexLerp(0x1c1426, col, 0.3) }; break;
-      case 'troll': spec.faceOpts = { eye: 0xe0b040, angry: true, eyeScale: 0.8, brow: 0x3a3a30, mouth: 0x3a2a28 }; spec.skin = hexLerp(0x7a7468, col, 0.5); L.chest = { type: 'stone', color: spec.skin, style: 'bare' }; L.legs = { type: 'medium', color: 0x5a4a38, style: 'kilt' }; L.mainhand = { shape: 'club', color: 0x4a3a28 }; spec.weaponScale = 1.5; break;
-      case 'giant': spec.beard = 1; spec.hairStyle = 4; spec.faceOpts = { eye: 0x80c0e0, angry: true, eyeScale: 0.9, brow: 0xd8d8d8 }; spec.hairColor = 0xd8d8d0; spec.skin = hexLerp(0x9a9080, col, 0.5); L.chest = { type: 'medium', color: hexLerp(0x6a6258, col, 0.3), style: 'fur' }; L.legs = { type: 'medium', color: 0x4a4238, style: 'kilt' }; L.mainhand = { shape: pick(['club', 'hammer']), color: 0x5a5048 }; spec.weaponScale = 1.5; break;
+      case 'troll': spec.faceOpts = { eye: 0xe0b040, angry: true, eyeScale: 0.8, brow: 0x3a3a30, mouth: 0x3a2a28 }; spec.skin = hexLerp(0x7a7468, col, 0.5); L.chest = { type: 'stone', color: spec.skin, style: 'bare', shirt: 'none' }; L.legs = { type: 'medium', color: 0x5a4a38, style: 'kilt' }; L.mainhand = { shape: 'club', color: 0x4a3a28 }; spec.weaponScale = 1.5; break;
+      case 'giant': spec.beard = 1; spec.hairStyle = 4; spec.faceOpts = { eye: 0x80c0e0, angry: true, eyeScale: 0.9, brow: 0xd8d8d8 }; spec.hairColor = 0xd8d8d0; spec.skin = hexLerp(0x9a9080, col, 0.5); L.chest = { type: 'medium', color: hexLerp(0x6a6258, col, 0.3), style: 'leather', shirt: 'none' }; L.legs = { type: 'medium', color: 0x4a4238, style: 'kilt' }; L.mainhand = { shape: pick(['club', 'hammer']), color: 0x5a5048 }; spec.weaponScale = 1.5; break;
       case 'wight': spec.faceOpts = { eye: 0x60d0ff, glowEyes: 0x60d0ff, brow: 0x3a4048, mouth: 0x2a3038, white: 0x9aa0a8 }; spec.skin = hexLerp(0xa7b0b8, col, 0.4); spec.robe = true; spec.hover = true; L.chest = { type: 'light', color: hexLerp(0x2a3038, col, 0.3), style: 'robe' }; L.legs = { type: 'light', color: hexLerp(0x1e2428, col, 0.3), style: 'ragged' }; L.head = { type: 'light', color: 0x8a7a40, style: 'crown' }; L.mainhand = { shape: 'sword', color: 0x6a5a4a, glow: 0x40a0d0 }; L.back = { type: 'light', color: hexLerp(0x1e2428, col, 0.2) }; break;
     }
     if (td.boss) { spec.faceOpts.glowEyes = spec.faceOpts.glowEyes || 0xff4020; if (L.mainhand) L.mainhand.glow = L.mainhand.glow || 0xff4020; }
