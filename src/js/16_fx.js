@@ -380,10 +380,11 @@
         float trail = vP.x * 0.8; float head = vP.y; float tail = head - trail;
         if (u > head || u < tail) discard;
         float k = clamp((u - tail) / max(trail, 1e-4), 0.0, 1.0);
-        float along = pow(k, 1.7);
-        float radial = smoothstep(0.0, 0.3, v) * (1.0 - smoothstep(0.86, 1.0, v)) * (0.35 + 0.65 * v);
-        a = along * radial * vP.z;
-        col = mix(col, vec3(1.0), along * radial * 0.6);
+        float along = pow(k, 1.25);
+        float radial = smoothstep(0.0, 0.22, v) * (1.0 - smoothstep(0.9, 1.0, v)) * (0.3 + 0.7 * v);
+        float rim = smoothstep(0.76, 0.88, v) * (1.0 - smoothstep(0.9, 0.98, v));
+        a = (along * radial + rim * along * 0.9) * vP.z;
+        col = mix(col, vec3(1.0), along * (rim * 0.9 + radial * 0.3));
       } else if (mode < 1.5) {                            // expanding ring: x = band half-width, z = alpha
         float band = 1.0 - smoothstep(0.0, vP.x, abs(v - 0.74));
         float inner = smoothstep(0.0, 0.5, v) * 0.35 * (1.0 - v);
@@ -392,12 +393,12 @@
       } else {                                            // thrust spike: x = angular half-width, z = alpha
         float du = abs(fract(u + 0.5) - 0.5);
         float ang = 1.0 - smoothstep(0.0, vP.x, du);
-        a = ang * pow(v, 0.8) * vP.z;
-        col = mix(col, vec3(1.0), ang * v * 0.6);
+        a = ang * pow(v, 0.6) * vP.z;
+        col = mix(col, vec3(1.0), pow(ang, 2.0) * v * 0.85);
       }
       if (a <= 0.003) discard;
       ${FOG_FADE}
-      gl_FragColor = vec4(col * 1.6, a);
+      gl_FragColor = vec4(col * 1.45, a);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
     }`;
@@ -409,12 +410,12 @@
       float age = uTime - vP.x; float t = clamp(age / max(vP.y, 1e-4), 0.0, 1.0);
       if (age < 0.0) discard;
       float fade = smoothstep(0.0, 0.04, t) * (1.0 - smoothstep(0.35, 1.0, t));
-      float core = pow(vFres, 1.4);
-      float scroll = 0.78 + 0.22 * sin((vUv.y * 7.0 - uTime * 5.0) * 6.2832 + vP.z);
+      float core = pow(vFres, 1.8);
+      float scroll = 0.8 + 0.2 * sin((vUv.y * 7.0 - uTime * 5.0) * 6.2832 + vP.z);
       float flick = 0.82 + 0.18 * sin(uTime * 73.0 + vP.z * 7.0);
       float a = core * fade * scroll * flick;
       if (a <= 0.003) discard;
-      vec3 col = mix(vColor, vec3(1.0), pow(vFres, 5.0) * 0.85) * 1.8;
+      vec3 col = mix(vColor, vec3(1.0), pow(vFres, 6.0) * 0.6) * 1.6;
       ${FOG_FADE}
       gl_FragColor = vec4(col, a);
       #include <tonemapping_fragment>
@@ -686,7 +687,7 @@
     _v3.copy(dir).normalize(); _v4.copy(UP);
     _m4.makeBasis(_v3, _v4, _v2); r.quat.setFromRotationMatrix(_m4);
     r.off.set(dir.x * 0.2, 1.1, dir.z * 0.2); r.pos.copy(h.pos).add(r.off);
-    r.birth = now; r.life = life; r.a = 0.05; r.b2 = length; r.c = alpha; r.d = width; r.fn = fnThrust; r.mode = 2; r.bill = false;
+    r.birth = now; r.life = life; r.a = 0.07; r.b2 = length; r.c = alpha; r.d = width; r.fn = fnThrust; r.mode = 2; r.bill = false;
     setCol(r, color); fnThrust(r, 0);
     return r;
   }
@@ -697,16 +698,16 @@
     r.quat.identity(); setCol(r, color); fnPillar(r, 0, 0);
     return r;
   }
-  function beamFx(from, to, color, life, width, jitter) {
+  function beamFx(from, to, color, life, width, jitter, seed, intensity) {
     const r = beams.alloc(null); if (!r) return null;
     _v3.set(to.x - from.x, to.y - from.y, to.z - from.z);
     const len = _v3.length(); if (len < 1e-4) { r.on = false; return null; }
     _v3.multiplyScalar(1 / len);
     r.pos.set((from.x + to.x) * 0.5, (from.y + to.y) * 0.5, (from.z + to.z) * 0.5);
     r.quat.setFromUnitVectors(UP, _v3);
-    r.scl.set(width, len, width);
-    r.birth = now; r.life = life; r.c = _rnd() * 6.28; r.d = jitter; r.fn = fnBeam;
-    setCol(r, color); fnBeam(r);
+    r.scl.set(width * 0.5, len, width * 0.5);
+    r.birth = now; r.life = life; r.c = typeof seed === 'number' ? seed : _rnd() * 6.28; r.d = jitter; r.fn = fnBeam;
+    setCol(r, color); const it = intensity > 0 ? intensity : 1; r.r *= it; r.g *= it; r.b *= it; fnBeam(r);
     return r;
   }
 
@@ -720,7 +721,7 @@
     flame(em, x, y, z) {
       const s = em.scale;
       A.emit(x + rr(-0.16, 0.16) * s, y + rr(0, 0.12) * s, z + rr(-0.16, 0.16) * s, rr(-0.2, 0.2), rr(1.0, 1.9) * s, rr(-0.2, 0.2),
-        now, rr(0.4, 0.75), 1, rr(0.35, 0.55) * s, 0.08 * s, em.color, em.color2, TEX.FLAME, rr(-1, 1), rr(-0.35, 0.35), 0, 0, 0.6, 0.8, NO_FLOOR, 0);
+        now, rr(0.4, 0.75), 1, rr(0.45, 0.7) * s, 0.1 * s, em.color, em.color2, TEX.FLAME, rr(-1, 1), rr(-0.35, 0.35), 0, 0, 0.6, 0.8, NO_FLOOR, 0);
     },
     ember(em, x, y, z) {
       const s = em.scale;
@@ -739,36 +740,39 @@
     heal(em, x, y, z) {
       const s = em.scale, a = rr(0, TAU), rad = rr(0.15, 0.75) * s, star = _rnd() < 0.55;
       A.emit(x + Math.cos(a) * rad, y + rr(0.05, 1.6) * s, z + Math.sin(a) * rad, rr(-0.1, 0.1), rr(0.6, 1.2), rr(-0.1, 0.1),
-        now, rr(0.7, 1.2), 1, (star ? rr(0.14, 0.26) : rr(0.08, 0.16)) * s, 0.02, em.color, em.color2, star ? TEX.STAR : TEX.GLOW, rr(-2, 2), rr(0, TAU), 0, -0.03, 0.3, 0.4, NO_FLOOR, 0);
+        now, rr(0.7, 1.2), 1, (star ? rr(0.22, 0.4) : rr(0.14, 0.24)) * s, 0.03, em.color, em.color2, star ? TEX.STAR : TEX.GLOW, rr(-2, 2), rr(0, TAU), 0, -0.03, 0.3, 0.4, NO_FLOOR, 0);
     },
     swirl(em, x, y, z) {
       const s = em.scale, k = em.k++ % 3, ang = em.age * 9 + k * TAU / 3, rad = 0.62 * s, hgt = (em.age * 1.8 + k * 0.6) % 1.9;
       const cx = Math.cos(ang), sz = Math.sin(ang);
-      A.emit(x + cx * rad, y + hgt, z + sz * rad, -sz * rad * 3, 1.2, cx * rad * 3, now, rr(0.45, 0.65), 1, rr(0.12, 0.2) * s, 0.03, em.color, em.color2,
+      A.emit(x + cx * rad, y + hgt, z + sz * rad, -sz * rad * 3, 1.2, cx * rad * 3, now, rr(0.45, 0.65), 1, rr(0.2, 0.34) * s, 0.04, em.color, em.color2,
         _rnd() < 0.3 ? TEX.STAR : TEX.GLOW, 0, 0, 0, 0, 0.8, 0, NO_FLOOR, 0);
     },
     rise(em, x, y, z) {
       const s = em.scale, a = rr(0, TAU), rad = rr(0.2, 1.3) * s;
-      A.emit(x + Math.cos(a) * rad, y + rr(0, 0.6), z + Math.sin(a) * rad, 0, rr(1.6, 3.2), 0, now, rr(1.1, 1.8), 1, rr(0.1, 0.26), 0.02, em.color, em.color2,
+      A.emit(x + Math.cos(a) * rad, y + rr(0, 0.6), z + Math.sin(a) * rad, 0, rr(1.6, 3.2), 0, now, rr(1.1, 1.8), 1, rr(0.16, 0.36), 0.03, em.color, em.color2,
         _rnd() < 0.5 ? TEX.STAR : TEX.GLOW, rr(-3, 3), rr(0, TAU), 0, -0.05, 0.25, 0.5, NO_FLOOR, 0);
     },
     beaconRise(em, x, y, z) {
       const a = rr(0, TAU), rad = rr(0.1, 0.9) * em.scale;
-      A.emit(x + Math.cos(a) * rad, y + rr(0, 1.0), z + Math.sin(a) * rad, 0, rr(0.5, 1.1), 0, now, rr(2.0, 3.2), 1, rr(0.08, 0.18), 0.02, em.color, em.color2,
+      A.emit(x + Math.cos(a) * rad, y + rr(0, 1.0), z + Math.sin(a) * rad, 0, rr(0.5, 1.1), 0, now, rr(2.0, 3.2), 1, rr(0.12, 0.26), 0.03, em.color, em.color2,
         _rnd() < 0.6 ? TEX.STAR : TEX.GLOW, rr(-2, 2), rr(0, TAU), 0, -0.01, 0.1, 0.35, NO_FLOOR, 0);
     },
     sparkle(em, x, y, z) {
       const r = em.radius;
-      A.emit(x + rr(-r, r), y + rr(-r * 0.6, r), z + rr(-r, r), rr(-0.05, 0.05), rr(0.05, 0.25), rr(-0.05, 0.05), now, rr(0.45, 1.0), 1, rr(0.06, 0.17) * em.scale, 0.02, em.color, em.color2,
+      A.emit(x + rr(-r, r), y + rr(-r * 0.6, r), z + rr(-r, r), rr(-0.05, 0.05), rr(0.05, 0.25), rr(-0.05, 0.05), now, rr(0.45, 1.0), 1, rr(0.1, 0.26) * em.scale, 0.03, em.color, em.color2,
         _rnd() < 0.7 ? TEX.STAR : TEX.GLOW, rr(-4, 4), rr(0, TAU), 0, 0, 0, 0.2, NO_FLOOR, 0);
     },
     trailArrow(em, x, y, z) {
-      A.emit(x, y, z, rr(-0.1, 0.1), rr(0, 0.2), rr(-0.1, 0.1), now, rr(0.18, 0.3), 0.4, 0.1, 0.28, 0xffffff, 0xc8d4dc, TEX.GLOW, 0, 0, 0, 0, 1.5, 0, NO_FLOOR, 0);
+      const st = (em.ox || em.oy || em.oz) ? 1.2 : 0;
+      A.emit(x, y, z, em.ox * 1.5, em.oy * 1.5, em.oz * 1.5, now, rr(0.2, 0.32), 0.45, 0.16, 0.32, 0xffffff, 0xc8d4dc, st ? TEX.STREAK : TEX.GLOW, 0, 0, st, 0, 7, 0, NO_FLOOR, 0);
     },
     trailBolt(em, x, y, z) {
       const s = em.scale;
-      A.emit(x + rr(-0.05, 0.05), y + rr(-0.05, 0.05), z + rr(-0.05, 0.05), rr(-0.3, 0.3), rr(-0.1, 0.4), rr(-0.3, 0.3), now, rr(0.3, 0.5), 1, rr(0.25, 0.4) * s, 0.05, em.color, em.color2,
-        _rnd() < 0.15 ? TEX.STAR : TEX.GLOW, rr(-2, 2), rr(0, TAU), 0, 0, 1.5, 0.3, NO_FLOOR, 0);
+      const st = (em.ox || em.oy || em.oz) ? 1.2 : 0;
+      A.emit(x, y, z, em.ox * 1.5, em.oy * 1.5, em.oz * 1.5, now, rr(0.25, 0.4), 1, rr(0.3, 0.45) * s, 0.06, em.color, em.color2, st ? TEX.STREAK : TEX.GLOW, 0, 0, st, 0, 7, 0, NO_FLOOR, 0);
+      if (_rnd() < 0.5) A.emit(x + rr(-0.06, 0.06), y + rr(-0.06, 0.06), z + rr(-0.06, 0.06), rr(-0.3, 0.3), rr(-0.1, 0.4), rr(-0.3, 0.3), now, rr(0.3, 0.55), 1, rr(0.18, 0.3) * s, 0.04, em.color, em.color2,
+        _rnd() < 0.25 ? TEX.STAR : TEX.GLOW, rr(-2, 2), rr(0, TAU), 0, 0, 1.5, 0.3, NO_FLOOR, 0);
     },
     trailFire(em, x, y, z) {
       const s = em.scale;
@@ -794,7 +798,7 @@
     },
     lootRise(em, x, y, z) {
       const s = em.scale, a = rr(0, TAU), rad = rr(0, 0.35) * s;
-      A.emit(x + Math.cos(a) * rad, y + rr(0, 0.3), z + Math.sin(a) * rad, 0, rr(0.3, 0.7), 0, now, rr(1.2, 1.9), 1, rr(0.06, 0.15) * s, 0.02, em.color, em.color2,
+      A.emit(x + Math.cos(a) * rad, y + rr(0, 0.3), z + Math.sin(a) * rad, 0, rr(0.3, 0.7), 0, now, rr(1.2, 1.9), 1, rr(0.1, 0.22) * s, 0.03, em.color, em.color2,
         _rnd() < 0.7 ? TEX.STAR : TEX.GLOW, rr(-3, 3), rr(0, TAU), 0, -0.01, 0.1, 0.25, NO_FLOOR, 0);
     },
     frostMist(em, x, y, z) {
@@ -811,7 +815,7 @@
     dirOf(o, _v2);
     glow(x, y, z, 1.1 * sc, 0.3 * sc, 0xfff4d6, c, 0.16, 1, 0);
     glow(x, y, z, 0.35 * sc, 0.9 * sc, 0xffffff, c, 0.12, 0.8, 0);
-    sparks(16, x, y, z, 5 * sc, 0xfff8e0, c, 0.25, 0.5, 0.11 * sc, 1.0, fl, _v2.x, _v2.y, _v2.z, 0.35, 0.09, TEX.STREAK, 0);
+    sparks(18, x, y, z, 5.5 * sc, 0xfff8e0, c, 0.25, 0.5, 0.14 * sc, 1.0, fl, _v2.x, _v2.y, _v2.z, 0.35, 0.09, TEX.STREAK, 0);
     sparks(8, x, y, z, 2.5 * sc, 0xffffff, c, 0.3, 0.6, 0.06 * sc, 0.6, fl, 0, 0, 0, 0, 0, TEX.EMBER, 0);
   };
   KINDS.crit = (h, x, y, z, o) => {
@@ -825,21 +829,21 @@
     flash(x, y, z, c, 25 * sc, 0.25);
   };
   KINDS.slash = (h, x, y, z, o) => {
-    const sc = o.scale || 1, c = hexOf(o.color, 0xfff0c0);
+    const sc = o.scale || 1, c = hexOf(o.color, 0xffb648);
     dirOf(o, _v2);
     const variant = typeof o.variant === 'number' ? o.variant : [0, 1, 2, 4, 1, 3, 0, 2][(slashCounter++) & 7];
-    arcFx(h, _v2, 1.45 * sc, 0.4, c, 0.26, variant, 1);
+    arcFx(h, _v2, 1.6 * sc, 0.42, c, 0.28, variant, 1);
     sparks(6, x + _v2.x * 1.2, y + 1.05, z + _v2.z * 1.2, 2.5 * sc, 0xffffff, c, 0.2, 0.35, 0.06 * sc, 0.5, groundAt(x, z, y), _v2.x, 0, _v2.z, 0.4, 0.06, TEX.STREAK, 0.12);
   };
   KINDS.thrust = (h, x, y, z, o) => {
-    const sc = o.scale || 1, c = hexOf(o.color, 0xfff0c0);
+    const sc = o.scale || 1, c = hexOf(o.color, 0xffb648);
     dirOf(o, _v2);
-    thrustFx(h, _v2, 2.3 * sc, 0.55 * sc, c, 0.24, 1);
+    thrustFx(h, _v2, 2.6 * sc, 0.9 * sc, c, 0.26, 1);
     sparks(8, x + _v2.x * 2.1 * sc, y + 1.1, z + _v2.z * 2.1 * sc, 3 * sc, 0xffffff, c, 0.2, 0.35, 0.07 * sc, 0.6, groundAt(x, z, y), _v2.x, 0.2, _v2.z, 0.5, 0.07, TEX.STREAK, 0.1);
     glow(x + _v2.x * 2.1 * sc, y + 1.1, z + _v2.z * 2.1 * sc, 0.5 * sc, 0.15, 0xffffff, c, 0.18, 0.9, 0.1);
   };
   KINDS.spin = (h, x, y, z, o) => {
-    const sc = o.scale || 1, c = hexOf(o.color, 0xfff0c0);
+    const sc = o.scale || 1, c = hexOf(o.color, 0xffb648);
     dirOf(o, _v2);
     const r = arcs.alloc(h);
     if (r) {
@@ -861,7 +865,7 @@
     glow(x, y, z, 1.8 * sc, 0.5 * sc, 0xffe8a0, c, 0.28, 1, 0);
     for (let i = 0; i < 14; i++) {
       const a = rr(0, TAU), rad = rr(0, 0.35) * sc;
-      A.emit(x + Math.cos(a) * rad, y + rr(-0.2, 0.3), z + Math.sin(a) * rad, Math.cos(a) * rr(0.3, 1.2), rr(1.4, 3.0), Math.sin(a) * rr(0.3, 1.2), now + rr(0, 0.12), rr(0.45, 0.75), 1, rr(0.35, 0.6) * sc, 0.08, 0xffe27a, 0xff3000, TEX.FLAME, rr(-1.5, 1.5), rr(-0.4, 0.4), 0, 0, 1.2, 1.0, NO_FLOOR, 0);
+      A.emit(x + Math.cos(a) * rad, y + rr(-0.2, 0.3), z + Math.sin(a) * rad, Math.cos(a) * rr(0.3, 1.2), rr(1.4, 3.0), Math.sin(a) * rr(0.3, 1.2), now + rr(0, 0.12), rr(0.45, 0.75), 1, rr(0.5, 0.8) * sc, 0.1, 0xffe27a, 0xff3000, TEX.FLAME, rr(-1.5, 1.5), rr(-0.4, 0.4), 0, 0, 1.2, 1.0, NO_FLOOR, 0);
     }
     sparks(20, x, y, z, 3.5 * sc, 0xffe0a0, 0xff4a00, 0.7, 1.4, 0.07 * sc, -0.25, fl, 0, 1, 0, 0.2, 0, TEX.EMBER, 0);
     puffs(4, x, y + 0.3, z, 0x3a3230, 0x6a6460, 0.35 * sc, 1.2 * sc, 0.9, 1.4, 0.4, 0.9, 0.35, NO_FLOOR, 0, 0, 0);
@@ -872,7 +876,7 @@
     glow(x, y, z, 1.6 * sc, 0.4 * sc, 0xffffff, c, 0.3, 0.9, 0);
     for (let i = 0; i < 16; i++) {
       let ux = rr(-1, 1), uy = rr(-0.4, 1), uz = rr(-1, 1); const l = Math.sqrt(ux * ux + uy * uy + uz * uz) || 1; const v = rr(0.6, 2.0) * sc;
-      A.emit(x, y, z, ux / l * v, uy / l * v, uz / l * v, now + rr(0, 0.05), rr(0.9, 1.4), 1, rr(0.16, 0.3) * sc, 0.1 * sc, 0xe8ffff, c, TEX.CRYSTAL, rr(-4, 4), rr(0, TAU), 0, 0.12, 1.6, 0, fl, 0);
+      A.emit(x, y, z, ux / l * v, uy / l * v, uz / l * v, now + rr(0, 0.05), rr(0.9, 1.4), 1, rr(0.22, 0.42) * sc, 0.12 * sc, 0xe8ffff, c, TEX.CRYSTAL, rr(-4, 4), rr(0, TAU), 0, 0.12, 1.6, 0, fl, 0);
     }
     twinkles(12, x, y, z, 0.5 * sc, 0xffffff, c, 0.5, 1.0, 0.16 * sc, 0.4, 0.3, TEX.STAR);
     for (let i = 0; i < 8; i++) {
@@ -899,9 +903,13 @@
     } else if (o.from && validPos(o.from)) { fx = o.from.x; fy = o.from.y; fz = o.from.z; }
     else { fx = x + rr(-2.5, 2.5); fy = y + 9 * sc; fz = z + rr(-2.5, 2.5); }                 // strike from the sky
     _v3.set(fx, fy, fz); _v4.set(tx, ty, tz);
-    beamFx(_v3, _v4, c, 0.3, 0.16 * sc, 0.38 * sc);
-    beamFx(_v3, _v4, 0xffffff, 0.22, 0.06 * sc, 0.32 * sc);
-    beamFx(_v3, _v4, c, 0.18, 0.1 * sc, 0.9 * sc);
+    const seed = _rnd() * 6.28;
+    beamFx(_v3, _v4, c, 0.32, 0.55 * sc, 0.36 * sc, seed, 0.35);
+    beamFx(_v3, _v4, lighten(c, 0.6), 0.28, 0.16 * sc, 0.36 * sc, seed, 1.0);
+    beamFx(_v3, _v4, 0xffffff, 0.2, 0.06 * sc, 0.36 * sc, seed, 1.0);
+    _v1.set((fx + tx) * 0.5 + rr(-1.5, 1.5), (fy + ty) * 0.5, (fz + tz) * 0.5 + rr(-1.5, 1.5));
+    _v2.set(_v1.x + rr(-1.2, 1.2), ty + rr(0.2, 1.2), _v1.z + rr(-1.2, 1.2));
+    beamFx(_v1, _v2, lighten(c, 0.4), 0.16, 0.08 * sc, 0.5 * sc, seed + 1.3, 0.8);
     glow(tx, ty, tz, 2.4 * sc, 0.6 * sc, 0xffffff, c, 0.22, 1, 0);
     glow(fx, fy, fz, 1.2 * sc, 0.3 * sc, 0xffffff, c, 0.2, 0.8, 0);
     sparks(22, tx, ty, tz, 6 * sc, 0xffffff, c, 0.25, 0.5, 0.1 * sc, 1.0, groundAt(tx, tz, ty - 1.2), 0, 1, 0, 0.25, 0.1, TEX.STREAK, 0);
@@ -916,10 +924,10 @@
     flash(x, y, z, c, 18 * sc, 0.6);
   };
   KINDS.buff = (h, x, y, z, o) => {
-    const sc = o.scale || 1, c = hexOf(o.color, 0x8ec5ff);
-    addEmitter(h, EP.swirl, 70, o.duration || 0.9, 0, 0, 0, lighten(c, 0.5), c, sc, 0.6);
-    ringFx(h, 0, 0.06, 0, 0.3 * sc, 1.3 * sc, 0.6, c, 0.7, 0.25, false, 0);
-    glow(x, y + 1.0, z, 1.3 * sc, 1.8 * sc, 0xffffff, c, 0.5, 0.4, 0);
+    const sc = o.scale || 1, c = hexOf(o.color, 0x6fb4ff);
+    addEmitter(h, EP.swirl, 80, o.duration || 0.9, 0, 0, 0, lighten(c, 0.55), c, sc, 0.6);
+    ringFx(h, 0, 0.06, 0, 0.3 * sc, 1.4 * sc, 0.6, c, 0.9, 0.25, false, 0);
+    glow(x, y + 1.0, z, 1.4 * sc, 2.0 * sc, lighten(c, 0.5), c, 0.55, 0.6, 0);
   };
   KINDS.levelup = (h, x, y, z, o) => {
     const sc = o.scale || 1, c = hexOf(o.color, 0xffd76a), dur = o.duration || 2.5;
@@ -1044,7 +1052,7 @@
   };
   KINDS.arrow = (h, x, y, z, o) => {
     if (h.target) addEmitter(h, EP.trailArrow, 60, o.duration || 4, 0, 0, 0, 0xffffff, 0xc8d4dc, o.scale || 1, 0.1);
-    else for (let i = 0; i < 6; i++) EP.trailArrow(null, x, y, z);
+    else { trailEm.ox = trailEm.oy = trailEm.oz = 0; for (let i = 0; i < 6; i++) EP.trailArrow(trailEm, x, y, z); }
   };
   KINDS.bolt = (h, x, y, z, o) => {
     const c = hexOf(o.color, 0x8ec5ff);
@@ -1055,7 +1063,9 @@
     const c = hexOf(o.color, 0xa8d8ff), sc = o.scale || 1;
     if (!o.from || !validPos(o.from)) return;
     _v3.set(o.from.x, o.from.y, o.from.z); _v4.set(x, y, z);
-    beamFx(_v3, _v4, c, o.duration || 0.4, (o.width || 0.15) * sc, (typeof o.jitter === 'number' ? o.jitter : 0.05) * sc);
+    const seed = _rnd() * 6.28, w = (o.width || 0.3) * sc, j = (typeof o.jitter === 'number' ? o.jitter : 0.05) * sc;
+    beamFx(_v3, _v4, c, o.duration || 0.4, w, j, seed, 0.4);
+    beamFx(_v3, _v4, lighten(c, 0.7), o.duration || 0.4, w * 0.3, j, seed, 1.0);
     glow(x, y, z, 1.2 * sc, 0.4 * sc, 0xffffff, c, o.duration || 0.4, 0.8, 0);
   };
   KINDS.flash = (h, x, y, z, o) => {
@@ -1208,6 +1218,7 @@
         const spacing = p.kind === PK.arrow ? 0.22 : 0.16;
         let n = Math.ceil(segLen / spacing); if (n > 12) n = 12;
         trailEm.color = lighten(p.color, 0.5); trailEm.color2 = p.color; trailEm.scale = p.scale;
+        const il = 1 / Math.max(segLen, 1e-6); trailEm.ox = (p.pos.x - p.prev.x) * il; trailEm.oy = (p.pos.y - p.prev.y) * il; trailEm.oz = (p.pos.z - p.prev.z) * il;
         const prog = p.kind === PK.arrow ? EP.trailArrow : p.kind === PK.fire ? EP.trailFire : EP.trailBolt;
         const end = hitT <= 1 ? hitT : 1;
         for (let k = 0; k < n; k++) { const t = (k + 0.5) / n * end; prog(trailEm, p.prev.x + (p.pos.x - p.prev.x) * t, p.prev.y + (p.pos.y - p.prev.y) * t, p.prev.z + (p.pos.z - p.prev.z) * t); }

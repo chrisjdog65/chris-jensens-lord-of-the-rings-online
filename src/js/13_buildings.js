@@ -1177,7 +1177,7 @@
       F.lantern(b, 'upper', 0, FL + 2.2, -1.5, { scale: 0.8, intensity: 14, chain: 0.5 });
       b.spot(1.5, D / 2 - t / 2 - 0.85, 0, 'keeper'); b.spot(-4.3, -1.0, HPI, 'fire'); b.spot(-2.6, -2.8, 0, 'idle');
     },
-    name(spec) { return spec.name || 'The Inn'; },
+    defaultName(spec) { return spec.name || 'The Inn'; },
   });
 
   /* ---------------- shop ---------------- */
@@ -1226,7 +1226,7 @@
       F.lantern(b, 'int', 0.2, 2.4, -0.6, { scale: 0.8, intensity: 14, chain: 0.5 });
       b.spot(0.2, 1.5, 0, 'keeper'); b.spot(-1.5, -1.5, 0, 'idle');
     },
-    name(spec) { return spec.name || 'Shop'; },
+    defaultName(spec) { return spec.name || 'Shop'; },
   });
 
   /* ---------------- elf_house ---------------- */
