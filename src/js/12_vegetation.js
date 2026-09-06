@@ -671,7 +671,7 @@
       const mat = spec.kind === 'rock' ? MATS.rock : MATS.tree;
       for (let l = 0; l < gd.lods.length; l++) {
         const capBase = spec.cap[l] || spec.cap[0];
-        const cap = Math.max(64, Math.round(capBase * clamp(densityMult, 0.25, 1.5)));
+        const cap = Math.max(64, Math.round(capBase * 1.25));   // fixed at build: setDensity() may raise density later
         const rec = makeInstanced(gd.lods[l], mat, cap, spec.shadow && l === 0, 'veg_' + type + '_L' + l);
         MESHES[type].push(rec); group.add(rec.mesh);
       }
@@ -945,3 +945,371 @@
     packCell(cell);
     return cell;
   }
+
+  /* ------------------------------------------------------------------------------------------------
+   * Cell streaming (generate around the player, unload far away) + physics ring
+   * ---------------------------------------------------------------------------------------------- */
+  const cells = new Map();              // key → cell
+  let genQueue = [], genIdx = 0;        // pending cells (nearest first)
+  let lastCellX = null, lastCellZ = null;
+  let built = false, dirty = false, forceRebuild = false, physDirty = false;
+  let lastRebuildTime = -1e9, tAcc = 0;
+  let wind = 1, windTarget = 1;
+  let colliderCount = 0;
+  const rebuild = { active: false, list: null, idx: 0 };
+  const cellKey = (cx, cz) => cx + ',' + cz;
+  function cellDist(x0, z0, px, pz) {   // xz distance from a point to the cell square
+    const dx = Math.max(x0 - px, 0, px - (x0 + CELL)), dz = Math.max(z0 - pz, 0, pz - (z0 + CELL));
+    return Math.sqrt(dx * dx + dz * dz);
+  }
+  function unloadCell(cell) {
+    if (cell.phys) { if (G.Physics && G.Physics.clearTag) G.Physics.clearTag('veg:' + cell.key); colliderCount -= cell.tx.length; cell.phys = false; }
+    cells.delete(cell.key);
+    dirty = true;
+  }
+  function scheduleCells(px, pz) {
+    const R = VIS_FAR + KEEP_MARGIN, cr = Math.ceil(VIS_FAR / CELL);
+    const pcx = Math.floor(px / CELL), pcz = Math.floor(pz / CELL);
+    for (const cell of Array.from(cells.values())) if (cellDist(cell.x0, cell.z0, px, pz) > R) unloadCell(cell);
+    const cand = [];
+    for (let cx = pcx - cr; cx <= pcx + cr; cx++) for (let cz = pcz - cr; cz <= pcz + cr; cz++) {
+      const key = cellKey(cx, cz); if (cells.has(key)) continue;
+      const d = cellDist(cx * CELL, cz * CELL, px, pz); if (d > VIS_FAR) continue;
+      cand.push({ key, cx, cz, d });
+    }
+    cand.sort((a, b) => a.d - b.d);
+    genQueue = cand; genIdx = 0;
+  }
+  function generateSome(budgetMs) {
+    const t0 = performance.now();
+    while (genIdx < genQueue.length) {
+      const c = genQueue[genIdx++];
+      if (!cells.has(c.key)) { cells.set(c.key, genCell(c.cx, c.cz)); dirty = true; physDirty = true; }
+      if (performance.now() - t0 > budgetMs) break;
+    }
+    if (genIdx >= genQueue.length) { genQueue = []; genIdx = 0; }
+  }
+  function updatePhysics(px, pz) {
+    const P = G.Physics; if (!P || !P.addCylinder) return;
+    for (const cell of cells.values()) {
+      const d = cellDist(cell.x0, cell.z0, px, pz);
+      if (!cell.phys && d < PHYS_RADIUS) {
+        const tag = 'veg:' + cell.key;
+        for (let i = 0; i < cell.tx.length; i++) P.addCylinder(cell.tx[i], cell.tz[i], cell.tr[i], cell.th[i], tag);
+        colliderCount += cell.tx.length; cell.phys = true;
+      } else if (cell.phys && d > PHYS_RADIUS + CELL) {
+        if (P.clearTag) P.clearTag('veg:' + cell.key);
+        colliderCount -= cell.tx.length; cell.phys = false;
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------------------------------------
+   * Instance rebuild — copies each loaded cell's packed matrices into the (type, LOD) meshes; spread over frames.
+   * Writes go straight into the attribute arrays; the GPU only sees them when commit() flags needsUpdate.
+   * ---------------------------------------------------------------------------------------------- */
+  function startRebuild(px, pz) {
+    const list = [];
+    for (const cell of cells.values()) { cell.d = cellDist(cell.x0, cell.z0, px, pz); if (cell.n > 0) list.push(cell); }
+    list.sort((a, b) => a.d - b.d);          // nearest first: capacity overflow drops the farthest cells
+    for (const type in MESHES) for (const rec of MESHES[type]) rec.cursor = 0;
+    rebuild.list = list; rebuild.idx = 0; rebuild.active = true;
+    dirty = false; forceRebuild = false;
+    lastRebuildTime = tAcc;
+  }
+  function stepRebuild(maxCells) {
+    const list = rebuild.list; let n = 0;
+    while (rebuild.idx < list.length && n < maxCells) {
+      const cell = list[rebuild.idx++]; n++;
+      const d = cell.d;
+      for (const type in cell.groups) {
+        const spec = TYPES[type], recs = MESHES[type]; if (!spec || !recs) continue;
+        if (d > spec.maxDist) continue;
+        const grp = cell.groups[type];
+        let lod = 0;
+        if (spec.lodDist.length) { if (d >= spec.lodDist[1]) lod = 2; else if (d >= spec.lodDist[0]) lod = 1; }
+        if (lod >= recs.length) lod = recs.length - 1;
+        const rec = recs[lod];
+        let cnt = lod === 2 ? grp.nFar : grp.n;
+        if (rec.cursor + cnt > rec.cap) cnt = rec.cap - rec.cursor;
+        if (cnt <= 0) continue;
+        rec.mats.set(grp.mats.subarray(0, cnt * 16), rec.cursor * 16);
+        rec.inst.set(grp.inst.subarray(0, cnt * 4), rec.cursor * 4);
+        rec.cursor += cnt;
+      }
+    }
+    if (rebuild.idx >= list.length) commitRebuild();
+  }
+  function flagUpdate(attr, start, count) {
+    if (attr.addUpdateRange) { attr.addUpdateRange(start, count); }
+    attr.needsUpdate = true;
+  }
+  function commitRebuild() {
+    for (const type in MESHES) for (const rec of MESHES[type]) {
+      const prev = rec.mesh.count;
+      rec.mesh.count = rec.cursor;
+      const n = Math.max(prev, rec.cursor);
+      if (n > 0) { flagUpdate(rec.mesh.instanceMatrix, 0, rec.cursor * 16 || 16); flagUpdate(rec.attr, 0, rec.cursor * 4 || 4); }
+    }
+    rebuild.active = false; rebuild.list = null;
+  }
+
+  /* ------------------------------------------------------------------------------------------------
+   * Ring buffers — grass, flowers, ferns, mushrooms regenerated patch-wise around the player
+   * ---------------------------------------------------------------------------------------------- */
+  const RINGS = [];
+  const _ringWanted = new Set();
+  function makeRing(name, geom, mat, radius, patch, perPatch, fill) {
+    const maxPatches = Math.ceil(Math.PI * Math.pow(radius / patch + 1.6, 2)) + 4;
+    const rec = makeInstanced(geom, mat, maxPatches * perPatch, false, 'veg_' + name);
+    rec.mats.fill(0);                                   // zero matrix = invisible slot
+    rec.mesh.count = maxPatches * perPatch;
+    flagUpdate(rec.mesh.instanceMatrix, 0, rec.mats.length);
+    const ring = { name, rec, radius, patch, perPatch, maxPatches, fill, slots: new Map(), free: [], next: 0, queue: [], qi: 0, lastPx: Infinity, lastPz: Infinity, used: 0 };
+    RINGS.push(ring); group.add(rec.mesh);
+    RING_MESHES[name] = ring;
+    return ring;
+  }
+  function ringReset(ring) {
+    ring.slots.clear(); ring.free.length = 0; ring.next = 0; ring.queue = []; ring.qi = 0; ring.lastPx = Infinity; ring.used = 0;
+    ring.rec.mats.fill(0); flagUpdate(ring.rec.mesh.instanceMatrix, 0, ring.rec.mats.length);
+  }
+  function updateRing(ring, px, pz, budget) {
+    const P = ring.patch;
+    if (Math.abs(px - ring.lastPx) > P * 0.5 || Math.abs(pz - ring.lastPz) > P * 0.5) {
+      ring.lastPx = px; ring.lastPz = pz;
+      const n = Math.ceil(ring.radius / P) + 1, pcx = Math.floor(px / P), pcz = Math.floor(pz / P);
+      _ringWanted.clear();
+      const cand = [];
+      for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) {
+        const cx = pcx + i, cz = pcz + j;
+        const d = Math.hypot((cx + 0.5) * P - px, (cz + 0.5) * P - pz);
+        if (d > ring.radius + P * 0.5) continue;
+        const key = cx + ',' + cz; _ringWanted.add(key);
+        if (!ring.slots.has(key)) cand.push({ key, cx, cz, d });
+      }
+      for (const [key, slot] of ring.slots) {
+        if (_ringWanted.has(key)) continue;
+        const off = slot * ring.perPatch * 16;
+        ring.rec.mats.fill(0, off, off + ring.perPatch * 16);
+        flagUpdate(ring.rec.mesh.instanceMatrix, off, ring.perPatch * 16);
+        ring.slots.delete(key); ring.free.push(slot); ring.used--;
+      }
+      cand.sort((a, b) => a.d - b.d);
+      ring.queue = cand; ring.qi = 0;
+    }
+    let filled = 0;
+    while (ring.qi < ring.queue.length && filled < budget) {
+      const c = ring.queue[ring.qi++];
+      if (ring.slots.has(c.key)) continue;
+      let slot;
+      if (ring.free.length) slot = ring.free.pop();
+      else if (ring.next < ring.maxPatches) slot = ring.next++;
+      else break;
+      ring.slots.set(c.key, slot); ring.used++;
+      const base = slot * ring.perPatch;
+      const off = base * 16;
+      ring.rec.mats.fill(0, off, off + ring.perPatch * 16);
+      ring.fill(c.cx * P, c.cz * P, base, ring);
+      flagUpdate(ring.rec.mesh.instanceMatrix, off, ring.perPatch * 16);
+      flagUpdate(ring.rec.attr, base * 4, ring.perPatch * 4);
+      filled++;
+    }
+    if (ring.qi >= ring.queue.length && ring.queue.length) { ring.queue = []; ring.qi = 0; }
+  }
+  // write one instance into a ring slot
+  function ringWrite(ring, idx, x, y, z, yaw, sx, sy, sz, tr, tg, tb, snow, tiltX, tiltZ) {
+    _e.set(tiltX || 0, yaw || 0, tiltZ || 0, 'YXZ'); _q.setFromEuler(_e); _p.set(x, y, z); _s.set(sx, sy, sz);
+    _m.compose(_p, _q, _s);
+    ring.rec.mats.set(_m.elements, idx * 16);
+    const ia = ring.rec.inst; ia[idx * 4] = tr; ia[idx * 4 + 1] = tg; ia[idx * 4 + 2] = tb; ia[idx * 4 + 3] = snow;
+  }
+  const _gc = [0, 0, 0], _zc = [0, 0, 0];
+  function groundRGB(T, x, z, zone, out) {
+    let v = null;
+    if (T.groundColor) v = T.groundColor(x, z);
+    return toRGB(v, out, (zone && zone.groundColor) != null ? zone.groundColor : 0x5c7d34);
+  }
+  function grassOK(T, x, z) {
+    const gt = T.groundType ? T.groundType(x, z) : (T.height(x, z) > SEA ? 'grass' : 'water');
+    if (gt !== 'grass') return false;
+    if (T.onRoad && T.onRoad(x, z) > 0.12) return false;
+    return true;
+  }
+  function fillGrass(x0, z0, base, ring) {
+    const T = G.Terrain; if (!T || !T.height) return;
+    const P = ring.patch, zone = zoneAtPos(x0 + P / 2, z0 + P / 2), prof = profileFor(zone);
+    const rng = makeRng(cellSeed(x0, z0, 5));
+    toRGB(zone.grassColor, _zc, 0x6f9a3a);
+    const gt = prof.grassTint || null;
+    const hMul = (prof.grassH || 1) * (0.85 + 0.3 * clamp(fbm(x0 * 0.02, z0 * 0.02, 2) * 0.5 + 0.5, 0, 1));
+    const n = Math.round(ring.perPatch * clamp(densityMult, 0.15, 1));
+    for (let k = 0; k < n; k++) {
+      const x = x0 + rng() * P, z = z0 + rng() * P;
+      if (!grassOK(T, x, z)) continue;
+      const y = T.height(x, z);
+      groundRGB(T, x, z, zone, _gc);
+      const j = 0.85 + rng() * 0.3;
+      // ground colour × zone grass colour (normalised so mid-green ground stays mid-green), biome tint, jitter
+      let r = _gc[0] * _zc[0] * 2.6 * j, g = _gc[1] * _zc[1] * 2.2 * j, b = _gc[2] * _zc[2] * 2.4 * j;
+      if (gt) { r *= gt[0]; g *= gt[1]; b *= gt[2]; }
+      const s = (0.75 + rng() * 0.55), sy = s * hMul * (0.8 + rng() * 0.45);
+      ringWrite(ring, base + k, x, y - 0.03, z, rng() * Math.PI * 2, s, sy, s, clamp(r, 0, 1.6), clamp(g, 0, 1.6), clamp(b, 0, 1.6), 0, (rng() - 0.5) * 0.25, (rng() - 0.5) * 0.25);
+    }
+  }
+  function fillFlowers(x0, z0, base, ring) {
+    const T = G.Terrain; if (!T || !T.height) return;
+    const P = ring.patch, zone = zoneAtPos(x0 + P / 2, z0 + P / 2), prof = profileFor(zone);
+    if (!prof.flower) return;
+    const rng = makeRng(cellSeed(x0, z0, 6));
+    const clusters = Math.round(prof.flower * 4 * densityMult * rng());
+    let k = 0;
+    for (let c = 0; c < clusters && k < ring.perPatch; c++) {
+      const cx = x0 + rng() * P, cz = z0 + rng() * P; const col = FLOWER_COLS[Math.floor(rng() * FLOWER_COLS.length)];
+      const cnt = 4 + Math.floor(rng() * 6);
+      for (let i = 0; i < cnt && k < ring.perPatch; i++) {
+        const a = rng() * Math.PI * 2, r = rng() * 1.8; const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+        if (!grassOK(T, x, z)) continue;
+        const s = 0.8 + rng() * 0.6, j = 0.85 + rng() * 0.3;
+        ringWrite(ring, base + k++, x, T.height(x, z) - 0.02, z, rng() * Math.PI * 2, s, s * (0.8 + rng() * 0.5), s, col[0] * j, col[1] * j, col[2] * j, 0, (rng() - 0.5) * 0.3, (rng() - 0.5) * 0.3);
+      }
+    }
+  }
+  function fillFerns(x0, z0, base, ring) {
+    const T = G.Terrain; if (!T || !T.height) return;
+    const P = ring.patch, zone = zoneAtPos(x0 + P / 2, z0 + P / 2), prof = profileFor(zone);
+    if (!prof.fern) return;
+    const rng = makeRng(cellSeed(x0, z0, 7));
+    const n = Math.round(prof.fern * ring.perPatch * densityMult * (0.4 + rng() * 0.8));
+    let k = 0;
+    for (let i = 0; i < n && k < ring.perPatch; i++) {
+      const x = x0 + rng() * P, z = z0 + rng() * P;
+      const gt = T.groundType ? T.groundType(x, z) : 'grass';
+      if ((gt !== 'grass' && gt !== 'dirt') || (T.onRoad && T.onRoad(x, z) > 0.1)) continue;
+      if (T.height(x, z) < SEA + 0.2) continue;
+      const s = 0.8 + rng() * 0.8, g = 0.8 + rng() * 0.35;
+      ringWrite(ring, base + k++, x, T.height(x, z) - 0.02, z, rng() * Math.PI * 2, s, s * (0.85 + rng() * 0.3), s, g * 0.85, g, g * 0.7, 0, 0, 0);
+    }
+  }
+  function fillMushrooms(x0, z0, base, ring) {
+    const T = G.Terrain; if (!T || !T.height) return;
+    const P = ring.patch, zone = zoneAtPos(x0 + P / 2, z0 + P / 2), prof = profileFor(zone);
+    if (!prof.mushroom) return;
+    const rng = makeRng(cellSeed(x0, z0, 8));
+    const clusters = Math.round(prof.mushroom * 2.2 * densityMult * rng());
+    let k = 0;
+    for (let c = 0; c < clusters && k < ring.perPatch; c++) {
+      const cx = x0 + rng() * P, cz = z0 + rng() * P; const col = prof.paleMushroom ? PALE_MUSHROOM : MUSHROOM_COLS[Math.floor(rng() * MUSHROOM_COLS.length)];
+      const cnt = 2 + Math.floor(rng() * 4);
+      for (let i = 0; i < cnt && k < ring.perPatch; i++) {
+        const x = cx + (rng() - 0.5) * 1.4, z = cz + (rng() - 0.5) * 1.4;
+        const gt = T.groundType ? T.groundType(x, z) : 'grass';
+        if ((gt !== 'grass' && gt !== 'dirt') || (T.onRoad && T.onRoad(x, z) > 0.1) || T.height(x, z) < SEA + 0.2) continue;
+        const s = 0.6 + rng() * 0.9, j = 0.85 + rng() * 0.3;
+        ringWrite(ring, base + k++, x, T.height(x, z) - 0.01, z, rng() * Math.PI * 2, s, s * (0.8 + rng() * 0.5), s, col[0] * j, col[1] * j, col[2] * j, 0, (rng() - 0.5) * 0.2, (rng() - 0.5) * 0.2);
+      }
+    }
+  }
+  function buildRings() {
+    makeRing('grass', DETAIL_GEOMS.grass, MATS.grass, 45, 8, 250, fillGrass);
+    makeRing('flower', DETAIL_GEOMS.flower, MATS.tree, 55, 16, 40, fillFlowers);
+    makeRing('fern', DETAIL_GEOMS.fern, MATS.fern, 60, 16, 16, fillFerns);
+    makeRing('mushroom', DETAIL_GEOMS.mushroom, MATS.tree, 45, 16, 12, fillMushrooms);
+  }
+
+  /* ------------------------------------------------------------------------------------------------
+   * Public API
+   * ---------------------------------------------------------------------------------------------- */
+  const WEATHER_WIND = { clear: 0.8, cloudy: 1.15, rain: 1.7, snow: 1.3, storm: 2.8 };
+  function build(scene) {
+    if (built || !scene) return;
+    buildAllGeometry();
+    buildMaterials();
+    buildMeshes(scene);
+    buildRings();
+    built = true;
+    if (G.state && G.state.weather && WEATHER_WIND[G.state.weather] != null) { wind = windTarget = WEATHER_WIND[G.state.weather]; }
+    if (typeof G.on === 'function') G.on('weatherChanged', (kind) => { if (WEATHER_WIND[kind] != null) setWind(WEATHER_WIND[kind]); });
+    log('built', Object.keys(MESHES).length, 'types');
+  }
+  function update(playerPos, dt) {
+    if (!built || !playerPos) return;
+    const px = playerPos.x, pz = playerPos.z;
+    if (!(px === px) || !(pz === pz)) return;
+    dt = (dt > 0 && dt < 1) ? dt : 1 / 60;
+    tAcc += dt;
+    wind += (windTarget - wind) * Math.min(1, dt * 1.2);
+    uniforms.uWind.value = wind;
+    uniforms.uTime.value = ((G.time && typeof G.time.now === 'number') ? G.time.now : tAcc) % WIND_PERIOD;
+
+    const pcx = Math.floor(px / CELL), pcz = Math.floor(pz / CELL);
+    if (pcx !== lastCellX || pcz !== lastCellZ) {
+      lastCellX = pcx; lastCellZ = pcz;
+      scheduleCells(px, pz);
+      dirty = true; forceRebuild = true; physDirty = true;
+    }
+    const localMissing = !cells.has(cellKey(pcx, pcz));     // first frame / teleport: spend more time now
+    if (genIdx < genQueue.length) generateSome(localMissing ? 40 : 2.5);
+    if (physDirty && !localMissing) { updatePhysics(px, pz); physDirty = false; }
+    if (rebuild.active) stepRebuild(localMissing ? 1e9 : 160);
+    else if (dirty && (forceRebuild || tAcc - lastRebuildTime > 0.35)) { startRebuild(px, pz); stepRebuild(forceRebuild || localMissing ? 1e9 : 160); }
+
+    for (let i = 0; i < RINGS.length; i++) updateRing(RINGS[i], px, pz, localMissing ? 1e9 : (i === 0 ? 6 : 3));
+  }
+  function setDensity(mult) {
+    mult = +mult; if (!(mult === mult)) return;
+    mult = clamp(mult, 0.15, 1.5);
+    if (Math.abs(mult - densityMult) < 1e-3) return;
+    densityMult = mult;
+    if (!built) return;
+    for (const cell of Array.from(cells.values())) unloadCell(cell);
+    for (const type in MESHES) for (const rec of MESHES[type]) { rec.cursor = 0; rec.mesh.count = 0; }
+    for (const ring of RINGS) ringReset(ring);
+    genQueue = []; genIdx = 0; lastCellX = lastCellZ = null; rebuild.active = false; rebuild.list = null;
+    dirty = true; forceRebuild = true;
+  }
+  function setWind(strength) {
+    strength = +strength; if (!(strength === strength)) return;
+    windTarget = clamp(strength, 0, 4);
+  }
+  const _statsByType = {};
+  function stats() {
+    let instances = 0, tris = 0, drawCalls = 0, trees = 0, cellCount = 0;
+    for (const type in MESHES) {
+      let n = 0;
+      for (const rec of MESHES[type]) { n += rec.mesh.count; if (rec.mesh.count > 0) { drawCalls++; tris += rec.mesh.count * rec.tris; } }
+      _statsByType[type] = n; instances += n;
+    }
+    let grass = 0;
+    for (const ring of RINGS) { const n = ring.used * ring.perPatch; _statsByType[ring.name] = n; if (ring.used) { drawCalls++; tris += n * ring.rec.tris; } if (ring.name === 'grass') grass = n; }
+    for (const cell of cells.values()) { cellCount++; trees += cell.tx.length; }
+    return { cells: cellCount, trees, instances, triangles: tris, drawCalls, grass, colliders: colliderCount, wind, density: densityMult, pending: Math.max(0, genQueue.length - genIdx), rebuilding: rebuild.active, byType: _statsByType };
+  }
+  const _nearBuf = [], _nearPool = [];
+  function treesNear(x, z, r) {
+    _nearBuf.length = 0;
+    if (!(x === x) || !(z === z) || !(r > 0)) return _nearBuf;
+    const cx0 = Math.floor((x - r) / CELL), cx1 = Math.floor((x + r) / CELL), cz0 = Math.floor((z - r) / CELL), cz1 = Math.floor((z + r) / CELL);
+    let k = 0;
+    for (let cx = cx0; cx <= cx1; cx++) for (let cz = cz0; cz <= cz1; cz++) {
+      const cell = cells.get(cellKey(cx, cz)); if (!cell) continue;
+      for (let i = 0; i < cell.tx.length; i++) {
+        const dx = cell.tx[i] - x, dz = cell.tz[i] - z, rr = r + cell.tr[i];
+        if (dx * dx + dz * dz > rr * rr) continue;
+        let o = _nearPool[k]; if (!o) o = _nearPool[k] = { x: 0, z: 0, r: 0 };
+        o.x = cell.tx[i]; o.z = cell.tz[i]; o.r = cell.tr[i]; _nearBuf.push(o); k++;
+      }
+    }
+    return _nearBuf;
+  }
+
+  G.Veg = {
+    build, update, setDensity, setWind, stats, treesNear,
+    get group() { return group; },
+    get wind() { return wind; },
+    get density() { return densityMult; },
+    CELL, TYPES,
+    geometryInfo() { const o = {}; for (const k in GEOMS) o[k] = GEOMS[k].tris; for (const k in DETAIL_GEOMS) o[k] = [triCount(DETAIL_GEOMS[k])]; return o; },
+    cellAt(x, z) { return cells.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL))) || null; },
+  };
+})();

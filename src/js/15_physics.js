@@ -27,8 +27,9 @@
      overlapCircle(x,z,r, minY?, maxY?) → reused array of colliders overlapping the circle
      isFree(x,z,r)         → bool (no blocking collider, not water, walkable slope, inside world)
      nearestFree(x,z,r)    → {x,z,y} nearby free point (spiral search, ≤ 48 m), original point if none
-     debugMesh(scene)      → toggles wireframe colliders around the player (3 draw calls); returns the group
+     debugMesh(scene)      → toggles wireframe colliders around the player (≤ 4 line draw calls); returns the group
      STEP_HEIGHT, SLOPE_LIMIT, SWIM_DEPTH, CAM_PAD, WORLD_LIMIT (tunables), cameraIgnoresCylinders (bool)
+   Private per-entity fields written: ent._restX/_restZ (last resting spot, for the idle slope check).
    Assumes G.Terrain.height/normal/slope exist at runtime (falls back to flat ground otherwise). ==== */
 (function () {
   'use strict';
@@ -38,7 +39,8 @@
   const CELL = 16, INV_CELL = 1 / CELL;
   const STEP_HEIGHT = 0.6;      // ledges up to this height are stepped onto instead of blocking
   const STEP_SPEED = 7;         // m/s at which the feet rise while stepping up (smooth, not a pop)
-  const SNAP_DOWN = 0.45;       // stay glued to ground when it drops by at most this per step
+  const SNAP_DOWN = 0.65;       // stay glued to ground when it drops by at most this per step (≥ STEP_HEIGHT)
+  const SLOPE_PRECHECK = 0.5;   // along-motion rise/run above which the (possibly costly) terrain slope is queried
   const SLOPE_LIMIT = 0.85;     // G.Terrain.slope above this → slide downhill
   const SLIDE_SPEED = 5.5;      // m/s downhill slide on steep terrain
   const SWIM_DEPTH = 1.2;       // water deeper than this → swimming
@@ -350,7 +352,7 @@
     const inner = r * 0.5;
     ent.justLanded = 0; ent.justSplashed = 0;
     if (!isFinite(pos.x) || !isFinite(pos.y) || !isFinite(pos.z)) { pos.x = 0; pos.z = 0; pos.y = terrainH(0, 0); }
-    if (!isFinite(vel.x) || !isFinite(vel.y) || !isFinite(vel.z)) vel.set(0, 0, 0);
+    if (!isFinite(vel.x) || !isFinite(vel.y) || !isFinite(vel.z)) { vel.x = 0; vel.y = 0; vel.z = 0; }
 
     let vx = desired ? (desired.x || 0) : 0;
     let vz = desired ? (desired.z || 0) : 0;
@@ -400,8 +402,12 @@
     let steps = Math.ceil(speed * dt / (r * 0.9));
     if (steps < 1) steps = 1; else if (steps > MAX_SUBSTEPS) steps = MAX_SUBSTEPS;
     const sdt = dt / steps;
-    let onGround = !!ent.onGround, sliding = false, landed = 0, groundCol = null;
-    const slideCheck = moving || !!ent.sliding;
+    let onGround = !!ent.onGround, sliding = false, landed = 0, groundCol = null, prevTh = th0;
+    const wasSliding = !!ent.sliding;
+    // an idle entity checks the slope once per resting spot (covers spawns/teleports onto a steep face)
+    const idleCheck = !moving && !wasSliding && (ent._restX !== pos.x || ent._restZ !== pos.z);
+    const slideCheck = moving || wasSliding || idleCheck;
+    const hstep = Math.sqrt(vx * vx + vz * vz) * sdt;   // horizontal distance per sub-step
 
     for (let s = 0; s < steps; s++) {
       const feet0 = pos.y;
@@ -435,10 +441,10 @@
       if (pos.y <= ground) {
         if (!onGround && vel.y < -2) landed = -vel.y;
         const rise = ground - feet0;
-        if (onGround && rise > 0.04) {
+        if (onGround && groundCol !== null && rise > 0.04) {
           const maxRise = STEP_SPEED * sdt;
-          pos.y = rise > maxRise ? feet0 + maxRise : ground;   // smooth step-up
-        } else pos.y = ground;
+          pos.y = rise > maxRise ? feet0 + maxRise : ground;   // smooth step-up onto a ledge/floor
+        } else pos.y = ground;                                  // terrain (continuous) always snaps
         vel.y = 0; onGround = true;
       } else if (onGround && vel.y <= 0 && pos.y - ground <= SNAP_DOWN) {
         pos.y = ground; vel.y = 0;                            // glued to ground walking downhill
@@ -449,14 +455,20 @@
         const ceil = ceilingFrom(pos.x, pos.z, pos.y, pos.y + h, nearCount, r * 0.6);
         if (ceil !== Infinity) { pos.y = ceil - h; vel.y = 0; }
       }
-      if (onGround && groundCol === null && slideCheck && terrainSlope(pos.x, pos.z) > SLOPE_LIMIT) {
+      // steep terrain: cheap along-motion gradient first, the terrain's own slope only when it looks steep
+      const steepish = wasSliding || idleCheck || (hstep > 1e-4 && Math.abs(th - prevTh) > SLOPE_PRECHECK * hstep);
+      prevTh = th;
+      if (onGround && groundCol === null && slideCheck && steepish && terrainSlope(pos.x, pos.z) > SLOPE_LIMIT) {
         terrainNormal(pos.x, pos.z, _nv);
         let nx = _nv.x, nz = _nv.z;
         const nl = Math.sqrt(nx * nx + nz * nz);
         if (nl > 1e-4) {
           nx /= nl; nz /= nl;
-          const up = vel.x * nx + vel.z * nz;                 // strip any uphill component of the walk
-          if (up < 0) { vel.x -= up * nx; vel.z -= up * nz; }
+          const up = vel.x * nx + vel.z * nz;                 // uphill component of the walk (negative = uphill)
+          if (up < 0) {
+            pos.x -= up * nx * sdt; pos.z -= up * nz * sdt;   // undo this step's climb
+            vel.x -= up * nx; vel.z -= up * nz;               // and strip it for the remaining sub-steps
+          }
           pos.x += nx * SLIDE_SPEED * sdt; pos.z += nz * SLIDE_SPEED * sdt;
           clampWorld(pos);
           pos.y = terrainH(pos.x, pos.z);
@@ -465,6 +477,7 @@
       }
     }
 
+    if (!sliding) { ent._restX = pos.x; ent._restZ = pos.z; }
     ent.onGround = onGround;
     ent.inWater = inWater;
     ent.swimming = swimming;

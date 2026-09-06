@@ -33,3 +33,8 @@
 - Assumes `G.Terrain.setSkyColor(THREE.Color)` and `G.Terrain.setSun(dirVector3, THREE.Color, intensity)`; `G.Audio.setAmbientRain(level 0..1)`; `G.Buildings.isInside(pos)`; `G.Player.camera` (dome follows it).
 - Extras: `G.Sky.setShadowQuality(size)` (0 disables), `getSkyColor(out)`, `getSunDir(out)`, `sunDir`, `moonDir`, `sunElevation`, `moonPhase`, `dayIndex`, `weather`, `cloudiness`, `rainLevel`, `snowLevel`, `lightning()`, `rollWeather()`, `autoWeather` (settable), `dome`.
 - Sunrise 05:00 / sunset 19:00. Emits `dayPhase`, `weatherChanged`. Precipitation fades inside buildings.
+
+## 15_physics.js
+- `moveEntity(ent, desiredVelXZ, dt, opts)`: caller sets `ent.vel.y` for jumps; `ent.knockback` (Vector3) impulse is applied & decayed; sets `ent.onGround`, `ent.justLanded` (fall speed), `ent.justSplashed`, `ent.inWater`, `ent.swimming`, `ent.sliding`, `ent.waterDepth`, `ent.groundCollider`. `ent.pos.y` is FEET height. Swimming y = SEA − height·0.55.
+- Floors: `addBox(minX,minY,minZ,maxX,maxY,maxZ, {tag, floor:true})` — buildings/docks/bridges MUST pass `floor:true` for walkable surfaces. `groundY(x,z,feetY?)`, `terrainY`, `raycast(origin, dir, maxDist, opts{skipCylinders,skipTerrain,tag})` (reused result object), `cameraClamp(target, desired)` ignores cylinders (trees) by default, `sweep(from,to,radius)`, `overlapCircle(x,z,r)`, `isFree`, `nearestFree(x,z,r)`, `debugMesh(scene)`, `debugVisible`.
+- `G.Terrain.slope(x,z)` is compared raw against 0.85 — Terrain should return 1 − normal.y style value (0 flat .. 1 vertical).

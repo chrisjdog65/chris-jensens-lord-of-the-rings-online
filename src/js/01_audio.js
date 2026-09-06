@@ -432,7 +432,7 @@
     const pitch = (o.pitch || 1) * (1 + (_rand() * 2 - 1) * (o.pv == null ? d.pv : o.pv));
     const t = nowT() + 0.005;
     if (d.verb) v.verb(d.verb, !!d.hall);
-    try { d.fn(v, t, pitch, o); } catch (e) { v.kill(); return null; }
+    try { d.fn(v, t, pitch, o); } catch (e) { v.kill(); if (G.reportError) G.reportError(e, 'Audio.sfx(' + name + ')'); return null; }
     voices.push(v); A.stats.voices = voices.length;
     if (isLoop) { v.loopName = name; loops.set(name, v); }
     return v;
@@ -756,8 +756,8 @@
 
   // ---- creatures ----
   function growl(v, t, p, o) {
-    const sh = v.shaper(o.drive || 3), lp = v.filter('lowpass', o.lp || 800, 1.2), bp = v.filter('bandpass', o.form || 400, 2), mix = v.gain(1);
-    sh.connect(lp); lp.connect(mix); bp.connect(mix); mix.connect(v.out);
+    const sh = v.shaper(o.drive || 3), sg = v.gain(0.3), lp = v.filter('lowpass', o.lp || 800, 1.2), bp = v.filter('bandpass', o.form || 400, 2), mix = v.gain(1);
+    sh.connect(sg); sg.connect(lp); lp.connect(mix); bp.connect(mix); mix.connect(v.out);
     const fenv = o.fenv.map(function (e) { return [e[0], e[1] * p]; });
     v.osc({ t: t, type: 'sawtooth', f: o.f * p, fenv: fenv, dur: o.dur, a: o.a || 0.05, r: o.r || 0.25, vol: o.vol, dest: sh, vib: { rate: o.vibRate || 14, cents: o.vibCents || 30, delay: 0.05 } });
     v.osc({ t: t, type: 'square', f: o.f * 0.5 * p, fenv: fenv.map(function (e) { return [e[0], e[1] * 0.5]; }), dur: o.dur, a: o.a || 0.05, r: o.r || 0.25, vol: o.vol * 0.5, dest: bp });
@@ -780,7 +780,7 @@
     for (let i = 0; i < 6; i++) v.noise({ t: t + _rand() * 0.5, filter: { type: 'bandpass', f: 3000 + _rand() * 3000, q: 4 }, dur: 0.006, r: 0.012, vol: 0.2 });
   }, { pv: 0.08 });
   def('orc_growl', function (v, t, p) { growl(v, t, p, { f: 135, fenv: [[0.2, 150], [0.6, 95]], dur: 0.5, a: 0.04, r: 0.2, vol: 0.22, lp: 1100, form: 520, drive: 5, vibRate: 18, vibCents: 35 }); }, { pv: 0.1, verb: 0.2 });
-  def('troll_roar', function (v, t, p) { growl(v, t, p, { f: 62, fenv: [[0.3, 78], [1.0, 60], [1.4, 42]], dur: 1.2, a: 0.1, r: 0.45, vol: 0.32, lp: 700, form: 300, drive: 7, sub: true, vibRate: 9, vibCents: 45 }); v.noise({ t: t, kind: 'brown', filter: { type: 'lowpass', f: 200 }, dur: 1.2, a: 0.1, r: 0.4, vol: 0.4 }); }, { pv: 0.06, verb: 0.45, hall: true });
+  def('troll_roar', function (v, t, p) { growl(v, t, p, { f: 62, fenv: [[0.3, 78], [1.0, 60], [1.4, 42]], dur: 1.2, a: 0.1, r: 0.45, vol: 0.32, lp: 700, form: 300, drive: 7, sub: true, vibRate: 9, vibCents: 45 }); v.noise({ t: t, kind: 'brown', filter: { type: 'lowpass', f: 200 }, dur: 1.2, a: 0.1, r: 0.4, vol: 0.22 }); }, { pv: 0.06, verb: 0.45, hall: true });
   def('wight_moan', function (v, t, p) {
     const fenv = [[0.6, 190], [1.3, 215], [2.0, 170]].map(function (e) { return [e[0], e[1] * p]; });
     v.osc({ t: t, type: 'sine', f: 220 * p, fenv: fenv, dur: 1.8, a: 0.5, r: 0.7, vol: 0.2, vib: { rate: 2.5, cents: 40, delay: 0.3 } });
@@ -792,10 +792,10 @@
   // ---- weather ----
   def('thunder', function (v, t, p) {
     v.noise({ t: t, filter: { type: 'bandpass', f: 1200, q: 0.6 }, dur: 0.04, a: 0.005, r: 0.12, vol: 0.45 });
-    const g = v.noise({ t: t + 0.05, kind: 'brown', filter: { type: 'lowpass', f: 140 * p, q: 1.5, fenv: [[0.4, 90], [3.5, 45]] }, dur: 1.2, a: 0.08, r: 2.6, vol: 0.9 });
+    const g = v.noise({ t: t + 0.05, kind: 'brown', filter: { type: 'lowpass', f: 140 * p, q: 1.5, fenv: [[0.4, 90], [3.5, 45]] }, dur: 1.2, a: 0.08, r: 2.6, vol: 0.5 });
     v.lfo({ t: t, type: 'sine', rate: 3.3, depth: 0.25, param: g.gain, stop: t + 4.5 });
-    v.noise({ t: t + 0.6, kind: 'brown', filter: { type: 'lowpass', f: 220, q: 1 }, dur: 0.6, a: 0.3, r: 1.5, vol: 0.5 });
-  }, { pv: 0.1, vol: 1.1, verb: 0.35, hall: true });
+    v.noise({ t: t + 0.6, kind: 'brown', filter: { type: 'lowpass', f: 220, q: 1 }, dur: 0.6, a: 0.3, r: 1.5, vol: 0.3 });
+  }, { pv: 0.1, vol: 0.9, verb: 0.35, hall: true });
 
   // ================================================================================================
   // AMBIENT BEDS — builders take a Voice (routed to ambientGain or to an sfx Voice) and fill it.
@@ -1140,7 +1140,7 @@
       const d = Math.max(0.05, e.d * this.spb * (tr.def.gate == null ? 0.95 : tr.def.gate));
       for (const m of e.n) note(tr.g, { t: at, f: hz(m + (tr.def.tr || 0)), d: d, v: _clamp(e.v * (tr.def.vel == null ? 1 : tr.def.vel), 0.05, 1.2), m: m }, inst);
     },
-    fadeIn: function (sec) { const t = nowT(); this.gain.gain.setValueAtTime(0, t); this.gain.gain.linearRampToValueAtTime(1, t + sec); },
+    fadeIn: function (sec) { const t = nowT(); this.gain.gain.setValueAtTime(0, t); this.gain.gain.linearRampToValueAtTime(this.th.gain == null ? 1 : this.th.gain, t + sec); },
     fadeOut: function (sec) {
       const t = nowT(); this.gain.gain.cancelScheduledValues(t); this.gain.gain.setValueAtTime(this.gain.gain.value, t); this.gain.gain.linearRampToValueAtTime(0, t + sec);
       this.done = true; generators.delete(this.gen); const self = this; setTimeout(function () { self.kill(); }, (sec + 0.3) * 1000);
@@ -1168,7 +1168,7 @@
     if (!ctx || !THEMES[id]) return;
     if (current && current.id === id && !current.done) return;
     if (current) { current.fadeOut(2); current = null; }
-    let th; try { th = compileTheme(id); } catch (e) { return; }
+    let th; try { th = compileTheme(id); } catch (e) { if (G.reportError) G.reportError(e, 'Audio.music(' + id + ')'); return; }
     current = new Player(id, th); current.fadeIn(current.th.fadeIn == null ? 2 : current.th.fadeIn);
     A.currentTheme = id;
   };
@@ -1204,16 +1204,16 @@
     const mel = concat(seq('_/32'), seq(M1, { vel: 0.6 }), seq(M2, { vel: 0.75 }), seq(M1, { vel: 0.95, tr: 12 }));
     const horn = concat(seq('_/64'), seq(M2, { vel: 0.7, tr: -12 }), seq(M1, { vel: 1.0 }));
     const harp = arp(ch, [0, 1, 2, 3, 2, 1, 3, 2], 0.5, { vel: 0.5 });
-    const drums = concat(seq('_/64'), rep(drums('X...x..o', 0.5), 16));
+    const perc = concat(seq('_/64'), rep(drums('X...x..o', 0.5), 16));
     const cym = seq('_/96 C4/1@.7 _/31');
-    return { tempo: 76, bpb: 4, bars: 32, loop: true, tracks: [
+    return { gain: 1.0, tempo: 76, bpb: 4, bars: 32, loop: true, tracks: [
       T('pad', ch, { vol: 0.5, send: 0.5 }),
       T('harp', harp, { vol: 0.45, pan: -0.3, send: 0.35 }),
       T('strings', concat(seq('_/32'), ch.filter(function (c) { return c.t >= 32; }).map(function (c) { return { t: c.t - 32, n: c.n.map(function (n) { return n + 12; }), d: c.d, v: 0.6 }; })), { vol: 0.35, pan: 0.2, send: 0.5 }),
       T('strings', mel, { vol: 0.75, send: 0.45 }),
       T('horn', horn, { vol: 0.7, pan: 0.15, send: 0.4 }),
       T('lowstrings', roots(ch, -1, { vel: 0.7 }), { vol: 0.55, send: 0.3 }),
-      T('taiko', drums, { vol: 0.5, send: 0.35 }),
+      T('taiko', perc, { vol: 0.5, send: 0.35 }),
       T('cymbal', cym, { vol: 0.35, send: 0.5 }),
     ] };
   });
@@ -1226,7 +1226,7 @@
     const lute = arp(ch, [0, 2, 1, 3, 2, 1], 1, { vel: 0.6, gate: 1.5 });
     const bass = pick(ch, [0, 3], [0, 2], -1, 2.5, 0.7);
     const harm = concat(seq('_/48'), seq('G4 E4 G4 C5/2 B4 | A4 C5 E5 C5/2 A4 | G4 B4 D5 B4/2 G4 | F#4/3 D4/2 F#4 | D5 G4 B4 D5/2 D5 | C5 A4 C5 E5/3 | D5 A4 F#4 A4/2 F#4 | G4/6', { vel: 0.45 }));
-    return { tempo: 264, bpb: 6, bars: 16, loop: true, tracks: [
+    return { gain: 1.5, tempo: 264, bpb: 6, bars: 16, loop: true, tracks: [
       T('flute', mel, { vol: 0.7, pan: 0.1, send: 0.35 }),
       T('lute', lute, { vol: 0.5, pan: -0.35, send: 0.25 }),
       T('flute', harm, { vol: 0.4, pan: 0.35, send: 0.4 }),
@@ -1243,7 +1243,7 @@
       'F#5 D5 B4/2 | G4 B4 D5/2 | A4/.5 B4/.5 D5 F#5 D5 | E5/.5 D5/.5 C#5/3 | B4 D5 G5 D5 | F#5/.5 E5/.5 D5/3 | E5 C#5 A4 B4 | D5/4', { vel: 0.85 });
     const counter = seq('_/32 F#5/2 D5/2 | G5/2 B4/2 | F#5/4 | E5/4 | G5/2 B5/2 | F#5/4 | E5/2 C#5/2 | D5/4', { vel: 0.5 });
     const strumEv = strum(ch, [1.5, 3.5], 0.5, 0.45, 1);
-    return { tempo: 96, bpb: 4, bars: 16, loop: true, tracks: [
+    return { gain: 1.5, tempo: 96, bpb: 4, bars: 16, loop: true, tracks: [
       T('lute', mel, { vol: 0.75, pan: -0.15, send: 0.3 }),
       T('flute', counter, { vol: 0.45, pan: 0.3, send: 0.45 }),
       T('lute', strumEv, { vol: 0.35, pan: 0.35, send: 0.25 }),
@@ -1259,7 +1259,7 @@
     const harp = arp(ch, [0, 1, 2, 3, 4, 3, 2, 1], 0.5, { vel: 0.5, gate: 1.5 });
     const fl = seq('_/2 B4 E5 | G5/2 F#5 E5 | _ E5 D5 C5 | B4/4 | _/4 | _/2 G4 A4 | B4/2 C5 B4 | A4/3 _ | _/2 E5 G5 | B5/2 A5 G5 | F#5/2 E5 D5 | F#5/4 | _/4 | E5 D5 C5 B4 | G4/2 A4 B4 | E4/4', { vel: 0.55 });
     const bells = seq('_/14 E6/2@.4 _/14 B5/2@.35 _/14 G6/2@.35 _/14 E6/2@.4');
-    return { tempo: 66, bpb: 4, bars: 16, loop: true, tracks: [
+    return { gain: 1.5, tempo: 66, bpb: 4, bars: 16, loop: true, tracks: [
       T('pad', ch, { vol: 0.55, send: 0.6 }),
       T('harp', harp, { vol: 0.5, pan: -0.25, send: 0.5 }),
       T('flute', fl, { vol: 0.55, pan: 0.2, send: 0.6 }),
@@ -1272,7 +1272,7 @@
   theme('barren', function () {
     const horn = seq('_/4 | D4/3 F4 | A4/4 | G4/2 F4/2 | E4/6 | _/2 | D4/2 F4/2 | A4/2 C5/2 | D5/6 | _/2 | C5/2 A4/2 | G4/2 F4 E4 | D4/8 | _/8', { vel: 0.6 });
     const low = chords('Dm/8 Dm/8 Bb/8 Gm/4 A/4 Dm/8 F/8 Bb/8 A/8', { oct: 2, vel: 0.4 });
-    return { tempo: 60, bpb: 4, bars: 16, loop: true, tracks: [
+    return { gain: 1.6, tempo: 60, bpb: 4, bars: 16, loop: true, tracks: [
       T('drone', seq('D2/64@.7'), { vol: 0.5, send: 0.4 }),
       T('windpad', seq('D3/64@.8'), { vol: 0.35, send: 0.5 }),
       T('horn', horn, { vol: 0.6, pan: 0.15, send: 0.7 }),
@@ -1285,7 +1285,7 @@
   theme('downs', function () {
     const ch = chords('Am/3 F/3 C/3 G/3 Am/3 F/3 Dm/3 E/3 Am/3 C/3 F/3 G/3 Am/3 Dm/3 E/3 Am/3', { oct: 3, vel: 0.65 });
     const mel = seq('E5/2 C5 | D5/2 A4 | C5/2 E5 | D5/3 | E5/2 C5 | A4/2 C5 | D5/2 F5 | E5/3 | A5/2 G5 | E5/2 C5 | F5/2 E5 | D5/2 B4 | C5/2 A4 | F5/2 D5 | B4/2 G#4 | A4/3', { vel: 0.75 });
-    return { tempo: 72, bpb: 3, bars: 16, loop: true, tracks: [
+    return { gain: 1.5, tempo: 72, bpb: 3, bars: 16, loop: true, tracks: [
       T('strings', mel, { vol: 0.7, pan: 0.1, send: 0.55 }),
       T('strings', ch, { vol: 0.45, pan: -0.2, send: 0.55 }),
       T('lowstrings', roots(ch, -1, { vel: 0.6 }), { vol: 0.5, send: 0.4 }),
@@ -1299,7 +1299,7 @@
     const ch = chords('Cmaj7/4 Am7/4 Fmaj7/4 G/4 Em7/4 Am7/4 Dm7/4 G/4 Cmaj7/4 Em7/4 Fmaj7/4 G/4 Am7/4 Fmaj7/4 Dm7/4 G/4', { oct: 3, vel: 0.55 });
     const harp = arp(ch, [0, 1, 2, 3, 4, 3, 2, 1], 0.5, { vel: 0.55, gate: 2 });
     const fl = seq('_/4 | E5/2 G5/2 | A5/3 G5 | E5/2 D5/2 | C5/4 | _/2 E5 G5 | B5/2 A5 G5 | E5/3 D5 | E5/4 | G5/2 E5/2 | C5/2 D5/2 | E5/4 | C5/2 A4/2 | F5/2 E5/2 | D5/3 B4 | C5/4', { vel: 0.5 });
-    return { tempo: 80, bpb: 4, bars: 16, loop: true, tracks: [
+    return { gain: 1.5, tempo: 80, bpb: 4, bars: 16, loop: true, tracks: [
       T('harp', harp, { vol: 0.6, pan: -0.2, send: 0.5 }),
       T('pad', ch, { vol: 0.4, send: 0.6 }),
       T('flute', fl, { vol: 0.45, pan: 0.25, send: 0.6 }),
@@ -1314,7 +1314,7 @@
     const bells = seq('_/2 B5 G#5 | _/4 | E5/2 F#5 G#5 | B5/4 | _/4 | G#5/2 B5 C#6 | E6/4 | D#6/2 B5/2 | C#6/2 E6 D#6 | B5/4 | _/4 | G#5 F#5 E5 F#5 | E5/4 | _/4 | F#5/2 G#5/2 | E5/4', { vel: 0.55 });
     const harp = arp(ch, [0, 2, 1, 3], 1, { vel: 0.4, gate: 3 });
     const fl = seq('_/32 E5/4 | G#5/2 F#5/2 | E5/4 | _/4 | C#5/2 E5/2 | F#5/4 | G#5/2 F#5/2 | E5/4', { vel: 0.4 });
-    return { tempo: 58, bpb: 4, bars: 16, loop: true, tracks: [
+    return { gain: 1.5, tempo: 58, bpb: 4, bars: 16, loop: true, tracks: [
       T('choir', ch, { vol: 0.6, send: 0.75 }),
       T('bells', bells, { vol: 0.45, pan: 0.3, send: 0.8 }),
       T('harp', harp, { vol: 0.4, pan: -0.35, send: 0.6 }),
@@ -1329,7 +1329,7 @@
       'G4 G4 Bb4 C5 | Eb5/2 C5/2 | Bb4 G4 F4 G4 | Eb4/4 | F4/.5 F4/.5 G4 Bb4 C5 | Eb5/1.5 C5/.5 Bb4/2 | G4 F4 Eb4 F4 | C4/4';
     const ch = chords('C5/4 C5/4 Eb5/4 Bb5/4 C5/4 C5/4 Ab5/4 G5/4 C5/4 Eb5/4 Bb5/4 Ab5/4 F5/4 Eb5/4 G5/4 C5/4', { oct: 2, vel: 0.6 });
     const horn = seq(riff, { vel: 0.85 });
-    return { tempo: 100, bpb: 4, bars: 16, loop: true, tracks: [
+    return { gain: 0.9, tempo: 100, bpb: 4, bars: 16, loop: true, tracks: [
       T('horn', horn, { vol: 0.7, pan: 0.1, send: 0.35 }),
       T('brass', concat(seq('_/32'), seq(riff.split(' | ').slice(8).join(' | '), { vel: 0.6, tr: -12 })), { vol: 0.45, pan: -0.2, send: 0.3 }),
       T('lowstrings', seq(riff, { vel: 0.7, tr: -24 }), { vol: 0.55, gate: 0.8, send: 0.2 }),
@@ -1345,7 +1345,7 @@
   theme('mountain', function () {
     const ch = chords('Bm/8 G/8 D/8 A/8 Bm/8 Em/8 G/4 A/4 Bm/8', { oct: 3, vel: 0.6 });
     const horn = seq('_/8 | B4/6 D5/2 | F#5/8 | E5/4 D5/4 | B4/8 | _/4 F#4/4 | G4/4 A4/4 | B4/8', { vel: 0.65 });
-    return { tempo: 56, bpb: 4, bars: 16, loop: true, tracks: [
+    return { gain: 1.2, tempo: 56, bpb: 4, bars: 16, loop: true, tracks: [
       T('pad', ch, { vol: 0.6, send: 0.7 }),
       T('pad', ch.map(function (c) { return { t: c.t, n: c.n.map(function (n) { return n + 12; }), d: c.d, v: 0.4 }; }), { vol: 0.35, pan: 0.3, send: 0.8 }),
       T('horn', horn, { vol: 0.6, pan: -0.15, send: 0.7 }),
@@ -1358,7 +1358,7 @@
 
   // ---- DARK: dissonant drones, low pulses, semitone clusters ----
   theme('dark', function () {
-    return { tempo: 50, bpb: 4, bars: 16, loop: true, tracks: [
+    return { gain: 1.2, tempo: 50, bpb: 4, bars: 16, loop: true, tracks: [
       T('drone', seq('C#2/64@.8'), { vol: 0.6, send: 0.5 }),
       T('drone', seq('_/12 G2/12@.5 _/8 C2/16@.5 _/8 D2/8@.5'), { vol: 0.4, pan: 0.3, send: 0.6 }),
       T('kick', rep(drums('X.......o.......', 0.25), 16), { vol: 0.7, send: 0.4 }),
@@ -1374,7 +1374,7 @@
   theme('arctic', function () {
     const ch = chords('Am/8 Fmaj7/8 Dm/8 Em/8 Am/8 C/8 Fmaj7/8 Em/8', { oct: 3, vel: 0.5 });
     const glass = seq('E5/2 A5/2 | C6/3 B5 | E5/2 G5/2 | A5/4 | _/4 | D6/2 C6/2 | B5/2 E5/2 | A5/4 | _/2 E6/2 | D6/2 B5/2 | C6/3 A5 | E5/4 | _/4 | F5/2 E5/2 | D5/2 B4/2 | A4/4', { vel: 0.6 });
-    return { tempo: 62, bpb: 4, bars: 16, loop: true, tracks: [
+    return { gain: 1.5, tempo: 62, bpb: 4, bars: 16, loop: true, tracks: [
       T('glass', glass, { vol: 0.6, pan: 0.2, send: 0.8 }),
       T('pad', ch, { vol: 0.4, send: 0.7 }),
       T('windpad', seq('A3/64@.9'), { vol: 0.4, send: 0.5 }),
@@ -1389,7 +1389,7 @@
     const ch = chords('F/6 Bb/6 F/6 C/6 Dm/6 Bb/6 C/6 F/6 F/6 Am/6 Bb/6 C/6 Dm/6 Bb/6 C7/6 F/6', { oct: 3, vel: 0.55 });
     const mel = seq('A4/2 C5 F5/3 | D5/2 C5 A4/3 | C5 D5 C5 A4/2 G4 | G4/6 | F4/2 A4 D5/3 | C5/2 D5 F5/3 | E5 D5 C5 G4/3 | F4/6 | ' +
       'A4 C5 F5 A5/3 | G5/2 E5 C5/3 | D5 F5 D5 C5/2 Bb4 | G4/6 | A4/2 D5 F5/3 | D5/2 C5 Bb4/3 | G4 A4 Bb4 C5/3 | F4/6', { vel: 0.6 });
-    return { tempo: 192, bpb: 6, bars: 16, loop: true, tracks: [
+    return { gain: 1.5, tempo: 192, bpb: 6, bars: 16, loop: true, tracks: [
       T('harp', arp(ch, [0, 1, 2, 3, 2, 1], 1, { vel: 0.5, gate: 2 }), { vol: 0.55, pan: -0.25, send: 0.5 }),
       T('flute', mel, { vol: 0.55, pan: 0.2, send: 0.5 }),
       T('pad', ch, { vol: 0.35, send: 0.6 }),
@@ -1409,7 +1409,7 @@
     const ch = chords('Em/16 Em/8 C/4 D/4 Am/16 Em/8 C/2 D/2 Em/4', { oct: 3, vel: 0.5 });
     const stabs = seq('_/12 _/3 E4+B4/.5 E4+B4/.5 | _/12 _/2 G4+D5/.5 _/.5 E4+B4/1 | _/12 _/3 A4+E5/.5 A4+E5/.5 | _/12 E4+B4/.5 _/.5 E4+B4/.5 _/.5 E4+B4/2', { vel: 0.9 });
     const horn = seq('_/32 E4/2 G4 A4 | B4/3 A4 | G4/2 E4 G4 | A4/4 | E5/2 D5 B4 | C5/2 B4 A4 | G4 A4 B4 D5 | E5/4', { vel: 0.8 });
-    return { tempo: 140, bpb: 4, bars: 16, loop: true, fadeIn: 0.8, tracks: [
+    return { gain: 0.85, tempo: 140, bpb: 4, bars: 16, loop: true, fadeIn: 0.8, tracks: [
       T('lowstrings', riff, { vol: 0.65, gate: 0.7, send: 0.15 }),
       T('bass', transpose(riff, -12), { vol: 0.5, gate: 0.6 }),
       T('strings', ch, { vol: 0.3, send: 0.4 }),
@@ -1430,7 +1430,7 @@
     const hits = seq('_/4 | _/2 D4+F4+A4/.5 _/.5 D4+F4+A4/1 | _/4 | Eb4+G4+Bb4/1 _/1 D4+F4+A4/2 | _/4 | _/2 D4+F4+A4/.5 _/.5 D4+F4+A4/1 | _/4 | C4+Eb4+G4/.5 _/.5 D4+F4+A4/.5 _/.5 A3+D4+F4/2 | ' +
       '_/4 | _/2 F4+A4+D5/.5 _/.5 F4+A4+D5/1 | _/4 | G4+Bb4+D5/1 _/1 F4+A4+D5/2 | _/4 | Eb4+G4+Bb4/.5 _/.5 Eb4+G4+Bb4/.5 _/.5 D4+F4+A4/2 | _/4 | A3+C#4+E4/.5 _/.5 A3+C#4+E4/.5 _/.5 D4+F4+A4/2', { vel: 1 });
     const horn = seq('_/32 A4/2 F4 D4 | Eb5/3 D5 | C5/2 A4 F4 | A4/4 | D5/2 C5 Bb4 | A4/2 G4 F4 | E4/2 F4/2 | D4/4', { vel: 0.85 });
-    return { tempo: 150, bpb: 4, bars: 16, loop: true, fadeIn: 0.6, tracks: [
+    return { gain: 0.7, tempo: 150, bpb: 4, bars: 16, loop: true, fadeIn: 0.6, tracks: [
       T('lowstrings', riff, { vol: 0.65, gate: 0.7, send: 0.15 }),
       T('bass', transpose(riff, -12), { vol: 0.5, gate: 0.6 }),
       T('choir', ch, { vol: 0.45, send: 0.6 }),
@@ -1448,7 +1448,7 @@
   theme('victory', function () {
     const fan = 'G4/.5 G4/.5 G4/.5 C5/2.5 | E5/.5 D5/.5 C5/.5 G4/2.5 | A4/.5 B4/.5 C5/.5 D5/1.5 E5 | G5/4 | E5/.5 F5/.5 G5/.5 E5/1.5 C5 | D5/.5 E5/.5 F5/.5 D5/1.5 B4 | C5/2 G4/2 | C5/4';
     const ch = chords('C/4 C/4 F/2 G/2 C/4 Am/4 F/2 G/2 C/2 G/2 C/4', { oct: 3, vel: 0.7 });
-    return { tempo: 120, bpb: 4, bars: 8, loop: false, fadeIn: 0.05, tracks: [
+    return { gain: 0.7, tempo: 120, bpb: 4, bars: 8, loop: false, fadeIn: 0.05, tracks: [
       T('horn', seq(fan, { vel: 0.95 }), { vol: 0.75, pan: 0.1, send: 0.45 }),
       T('brass', seq('_/12 C5+E5+G5/4@.8 _/8 E4+G4+C5/2@.7 G4+B4+D5/2@.7 C5+E5+G5/4@1'), { vol: 0.5, pan: -0.15, send: 0.4 }),
       T('strings', ch, { vol: 0.45, send: 0.5 }),
@@ -1463,7 +1463,7 @@
   // ---- DEATH: short sad lament (no loop) ----
   theme('death', function () {
     const ch = chords('Dm/4 Dm/4 Bb/4 Gm/4 Dm/4 A/4 Dm/4 Dm/4', { oct: 3, vel: 0.5 });
-    return { tempo: 60, bpb: 4, bars: 8, loop: false, fadeIn: 0.5, tracks: [
+    return { gain: 0.9, tempo: 60, bpb: 4, bars: 8, loop: false, fadeIn: 0.5, tracks: [
       T('flute', seq('A4/2 F4 E4 | D4/3 _ | F4/2 G4 A4 | A4/2 G4/2 | F4/2 E4 D4 | C4/2 D4 E4 | D4/4 | D4/4', { vel: 0.6 }), { vol: 0.6, pan: 0.1, send: 0.7 }),
       T('strings', ch, { vol: 0.45, send: 0.7 }),
       T('lowstrings', roots(ch, -1, { vel: 0.5 }), { vol: 0.4, send: 0.5 }),
@@ -1476,7 +1476,7 @@
   theme('sailing', function () {
     const ch = chords('C/3 C/3 F/3 C/3 Am/3 F/3 G/3 C/3 C/3 Am/3 G/3 G/3 C/3 F/3 G/3 C/3', { oct: 3, vel: 0.6 });
     const mel = seq('E4 G4 C5 | E5/2 D5 | C5 D5 E5 | G4/3 | A4 C5 E5 | D5/2 C5 | B4 A4 B4 | C5/3 | E5 G5 E5 | C5/2 E5 | D5 F5 D5 | B4/3 | C5 E5 G5 | A5/2 G5 | F5 E5 D5 | C5/3', { vel: 0.8 });
-    return { tempo: 120, bpb: 3, bars: 16, loop: true, tracks: [
+    return { gain: 1.1, tempo: 120, bpb: 3, bars: 16, loop: true, tracks: [
       T('accordion', mel, { vol: 0.7, pan: 0.1, send: 0.35 }),
       T('accordion', strum(ch, [1, 2], 0.8, 0.5, 0), { vol: 0.4, pan: -0.25, send: 0.3 }),
       T('pizz', roots(ch, -1, { vel: 0.8 }), { vol: 0.55, send: 0.2 }),
@@ -1491,7 +1491,7 @@
     const ch = chords('D/6 G/6 A/6 D/6 D/6 G/6 A/6 D/6 D/6 G/6 A/6 D/6 G/6 D/6 A/6 D/6', { oct: 3, vel: 0.6 });
     const jig = 'D4 F#4 A4 D5 A4 F#4 | G4 B4 D5 G5 D5 B4 | A4 C#5 E5 A5 E5 C#5 | D5/2 A4 F#4/2 D4 | D4 F#4 A4 D5 A4 F#4 | G4 B4 D5 G5 D5 B4 | E5 D5 C#5 B4 A4 G4 | F#4/3 D4/3 | ' +
       'A5 F#5 D5 A5 F#5 D5 | B5 G5 D5 B5 G5 D5 | A5 E5 C#5 A5 E5 C#5 | D5/2 E5 F#5/2 D5 | G5 F#5 E5 D5 C#5 B4 | A4 B4 C#5 D5 E5 F#5 | E5 C#5 A4 G4 F#4 E4 | D4/6';
-    return { tempo: 280, bpb: 6, bars: 16, loop: true, tracks: [
+    return { gain: 1.4, tempo: 280, bpb: 6, bars: 16, loop: true, tracks: [
       T('lute', seq(jig, { vel: 0.9 }), { vol: 0.75, pan: -0.1, send: 0.25 }),
       T('flute', concat(seq('_/48'), seq(jig.split(' | ').slice(8).join(' | '), { vel: 0.55 })), { vol: 0.4, pan: 0.3, send: 0.35 }),
       T('lute', strum(ch, [0, 3], 2, 0.4, 0), { vol: 0.35, pan: 0.35, send: 0.25 }),
