@@ -2404,7 +2404,7 @@
       for (const h of bld.horses) {
         if (!h.rig) {
           try {
-            const rig = G.Chars.buildHorse(['chestnut', 'grey', 'bay', 'black'][Math.floor(hash2(h.x, h.z) * 4)]);
+            const rig = G.Chars.buildHorse([0x8b4a2b, 0x9a9a9a, 0x6b3f22, 0x2a2420][Math.floor(hash2(h.x, h.z) * 4)]);
             if (!rig || !rig.group) { horsesBroken = true; return; }
             rig.group.position.set(h.x, h.y, h.z); rig.group.rotation.y = h.yaw;
             root.add(rig.group);
