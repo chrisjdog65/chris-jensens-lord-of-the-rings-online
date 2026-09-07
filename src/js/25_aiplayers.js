@@ -51,6 +51,33 @@
   const RENDER_DROP = RENDER_DIST + 30;       // hysteresis for rig disposal
   const MAX_RIGS = 25;
   const RIG_BUILDS_PER_FRAME = 1;
+  // ---- rig LOD / draw-call budget: only the nearest 12 rigs are fully animated; beyond LOD2_DIST (or past that
+  // cap) a rig shows its one cached static mesh, and shadows are cast only within SHADOW_DIST. 5 m hysteresis.
+  const LOD1_DIST = 45, LOD2_DIST = 90, SHADOW_DIST = 35, LOD_HYST = 2.5, ANIM_CAP = 12;
+  function _lodQuality() { const q = G.state && G.state.quality; return q === 'low' ? 0.5 : q === 'medium' ? 0.75 : 1; }
+  function _lodFor(d, cur, mul) {
+    const l1 = LOD1_DIST * mul, l2 = LOD2_DIST * mul; let lv = cur;
+    if (lv < 2 && d > l2 + LOD_HYST) lv = 2; else if (lv === 2 && d < l2 - LOD_HYST) lv = 1;
+    if (lv < 1 && d > l1 + LOD_HYST) lv = 1; else if (lv === 1 && d < l1 - LOD_HYST) lv = 0;
+    return lv;
+  }
+  // returns the rig's effective level (a rig in a state/one-shot animation clamps itself to 1)
+  function _applyRigLod(e, rig, d, rank, mul) {
+    let lv = _lodFor(d, e._lod || 0, mul);
+    if (rank >= Math.round(ANIM_CAP * mul)) lv = 2;
+    e._lod = lv;
+    if (rig.lodLevel !== lv && typeof rig.setLOD === 'function') rig.setLOD(lv);
+    const sd = SHADOW_DIST * mul, sh = e._shadow !== false ? d < sd + LOD_HYST * 2 : d < sd - LOD_HYST * 2;
+    if (sh !== e._shadow) { e._shadow = sh; if (typeof rig.setShadow === 'function') rig.setShadow(sh); }
+    return typeof rig.lodLevel === 'number' ? rig.lodLevel : lv;
+  }
+  function _camDist(camera, e) {
+    const c = camera && camera.position ? camera.position : null;
+    if (!c) return Math.sqrt(e._d2 || 0);
+    const dx = e.pos.x - c.x, dy = e.pos.y - c.y, dz = e.pos.z - c.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
   const NAMEPLATE_DIST = 60;
   const NEAR_SIM_DIST = 120;                  // physics + real combat within this distance of the hero
   const RUN_SPEED = C.RUN_SPEED > 0 ? C.RUN_SPEED : 6.5;
@@ -1567,10 +1594,17 @@
     if (rig) {
       if (e._mountDirty && e.mounted && frameBuilds < RIG_BUILDS_PER_FRAME) syncMountRig(e);
       syncRig(e);
-      if (e.mounted && e.mountRig) { const h = e.mountRig; if (hasFn(h, 'play')) { try { h.play(dt, e); } catch (err) { report(err, 'horse.play'); } } }
-      if (hasFn(rig, 'play')) { try { rig.play(dt, e); } catch (err) { report(err, 'rig.play'); } }
+      const cam = cameraOf();
+      const level = _applyRigLod(e, rig, _camDist(cam, e), e._rank, _lodQuality());
+      if (e.mounted && e.mountRig) {
+        const h = e.mountRig;
+        if (typeof h.setLOD === 'function' && h.lodLevel !== (level === 2 ? 1 : level)) h.setLOD(level === 2 ? 1 : level);   // a static rider never rides a static horse: horse follows the rider's level (max 1)
+        if (typeof h.setShadow === 'function') h.setShadow(e._shadow !== false);
+        if (hasFn(h, 'play')) { try { h.play(dt, e); } catch (err) { report(err, 'horse.play'); } }
+      }
+      if (level !== 2 && hasFn(rig, 'play')) { try { rig.play(dt, e); } catch (err) { report(err, 'rig.play'); } }
       const np = rig.nameplate;
-      if (np) { const vis = e._d2 < NAMEPLATE_DIST * NAMEPLATE_DIST; np.visible = vis; const cam = vis ? cameraOf() : null; if (cam && G.Chars && hasFn(G.Chars, 'updateNameplate')) { try { G.Chars.updateNameplate(np, cam); } catch (err) { /* ignore */ } } }
+      if (np) { const vis = e._d2 < NAMEPLATE_DIST * NAMEPLATE_DIST; np.visible = vis; if (vis && cam && G.Chars && hasFn(G.Chars, 'updateNameplate')) { try { G.Chars.updateNameplate(np, cam); } catch (err) { /* ignore */ } } }
     }
   }
 

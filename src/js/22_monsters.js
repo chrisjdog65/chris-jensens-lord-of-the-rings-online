@@ -54,6 +54,33 @@
   const RENDER_DIST = C.ENTITY_RENDER_DIST > 0 ? C.ENTITY_RENDER_DIST : 220;
   const RIG_CAP = 60;
   const RIG_BUILDS_PER_SCAN = 6;
+  // ---- rig LOD / draw-call budget: only the nearest 24 rigs are fully animated; beyond LOD2_DIST (or past that
+  // cap) a rig shows its one cached static mesh, and shadows are cast only within SHADOW_DIST. 5 m hysteresis.
+  const LOD1_DIST = 45, LOD2_DIST = 90, SHADOW_DIST = 35, LOD_HYST = 2.5, ANIM_CAP = 24;
+  function _lodQuality() { const q = G.state && G.state.quality; return q === 'low' ? 0.5 : q === 'medium' ? 0.75 : 1; }
+  function _lodFor(d, cur, mul) {
+    const l1 = LOD1_DIST * mul, l2 = LOD2_DIST * mul; let lv = cur;
+    if (lv < 2 && d > l2 + LOD_HYST) lv = 2; else if (lv === 2 && d < l2 - LOD_HYST) lv = 1;
+    if (lv < 1 && d > l1 + LOD_HYST) lv = 1; else if (lv === 1 && d < l1 - LOD_HYST) lv = 0;
+    return lv;
+  }
+  // returns the rig's effective level (a rig in a state/one-shot animation clamps itself to 1)
+  function _applyRigLod(e, rig, d, rank, mul) {
+    let lv = _lodFor(d, e._lod || 0, mul);
+    if (rank >= Math.round(ANIM_CAP * mul)) lv = 2;
+    e._lod = lv;
+    if (rig.lodLevel !== lv && typeof rig.setLOD === 'function') rig.setLOD(lv);
+    const sd = SHADOW_DIST * mul, sh = e._shadow !== false ? d < sd + LOD_HYST * 2 : d < sd - LOD_HYST * 2;
+    if (sh !== e._shadow) { e._shadow = sh; if (typeof rig.setShadow === 'function') rig.setShadow(sh); }
+    return typeof rig.lodLevel === 'number' ? rig.lodLevel : lv;
+  }
+  function _camDist(camera, e) {
+    const c = camera && camera.position ? camera.position : null;
+    if (!c) return Math.sqrt(e._d2 || 0);
+    const dx = e.pos.x - c.x, dy = e.pos.y - c.y, dz = e.pos.z - c.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
   const NEAR_TIER = 60;
   const NAMEPLATE_DIST = 60;
   const CORPSE_TIME = 20;
@@ -399,10 +426,11 @@
       if (d2 < r2) _cand.push(e);
       else if (e.rig && d2 > far2) disposeRig(e);
     }
-    if (_cand.length > RIG_CAP) _cand.sort(_byD2);
+    _cand.sort(_byD2);
     let builds = 0;
     for (let i = 0; i < _cand.length; i++) {
       const e = _cand[i];
+      e._rank = i;
       if (i < RIG_CAP) { if (!e.rig && builds < RIG_BUILDS_PER_SCAN && buildRig(e)) builds++; }
       else if (e.rig) disposeRig(e);
     }
@@ -463,7 +491,7 @@
       radius: radius, height: height, onGround: true, inWater: false, swimming: false,
       stats: {}, morale: 0, power: 0, alive: true, dead: false, deathTime: 0,
       effects: [], cooldowns: {}, target: null, threat: {},
-      mesh: null, rig: null, plate: null, anim: 'idle', animTime: 0,
+      mesh: null, rig: null, plate: null, anim: 'idle', animTime: 0, _lod: 0, _shadow: true, _rank: 999,
       dmg: Math.max(1, Math.round(baseDmg * scale * dmgMult)), armour: Math.max(0, Math.round(baseArmour * scale)),
       speed: speed, aggroRange: Math.max(3, num(type.aggroRange, C.AGGRO_RANGE || 14)),
       abilities: Array.isArray(type.abilities) ? type.abilities.slice() : [], lootTable: type.loot || null,
@@ -1398,7 +1426,7 @@
     if (scanT <= 0) { scanT = SCAN_INTERVAL; groupScan(px, pz, t); }
     budgetT -= dt;
     if (budgetT <= 0) { budgetT = BUDGET_INTERVAL; rigBudget(px, pz); }
-    const cam = getCamera();
+    const cam = getCamera(), lodMul = _lodQuality();
     const near2 = NEAR_TIER * NEAR_TIER, mid2 = SPAWN_DIST * SPAWN_DIST, plate2 = NAMEPLATE_DIST * NAMEPLATE_DIST;
     counters.tier0 = 0; counters.tier1 = 0; counters.tier2 = 0;
     for (let i = live.length - 1; i >= 0; i--) {
@@ -1423,7 +1451,9 @@
       if (rig) {
         rig.group.position.copy(e.pos);
         rig.group.rotation.y = e.yaw;
-        if (tier === 0) { if (typeof rig.play === 'function') rig.play(dt, e); }
+        const level = _applyRigLod(e, rig, _camDist(cam, e), e._rank, lodMul);
+        if (level === 2) { /* static far mesh: no pose update */ }
+        else if (tier === 0) { if (typeof rig.play === 'function') rig.play(dt, e); }
         else if (((frame + e._k) & 1) === 0 && typeof rig.play === 'function') rig.play(dt * 2, e);
         const plate = e.plate;
         if (plate) {
@@ -1462,8 +1492,8 @@
     return M;
   }
   function stats() {
-    let alive = 0, rigs = 0, inCombat = 0, corpses = 0, activeGroups = 0, activeBosses = 0, liveBosses = 0;
-    for (let i = 0; i < live.length; i++) { const e = live[i]; if (e.dead) corpses++; else alive++; if (e.rig) rigs++; if (e.target && !e.dead) inCombat++; if (e.boss && !e.dead) liveBosses++; }
+    let alive = 0, rigs = 0, inCombat = 0, corpses = 0, activeGroups = 0, activeBosses = 0, liveBosses = 0, statics = 0;
+    for (let i = 0; i < live.length; i++) { const e = live[i]; if (e.dead) corpses++; else alive++; if (e.rig) { rigs++; if (e.rig.lodLevel === 2) statics++; } if (e.target && !e.dead) inCombat++; if (e.boss && !e.dead) liveBosses++; }
     for (let i = 0; i < groups.length; i++) if (groups[i].active) activeGroups++;
     for (let i = 0; i < bosses.length; i++) if (bosses[i].active) activeBosses++;
     return {

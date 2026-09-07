@@ -10,11 +10,12 @@
      init(), build(scene), update(playerPos, dt)
      height(x,z), normal(x,z,out), slope(x,z) [= sin(angle), 0 flat .. 1 vertical], isWater(x,z), waterDepth(x,z)
      zoneAt(x,z), biomeAt(x,z), groundType(x,z), onRoad(x,z) 0..1, nearestRoadPoint(x,z,out?) → {x,z,dist}
-     mapCanvas(size) → cached HTMLCanvasElement of the whole world
+     mapCanvas(size, opts?) → cached HTMLCanvasElement of the whole world; opts.labels (default true) — the label-free base
+     and the labelled variant are cached separately and share one raster
    Extras (documented, on G.Terrain):
      groundColor(x,z,out) → linear {r,g,b}      water (near water Mesh), waterFar (far ring), group (chunk Group),
      horizon (Mesh), material (terrain MeshStandardMaterial), waterMaterial, detailTexture, heightTexture (DataTexture,
-     world height, sqrt-encoded around sea level in .r; .g = road weight, .b = shore factor), CHUNK (128), VIEW_RADIUS (960)
+     world height, sqrt-encoded around sea level in .r; .g = road weight, .b = sand weight), CHUNK (128), VIEW_RADIUS (960)
      setSun(dir, color, intensity?)  setSkyColor(hexOrColor)   — fed by G.Sky
      coarseHeight(x,z) (8 m grid, bilinear, cheap)  zoneWeight(zoneId,x,z) 0..1  townAt(x,z) → town|null
      worldToMap(x,z,size,out) / mapToWorld(px,py,size,out)   warmup(x,z,radius?) (synchronous chunk build)
@@ -46,8 +47,13 @@
   const SKIRT = [5, 8, 12];
   const FALLBACK_W = 0.12;                    // weight of the global fallback biome
   const SUPPORT = 1.35;                       // zone influence radius = radius * SUPPORT
-  const LAKE_RIM = 3.2, RIVER_BANK = 1.4, RIVER_BED = -3.2, FORD_BED = -0.9, SEA_FLOOR = -25, CAUSEWAY_H = 1.4;
+  const LAKE_RIM = 2.4, LAKE_RIM_SMALL = 1.6, SMALL_LAKE_R = 60, SMALL_LAKE_DEPTH = 4;   // big lakes keep a low grassy rim; ponds/tarns meet the water gently
+  const RIVER_BANK = 1.4, RIVER_BED = -3.2, FORD_BED = -0.9, SEA_FLOOR = -25, CAUSEWAY_H = 1.4;
+  const BEACH_H = 14, BEACH_FLAT = 0.55;                 // sea profile is compressed within ±14 m of the water line (slope ≈ × 0.5 through the shore)
+  const SAND_SEA = 2.2, SAND_LAKE = 1.4, SAND_POND = 0.5, SAND_RIVER = 1.3;   // height above the water line where sand gives way to grass
   const TOWN_MIN_H = 2.5, VALLEY_FLOOR = 5;
+  // packed-earth fill of the settlement core per town style (0 = grass with worn paths only)
+  const TOWN_EARTH = { man: 1, dwarf: 1, ruin: 0.8, camp: 0.7, lossoth: 0.7, elf: 0.5, hobbit: 0 };
 
   let HALF = 2048, WORLD_SIZE = 4096, SEA = 0;
   let GC = 64, INV_CELL = 1 / CELL;
@@ -113,8 +119,9 @@
   let VAL_X = 1400, VAL_Z = 40, VAL_R = 235, VAL_R2 = VAL_R * VAL_R;
 
   // side products of the last height() call (read by colour/ground-type code, never by other modules)
-  let L_macro = 0, L_meso = 0, L_micro = 0, L_sea = 0, L_lake = 0, L_shoreBase = 0, L_valley = 0, L_ridge = 0;
-  let L_road = 0, L_roadCore = 0, L_town = 0, L_shore = 0, L_water = 0;
+  let L_macro = 0, L_meso = 0, L_micro = 0, L_sea = 0, L_lake = 0, L_shoreBase = 0, L_sandH = SAND_SEA, L_valley = 0, L_ridge = 0;
+  // L_shore = final sand weight (shore proximity × height band), L_earth = packed-earth settlement weight, L_settle = town core (style-free)
+  let L_road = 0, L_roadCore = 0, L_town = 0, L_shore = 0, L_water = 0, L_earth = 0, L_settle = 0;
 
   // ---------------------------------------------------------------- zone blending
   function blendH(x, z) {
@@ -204,7 +211,7 @@
   function baseH(x, z, low) {
     let h = landH(x, z, low);
     const macro = L_macro, meso = L_meso, micro = L_micro;
-    let sea = 0, lake = 0, shore = 0, valley = 0;
+    let sea = 0, lake = 0, shore = 0, sandH = SAND_SEA, valley = 0;
     // --- sea (west of COAST_X / north of COAST_Z) with a wobbly coast, beaches and islands rising from it
     let cd = COAST_X - x;
     const cdz = COAST_Z - z;
@@ -224,25 +231,43 @@
         }
         const floor = SEA_FLOOR + 5 * macro + 2 * meso;
         h += (floor - h) * s;
+        // gentle beaches: compress the profile around the water line (which stays exactly where it is) so the slope
+        // through the shore drops to ~45 % — wide sand and foam bands instead of a hard step into the sea
+        const a = h < 0 ? -h : h;
+        if (a < BEACH_H) h *= 1 - BEACH_FLAT * (1 - ss(0, BEACH_H, a)) * ss(0.02, 0.25, s);
         sea = s;
       }
     }
-    // --- lakes & bays: gentle rim, then a smooth bowl
+    // --- lakes & bays. Ponds/tarns (R < 60): a wide, mild hollow, then one gentle bowl from 1.45 R down to at most
+    //     4 m (the water line sits near 0.8 R, the grassy bank above it is ~0.5 R wide). Big lakes: a low rim, a gentle
+    //     beach and a smooth deep bowl.
     for (let o = 0; o < LAK_N; o += 4) {
       const dx = x - LAK[o], dz = z - LAK[o + 1];
-      const R = LAK[o + 2], lim = R + 100;
+      const R = LAK[o + 2], small = R < SMALL_LAKE_R, lim = small ? R * 3.1 : R + 135;
       const d2 = dx * dx + dz * dz;
       if (d2 >= lim * lim) continue;
-      const d = Math.sqrt(d2) + R * 0.12 * (G.noise2(x * 1.4 / R + 1, z * 1.4 / R + 3) + 0.5 * G.noise2(x * 3.1 / R - 2, z * 3.1 / R + 5));
-      const rim = ss(R + 90, R + 14, d);
-      if (rim > 0) h += (LAKE_RIM + (h - LAKE_RIM) * 0.25 - h) * rim;
-      const rs = ss(R + 40, R + 4, d);
-      if (rs > shore) shore = rs;
-      const bowl = ss(R + 8, R * 0.5, d);
-      if (bowl > 0) {
-        h += (-LAK[o + 3] + 2 * macro + 0.5 * meso - h) * bowl;
-        if (bowl > lake) lake = bowl;
+      const d = Math.sqrt(d2) + R * (small ? 0.07 : 0.12) * (G.noise2(x * 1.4 / R + 1, z * 1.4 / R + 3) + 0.5 * G.noise2(x * 3.1 / R - 2, z * 3.1 / R + 5));
+      let bowl, rs;
+      if (small) {
+        const hol = ss(R * 3, R * 1.4, d);
+        if (hol > 0) h += (LAKE_RIM_SMALL + (h - LAKE_RIM_SMALL) * 0.16 - h) * hol;
+        bowl = ss(R * 1.45, R * 0.3, d);
+        if (bowl > 0) h += (-LAK[o + 3] + 0.5 * meso + 0.2 * micro - h) * bowl;
+        rs = ss(R * 1.5, R * 0.9, d);
+      } else {
+        const rim = ss(R + 130, R + 12, d);
+        if (rim > 0) h += (LAKE_RIM + (h - LAKE_RIM) * 0.25 - h) * rim;
+        const bank = ss(R + 12, R - 10, d);
+        if (bank > 0) h += (-0.4 + 0.3 * meso + 0.2 * micro - h) * bank;
+        rs = ss(R + 40, R + 4, d);
+        bowl = ss(R - 8, R * 0.5, d);
+        if (bowl > 0) h += (-LAK[o + 3] + 2 * macro + 0.5 * meso - h) * bowl;
+        if (bank > bowl) bowl = bank;
       }
+      if (rs > shore) { shore = rs; sandH = small ? SAND_POND : SAND_LAKE; }
+      // towns/roads hand over to the lake as soon as the bank starts (their level ground reaches the top of the bank)
+      const lw = ss(0, 0.2, bowl);
+      if (lw > lake) lake = lw;
     }
     // --- isles inside lakes (Tinnudir)
     for (let o = 0; o < LISL_N; o += 4) {
@@ -263,7 +288,7 @@
         h += (VALLEY_FLOOR + (h - VALLEY_FLOOR) * 0.25 - h) * valley;
       }
     }
-    L_sea = sea; L_lake = lake; L_shoreBase = shore; L_valley = valley;
+    L_sea = sea; L_lake = lake; L_shoreBase = shore; L_sandH = sandH; L_valley = valley;
     return h;
   }
 
@@ -273,13 +298,28 @@
     let h = baseH(x, z, false);
     const micro = L_micro, lake = L_lake, valley = L_valley;
     let water = L_sea > lake ? L_sea : lake;
-    let shore = L_shoreBase;
+    let shore = L_shoreBase, sandH = L_sandH;
     let cx = ((x + HALF) * INV_CELL) | 0; if (cx < 0) cx = 0; else if (cx >= GC) cx = GC - 1;
     let cz = ((z + HALF) * INV_CELL) | 0; if (cz < 0) cz = 0; else if (cz >= GC) cz = GC - 1;
     const cell = cx * GC + cz;
-    // --- roads: flatten to a smoothed road elevation (macro relief only), blend over a band that widens with the cut
+    // --- settlement core: full inside 0.55 R, fading to the open country by R (noisy edge); earth = core × style fill
+    let settle = 0, earth = 0;
+    let k0 = TC_START[cell], k1 = TC_START[cell + 1];
+    for (let k = k0; k < k1; k++) {
+      const o = TC_ITEMS[k] * TS;
+      const dx = x - TWN[o], dz = z - TWN[o + 1];
+      const R = TWN[o + 2];
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= R * R * 1.35) continue;
+      const core = ss(R, R * 0.55, Math.sqrt(d2) + R * 0.1 * micro);
+      if (core > settle) settle = core;
+      const e = core * TWN[o + 4];
+      if (e > earth) earth = e;
+    }
+    // --- roads: flatten to a smoothed road elevation (macro relief only), blend over a band that widens with the cut;
+    //     inside settlements the worn surface spreads wider (paths across the square)
     let roadW = 0, roadCore = 0;
-    let k0 = RC_START[cell], k1 = RC_START[cell + 1];
+    k0 = RC_START[cell]; k1 = RC_START[cell + 1];
     if (k1 > k0) {
       let bd2 = 1e18, bt = 0, bs = -1;
       for (let k = k0; k < k1; k++) {
@@ -308,11 +348,11 @@
         const w = ss(hw + band, hw, d);
         h += diff * w;
         roadCore = ss(hw + 4, hw, d);
-        roadW = ss(hw + 2.5, hw - 1, d + 1.2 * G.noise2(x * 0.23 + 5, z * 0.23));
+        roadW = ss(hw + 2.5 + 5 * settle, hw - 1, d + 1.2 * G.noise2(x * 0.23 + 5, z * 0.23));
         water *= 1 - roadCore;
       }
     }
-    // --- towns: flatten toward the height at the town centre (outer 30% blends); lakes are never filled in
+    // --- towns: flatten toward the height at the town centre (outer 30% blends); lakes and their banks are never filled in
     let townW = 0;
     k0 = TC_START[cell]; k1 = TC_START[cell + 1];
     for (let k = k0; k < k1; k++) {
@@ -324,11 +364,13 @@
       const th = TWN[o + 3] + 0.3 * micro;
       let band = (th > h ? th - h : h - th) * 1.5;
       if (band > 90) band = 90;
-      const w = ss(R + band, R * 0.7, Math.sqrt(d2)) * (1 - lake);
+      const w = ss(R + band, R * 0.7, Math.sqrt(d2));
       if (w <= 0) continue;
-      h += (th - h) * w;
+      // inside a lake's bowl a town may only lower the ground, never raise it: the bank keeps its gentle profile
+      const tgt = (lake > 0 && th > h) ? h + (th - h) * (1 - lake) : th;
+      h += (tgt - h) * w;
       if (w > townW) townW = w;
-      water *= 1 - w;
+      water *= 1 - w * (1 - lake);
     }
     // --- rivers: soft banks, then a carved bed (shallow fords where roads cross); the Rivendell stream only inside the valley
     k0 = VC_START[cell]; k1 = VC_START[cell + 1];
@@ -358,13 +400,17 @@
           const bed = VSEG[bs + 8] + (FORD_BED - VSEG[bs + 8]) * roadCore + 0.35 * micro;
           h += (bed - h) * carve;
           const sb = bank * bank * bank * bank * bank;
-          if (sb > shore) shore = sb;
+          if (sb > shore) { shore = sb; sandH = SAND_RIVER; }
           if (carve > water) water = carve;
         }
       }
     }
-    L_road = roadW; L_roadCore = roadCore; L_town = townW; L_shore = shore; L_water = water;
-    return h < -40 ? -40 : h > 400 ? 400 : h;
+    if (h < -40) h = -40; else if (h > 400) h = 400;
+    // sand only in a narrow band above the water line (width set by the shore kind: sea beach > lake beach > pond rim)
+    L_road = roadW; L_roadCore = roadCore; L_town = townW; L_water = water;
+    L_shore = shore > 0 ? shore * ss(sandH, sandH * 0.3, h) : 0;
+    L_settle = settle; L_earth = earth * (1 - lake);
+    return h;
   }
 
   // ---------------------------------------------------------------- derived queries
@@ -490,15 +536,15 @@
   function groundType(x, z) {
     const h = height(x, z);
     if (h < SEA - 0.3) return 'water';
-    const road = L_road, shore = L_shore, town = L_town;
+    const road = L_road, sand = L_shore, earth = L_earth;
     if (road > 0.5) return 'road';
     blendC(x, z, h);
     const sl = slope(x, z);
     if (C[7] > 0.5 && sl < 0.8) return 'snow';
     if (C[6] * (1 - ss(0.55, 0.85, sl)) > 0.5) return 'snow';
     if (sl > 0.55 || C[10] * ss(0.35, 0.6, sl) > 0.5) return 'stone';
-    if (shore > 0.3 && h < 2.6) return 'sand';
-    if (town > 0.6 || road > 0.2) return 'dirt';
+    if (sand > 0.35) return 'sand';
+    if (earth > 0.5 || road > 0.2) return 'dirt';       // settlement squares & worn paths (hobbit villages stay grass between the paths)
     return 'grass';
   }
 
@@ -629,7 +675,8 @@
     for (const lk of lakeList.concat(bayList)) {
       if (!lk || !lk.center) continue;
       const R = Math.max(15, num(lk.radius, 40));
-      const depth = num(lk.depth, clamp(R * 0.055, 4, 14));
+      let depth = num(lk.depth, clamp(R * 0.055, 4, 14));
+      if (R < SMALL_LAKE_R && depth > SMALL_LAKE_DEPTH) depth = SMALL_LAKE_DEPTH;      // ponds and tarns stay shallow
       lakeArr.push(lk.center.x, lk.center.z, R, depth);
       LAKES.push({ id: lk.id, x: lk.center.x, z: lk.center.z, r: R, depth: depth, name: lk.name || lk.id });
     }
@@ -717,7 +764,8 @@
       if (hasDock && coastal > 0.02 && th > 5.5) th = 5.5;                                                // harbour towns sit at the water line
       else if (coastal > 0.15 && th > 5) th = th + (5 + 4 * (1 - coastal) - th) * ss(0.15, 0.6, coastal);  // other shore towns hug it
       th = Math.max(TOWN_MIN_H, th);
-      tarr.push(tw.pos.x, tw.pos.z, R, th, R * 0.7);
+      const fill = num(tw.groundFill, num(TOWN_EARTH[String(tw.style || '').toLowerCase()], 0.8));
+      tarr.push(tw.pos.x, tw.pos.z, R, th, clamp(fill, 0, 1));
       tbox.push({ minX: tw.pos.x - R - 94, maxX: tw.pos.x + R + 94, minZ: tw.pos.z - R - 94, maxZ: tw.pos.z + R + 94 });
     }
     TWN = new Float64Array(tarr); NTW = tbox.length;
@@ -763,16 +811,17 @@
   // ---------------------------------------------------------------- palette (linear) & vertex colour function
   const PAL = new Float64Array(3 * 16);
   const P_ROCK = 0, P_ROCK_DARK = 3, P_SNOW = 6, P_SNOW_SHADE = 9, P_ROAD = 12, P_ROAD2 = 15, P_SAND = 18, P_SAND_WET = 21,
-    P_MUD = 24, P_DEEP = 27, P_MOSS = 30, P_MARSH = 33, P_SCREE = 36, P_ICE = 39;
+    P_MUD = 24, P_DEEP = 27, P_MOSS = 30, P_MARSH = 33, P_SCREE = 36, P_ICE = 39, P_PATH = 42;
   function preparePalette() {
     linearRGB(0x7d7770, PAL, P_ROCK); linearRGB(0x4a4643, PAL, P_ROCK_DARK); linearRGB(0xf5f8fb, PAL, P_SNOW);
     linearRGB(0xc2d1e3, PAL, P_SNOW_SHADE); linearRGB(0x7c6647, PAL, P_ROAD); linearRGB(0x98805e, PAL, P_ROAD2);
     linearRGB(0xdccb9c, PAL, P_SAND); linearRGB(0x9a8b66, PAL, P_SAND_WET); linearRGB(0x56603f, PAL, P_MUD);
     linearRGB(0x26363a, PAL, P_DEEP); linearRGB(0x3c6a2c, PAL, P_MOSS); linearRGB(0x5f6d3a, PAL, P_MARSH);
-    linearRGB(0x8f8a80, PAL, P_SCREE); linearRGB(0xd8e8f4, PAL, P_ICE);
+    linearRGB(0x8f8a80, PAL, P_SCREE); linearRGB(0xd8e8f4, PAL, P_ICE); linearRGB(0xb3a07c, PAL, P_PATH);
   }
   const _col = { r: 0, g: 0, b: 0 };
-  function colorAt(x, z, h, sl, roadW, shore, town, ridge, out) {
+  // sand = sand weight (shore × height band, from height()), earth = packed-earth settlement weight (0..1)
+  function colorAt(x, z, h, sl, roadW, sand, earth, ridge, out) {
     blendC(x, z, h);
     const v1 = G.fbm(x * 0.022 + 3, z * 0.022 - 8, 2, 2, 0.5);
     const v2 = G.noise2(x * 0.00625 + 7, z * 0.00625 - 3);
@@ -791,10 +840,19 @@
       const f = marsh * (0.35 + 0.35 * ss(0.1, -0.5, v1)) * ss(6, 1.5, h);
       r += (PAL[P_MARSH] - r) * f; g += (PAL[P_MARSH + 1] - g) * f; b += (PAL[P_MARSH + 2] - b) * f;
     }
-    // bare ground on moderate slopes, in noise pockets and in towns
-    let dirtF = ss(0.18, 0.5, sl) * 0.65 + ss(0.5, 0.9, -v1) * 0.3 + town * 0.4;
+    // bare ground on moderate slopes and in noise pockets
+    let dirtF = ss(0.18, 0.5, sl) * 0.65 + ss(0.5, 0.9, -v1) * 0.3;
     if (dirtF > 1) dirtF = 1;
     r += (C[3] - r) * dirtF; g += (C[4] - g) * dirtF; b += (C[5] - b) * dirtF;
+    // settlement squares: trodden packed earth (the zone's ground colour, a touch darker and warmer), solid in the core,
+    // breaking into grass patches toward the edge of the town
+    if (earth > 0) {
+      const ef = ss(0.06, 0.6, earth + 0.22 * v1 + 0.08 * v3);
+      if (ef > 0) {
+        const k = 0.84 + 0.1 * v3;
+        r += (C[3] * k - r) * ef; g += (C[4] * k * 0.96 - g) * ef; b += (C[5] * k * 0.9 - b) * ef;
+      }
+    }
     // scree mottling in rocky zones
     const rockZ = C[10];
     if (rockZ > 0.05) {
@@ -823,8 +881,8 @@
       const sb = PAL[P_SNOW + 2] + (PAL[P_SNOW_SHADE + 2] - PAL[P_SNOW + 2]) * sh;
       r += (sr - r) * snowF; g += (sg - g) * snowF; b += (sb - b) * snowF;
     }
-    // beaches & banks near the water line (wet and darker right at it)
-    const sandF = shore * ss(2.7, 1.1, h) * (1 - town * 0.5) * (1 - snowF * 0.7);
+    // beaches & banks near the water line (wet and darker right at it); the band width was decided in height()
+    const sandF = sand * (1 - earth * 0.6) * (1 - snowF * 0.7);
     if (sandF > 0) {
       const wet = ss(0.6, -0.4, h);
       const sr = PAL[P_SAND] + (PAL[P_SAND_WET] - PAL[P_SAND]) * wet;
@@ -840,13 +898,16 @@
       const deep = ss(-1.5, -9, h) * 0.85;
       r += (PAL[P_DEEP] - r) * deep; g += (PAL[P_DEEP + 1] - g) * deep; b += (PAL[P_DEEP + 2] - b) * deep;
     }
-    // packed-earth roads
+    // packed-earth roads; inside settlements they become paler, dust-worn paths across the square
     if (roadW > 0) {
       const f = roadW * (1 - wetF);
       const t = 0.5 + 0.5 * v1;
-      r += (PAL[P_ROAD] + (PAL[P_ROAD2] - PAL[P_ROAD]) * t - r) * f;
-      g += (PAL[P_ROAD + 1] + (PAL[P_ROAD2 + 1] - PAL[P_ROAD + 1]) * t - g) * f;
-      b += (PAL[P_ROAD + 2] + (PAL[P_ROAD2 + 2] - PAL[P_ROAD + 2]) * t - b) * f;
+      let rr = PAL[P_ROAD] + (PAL[P_ROAD2] - PAL[P_ROAD]) * t, rg = PAL[P_ROAD + 1] + (PAL[P_ROAD2 + 1] - PAL[P_ROAD + 1]) * t, rb = PAL[P_ROAD + 2] + (PAL[P_ROAD2 + 2] - PAL[P_ROAD + 2]) * t;
+      if (earth > 0) {
+        const w = earth * (0.55 + 0.2 * v3);
+        rr += (PAL[P_PATH] - rr) * w; rg += (PAL[P_PATH + 1] - rg) * w; rb += (PAL[P_PATH + 2] - rb) * w;
+      }
+      r += (rr - r) * f; g += (rg - g) * f; b += (rb - b) * f;
     }
     // brightness variation
     const lum = 1 + 0.09 * v1 + 0.05 * v3;
@@ -860,7 +921,7 @@
     out = out || { r: 0, g: 0, b: 0 };
     const sl = slope(x, z);
     const h = height(x, z);
-    return colorAt(x, z, h, sl, L_road, L_shore, L_town, L_ridge, out);
+    return colorAt(x, z, h, sl, L_road, L_shore, L_earth, L_ridge, out);
   }
 
   // ---------------------------------------------------------------- procedural textures (tileable)
@@ -979,7 +1040,7 @@
       let i = gz * M;
       for (let gx = 0; gx < M; gx++, i++) {
         HS[i] = height(x0 + (gx - 1) * step, z);
-        RW[i] = L_road; SH[i] = L_shore; TW[i] = L_town; RV[i] = L_ridge;
+        RW[i] = L_road; SH[i] = L_shore; TW[i] = L_earth; RV[i] = L_ridge;
       }
     }
     const arrs = allocArrays(lod);
@@ -1153,7 +1214,7 @@
       pos[i * 3] = x; pos[i * 3 + 1] = h - HORIZON_DROP; pos[i * 3 + 2] = z;
       nrm[i * 3] = nx; nrm[i * 3 + 1] = l; nrm[i * 3 + 2] = nz;
       const s2 = 1 - l * l;
-      colorAt(x, z, h, s2 <= 0 ? 0 : Math.sqrt(s2), 0, h < 3 ? 1 : 0, 0, 0, _col);
+      colorAt(x, z, h, s2 <= 0 ? 0 : Math.sqrt(s2), 0, ss(2.4, 0.4, h), 0, 0, _col);
       col[i * 3] = _col.r; col[i * 3 + 1] = _col.g; col[i * 3 + 2] = _col.b;
     }
     const idx = new Uint32Array(N * N * 6);
@@ -1416,13 +1477,43 @@
     out.z = py / size * WORLD_SIZE - HALF;
     return out;
   }
-  function mapCanvas(size) {
+  // settlement earth weight for the painted map (height() side products are not available there)
+  function townEarthAt(x, z) {
+    let best = 0;
+    for (let i = 0; i < TOWNS.length; i++) {
+      const o = i * TS, fill = TWN[o + 4];
+      if (fill <= 0) continue;
+      const dx = x - TWN[o], dz = z - TWN[o + 1], R = TWN[o + 2];
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= R * R * 1.35) continue;
+      const e = ss(R, R * 0.55, Math.sqrt(d2) + R * 0.1 * G.fbm(x * 0.05556 - 3, z * 0.05556 + 21, 2, 2, 0.5)) * fill;
+      if (e > best) best = e;
+    }
+    return best;
+  }
+  // mapCanvas(size, opts?) — opts.labels (default true). The label-free base is rasterised once per size and cached;
+  // the labelled variant is a copy of it with zone/town names, cached separately (both share the expensive raster).
+  function mapCanvas(size, opts) {
     size = Math.max(64, Math.min(4096, (size | 0) || 512));
-    if (mapCache[size]) return mapCache[size];
+    const labels = !(opts && opts.labels === false);
+    const key = size + (labels ? ':l' : ':n');
+    if (mapCache[key]) return mapCache[key];
+    let base = mapCache[size + ':n'];
+    if (!base) { base = paintMapBase(size); mapCache[size + ':n'] = base; }
+    if (!labels) return base;
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    mapCache[key] = canvas;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return canvas;
+    ctx.drawImage(base, 0, 0);
+    paintMapLabels(ctx, size);
+    return canvas;
+  }
+  function paintMapBase(size) {
     const canvas = document.createElement('canvas');
     canvas.width = size; canvas.height = size;
     const ctx = canvas.getContext('2d');
-    mapCache[size] = canvas;
     if (!ctx) return canvas;
     const img = ctx.createImageData(size, size);
     const d = img.data;
@@ -1446,9 +1537,9 @@
           const t = ss(-14, -0.15, h);
           r = MAP_SEA[0] + (MAP_SHALLOW[0] - MAP_SEA[0]) * t; g = MAP_SEA[1] + (MAP_SHALLOW[1] - MAP_SEA[1]) * t; b = MAP_SEA[2] + (MAP_SHALLOW[2] - MAP_SEA[2]) * t;
         } else {
-          colorAt(x, z, h, sl, 0, 0, 0, 0, tmp);
+          colorAt(x, z, h, sl, 0, 0, townEarthAt(x, z), 0, tmp);
           r = srgbByte(tmp.r); g = srgbByte(tmp.g); b = srgbByte(tmp.b);
-          const sand = ss(2.6, 0.6, h) * (L_shoreBase > 0 ? 1 : 1);
+          const sand = ss(2.0, 0.4, h);
           if (sand > 0) { r += (MAP_SAND[0] - r) * sand; g += (MAP_SAND[1] - g) * sand; b += (MAP_SAND[2] - b) * sand; }
           const snow = C[6] * (1 - ss(0.6, 0.9, sl)) + C[7];
           if (snow > 0) { const t = clamp(snow, 0, 1) * 0.9; r += (MAP_SNOW[0] - r) * t; g += (MAP_SNOW[1] - g) * t; b += (MAP_SNOW[2] - b) * t; }
@@ -1502,6 +1593,11 @@
       for (let i = 0; i < rd.points.length; i++) { const q = P(rd.points[i].x, rd.points[i].z); if (i === 0) ctx.moveTo(q[0], q[1]); else ctx.lineTo(q[0], q[1]); }
       ctx.stroke();
     }
+    return canvas;
+  }
+  function paintMapLabels(ctx, size) {
+    const sc = size / WORLD_SIZE;
+    const P = function (x, z) { return [(x + HALF) * sc, (z + HALF) * sc]; };
     // zone names (large, translucent) with level ranges
     const zf = Math.max(8, size / 512 * 12.5);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -1541,7 +1637,6 @@
       ctx.lineWidth = Math.max(2, tf * 0.3); ctx.strokeStyle = 'rgba(250,242,222,0.85)'; ctx.strokeText(name, lx, q[1] - tr - tf * 0.65);
       ctx.fillStyle = '#2a1c0c'; ctx.fillText(name, lx, q[1] - tr - tf * 0.65);
     }
-    return canvas;
   }
 
   // ---------------------------------------------------------------- lifecycle

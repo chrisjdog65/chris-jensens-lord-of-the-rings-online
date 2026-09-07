@@ -78,7 +78,7 @@
     readyPromise: null,
     timings: [],
     fps: 0, frameMs: 0, jsMs: 0, drawCalls: 0, triangles: 0,
-    sessions: 0, startedAt: 0, lastSpec: null,
+    sessions: 0, startedAt: 0, startedWall: 0, lastSpec: null,
     lastAutoQuality: null,
   };
   Game.readyPromise = new Promise(function (res) { resolveReady = res; });
@@ -502,7 +502,7 @@
   }
   function tuneQuality(tNow) {
     if (G.state.phase !== 'playing' || !Game.booted || G.time.paused || document.hidden || !autoEnabled()) { QT.winStart = tNow; QT.frames = 0; QT.goodSince = -1; return; }
-    if (G.time.now - Game.startedAt < 5) { QT.winStart = tNow; QT.frames = 0; return; }
+    if (tNow - Game.startedWall < 5000) { QT.winStart = tNow; QT.frames = 0; return; }   // wall clock: game time crawls on a slow GPU
     if (!QT.winStart) { QT.winStart = tNow; QT.frames = 0; return; }
     QT.frames++;
     const span = tNow - QT.winStart;
@@ -570,6 +570,7 @@
     try { if (G.UI && has(G.UI, 'showHUD')) G.UI.showHUD(true); } catch (e) { report(e, 'Game.showHUD'); }
     Game.sessions++;
     Game.startedAt = G.time.now;
+    Game.startedWall = nowMs();
     QT.winStart = 0; QT.frames = 0; QT.goodSince = -1;
     zoneMusic(true);
     G.emit('gameStart', player);

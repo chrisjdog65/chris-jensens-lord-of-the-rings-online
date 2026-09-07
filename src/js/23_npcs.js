@@ -76,6 +76,33 @@
   const RENDER_DIST = C.NPC_RENDER_DIST || 200, RENDER_HYST = 30;
   const MAX_RIGS = Math.max(24, Math.min(50, (C.MAX_RENDERED_CHARS || 40) + 10));
   const BUILDS_PER_FRAME = 2;
+  // ---- rig LOD / draw-call budget: only the nearest 16 rigs are fully animated; beyond LOD2_DIST (or past that
+  // cap) a rig shows its one cached static mesh, and shadows are cast only within SHADOW_DIST. 5 m hysteresis.
+  const LOD1_DIST = 45, LOD2_DIST = 90, SHADOW_DIST = 35, LOD_HYST = 2.5, ANIM_CAP = 16;
+  function _lodQuality() { const q = G.state && G.state.quality; return q === 'low' ? 0.5 : q === 'medium' ? 0.75 : 1; }
+  function _lodFor(d, cur, mul) {
+    const l1 = LOD1_DIST * mul, l2 = LOD2_DIST * mul; let lv = cur;
+    if (lv < 2 && d > l2 + LOD_HYST) lv = 2; else if (lv === 2 && d < l2 - LOD_HYST) lv = 1;
+    if (lv < 1 && d > l1 + LOD_HYST) lv = 1; else if (lv === 1 && d < l1 - LOD_HYST) lv = 0;
+    return lv;
+  }
+  // returns the rig's effective level (a rig in a state/one-shot animation clamps itself to 1)
+  function _applyRigLod(e, rig, d, rank, mul) {
+    let lv = _lodFor(d, e._lod || 0, mul);
+    if (rank >= Math.round(ANIM_CAP * mul)) lv = 2;
+    e._lod = lv;
+    if (rig.lodLevel !== lv && typeof rig.setLOD === 'function') rig.setLOD(lv);
+    const sd = SHADOW_DIST * mul, sh = e._shadow !== false ? d < sd + LOD_HYST * 2 : d < sd - LOD_HYST * 2;
+    if (sh !== e._shadow) { e._shadow = sh; if (typeof rig.setShadow === 'function') rig.setShadow(sh); }
+    return typeof rig.lodLevel === 'number' ? rig.lodLevel : lv;
+  }
+  function _camDist(camera, e) {
+    const c = camera && camera.position ? camera.position : null;
+    if (!c) return Math.sqrt(e._d2 || 0);
+    const dx = e.pos.x - c.x, dy = e.pos.y - c.y, dz = e.pos.z - c.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
   const NODE_DIST = 200, NODE_HYST = 40, NODE_RESPAWN = 60, CHANNEL_TIME = 1.5, NODE_RANGE = 3, NODE_SPARKLE_DIST = 22, MAX_NODE_SPARKLES = 8;
   const NAMEPLATE_DIST = 45, MARKER_DIST = 130, GLOW_DIST = 40, GLOW_DROP = 48;
   const FACE_DIST = 3, TALK_DROP = 8;
@@ -306,7 +333,7 @@
       dialogue: Array.isArray(rec.dialogue) ? rec.dialogue.filter(s => typeof s === 'string' && s) : [],
       interior: null, spot: null, wantsInterior: !!(rec.interior) || (Array.isArray(rec.roles) && rec.roles.indexOf('innkeeper') >= 0), child, data: rec, home: { x: px, y: 0, z: pz, yaw: +rec.yaw || 0 },
       ai: { kind: 'stationary', stationary: true, curfew: false, wait: 0, idx: 0, hasTarget: false, tx: 0, tz: 0, stuck: 0, mode: 'out', nextWave: 0, nextEmote: 0, homeT: 0, door: null, points: null, faceYaw: 0, outYaw: 0 },
-      questMark: null, talkingTo: null, hidden: false, _line: 0, _phase: 0, _d2: Infinity, _keep: false, _lodAcc: 0, _lodN: 0, _markState: null, _marker: null, _glow: null, _spec: null,
+      questMark: null, talkingTo: null, hidden: false, _line: 0, _phase: 0, _d2: Infinity, _keep: false, _lodAcc: 0, _lodN: 0, _lod: 0, _shadow: true, _rank: 999, _markState: null, _marker: null, _glow: null, _spec: null,
       interact: null,
     };
     ent._phase = rngOf('phase:' + rec.id)() * TAU;
@@ -465,7 +492,8 @@
       if (e._d2 < R2 || (e.rig && e._d2 < RH2)) cand.push(e);
     }
     cand.sort(byD2);
-    for (let i = 0; i < cand.length; i++) cand[i]._keep = i < MAX_RIGS;
+    for (let i = 0; i < npcs.length; i++) npcs[i]._rank = 999;
+    for (let i = 0; i < cand.length; i++) { cand[i]._keep = i < MAX_RIGS; cand[i]._rank = i; }
     for (let i = rendered.length - 1; i >= 0; i--) { const e = rendered[i]; if (!e._keep || e._d2 > RH2) disposeRig(e); }
     pendingBuild.length = 0;
     for (let i = 0; i < cand.length; i++) { const e = cand[i]; if (e._keep && !e.rig && !e.hidden) pendingBuild.push(e); e._keep = false; }
@@ -753,9 +781,11 @@
     g.position.copy(e.pos); g.rotation.y = e.yaw;
     g.visible = !e.interior || interiorVisible(e.interior);
     if (!g.visible) return;
+    const level = _applyRigLod(e, rig, _camDist(camera, e), e._rank, _lodQuality());
     const lod = d2 > 6400 ? 3 : d2 > 1600 ? 2 : 1;
     e._lodAcc += dt; e._lodN++;
-    if (e._lodN % lod === 0) { try { rig.play(e._lodAcc, e); } catch (err) { report(err, 'NPC play'); } e._lodAcc = 0; }
+    if (level === 2) e._lodAcc = 0;                                           // static far mesh: no pose update
+    else if (e._lodN % lod === 0) { try { rig.play(e._lodAcc, e); } catch (err) { report(err, 'NPC play'); } e._lodAcc = 0; }
     const np = rig.nameplate;
     if (np) { const vis = d2 < NAMEPLATE_DIST * NAMEPLATE_DIST; np.visible = vis; if (vis && camera && hasFn(G.Chars, 'updateNameplate')) G.Chars.updateNameplate(np, camera); }
     updateMarker(e, d2, t, camera);
@@ -1194,8 +1224,9 @@
   function stats() {
     let depleted = 0, props = 0, markers = 0, glows = 0;
     for (let i = 0; i < nodes.length; i++) { if (nodes[i].depleted) depleted++; if (nodes[i].prop) props++; }
-    for (let i = 0; i < rendered.length; i++) { if (rendered[i]._marker) markers++; if (rendered[i]._glow) glows++; }
-    return { npcs: npcs.length, rendered: rendered.length, pending: pendingBuild.length, hidden: hiddenCount, nodes: nodes.length, nodesDepleted: depleted, nodeProps: props, markers, glows, sparkles: sparkleCount, channel: !!channel, talking: talking ? talking.npcId : null, vendor: activeVendor ? activeVendor.npcId : null };
+    let animated = 0, statics = 0;
+    for (let i = 0; i < rendered.length; i++) { if (rendered[i]._marker) markers++; if (rendered[i]._glow) glows++; const r = rendered[i].rig; if (r && r.lodLevel === 2) statics++; else animated++; }
+    return { npcs: npcs.length, rendered: rendered.length, animated: animated, statics: statics, pending: pendingBuild.length, hidden: hiddenCount, nodes: nodes.length, nodesDepleted: depleted, nodeProps: props, markers, glows, sparkles: sparkleCount, channel: !!channel, talking: talking ? talking.npcId : null, vendor: activeVendor ? activeVendor.npcId : null };
   }
 
   // ------------------------------------------------------------------------------------------------ init / update

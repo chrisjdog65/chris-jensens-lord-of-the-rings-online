@@ -1,6 +1,6 @@
 /* ==== 14_characters.js — G.Chars: every procedural character, creature, mount, boat and world-prop mesh
    plus their animation. No model files: everything is built from Three.js primitives (capsules, spheres,
-   lathes, extrusions) merged into a handful of smooth-shaded meshes per rig.
+   lathes, extrusions) merged into ONE rigidly-skinned SkinnedMesh per rig (plus a glow or a prop when present).
    Public API (SPEC §5.5):
      G.Chars.buildHumanoid(spec) → Rig  { group, parts, height, anim, setAnim(name, force), play(dt, ent),
                                           setEquipment(map), setMounted(bool), setProp(kind|null), dispose(), oneShotRemaining }
@@ -14,8 +14,16 @@
      G.Chars.update(dt) — advances shared shader time & animated props (also hooked to G 'update')
      G.Chars.stats() → { rigs, humanoids, monsters, horses, geometries, materials, nameplates }
      G.Chars.material(hex, opts), G.Chars.ANIMS (list), G.Chars.WEAPON_SHAPES (list)
+   Rig LOD (all rig kinds): rig.setLOD(level) / rig.lodLevel — 0 full, 1 (> ~45 m) drops small detail triangles
+   (face, ears, eye glow, cape, weapon glows), 2 (> ~90 m) swaps the whole rig for one cached static mesh in a
+   neutral standing pose (built once per look, castShadow off) and makes rig.play() a no-op beyond timers.
+   rig.setShadow(bool) toggles shadow casting. A rig with a state/one-shot animation (sit, ride, death, attack…)
+   clamps itself to level 1 so it keeps animating. rig.meshes[name] are part records {geometry, material}, not meshes.
+   Rendering: every rig is one THREE.SkinnedMesh with rigid per-vertex binding (skinIndex = joint, weight 1) and
+   per-vertex roughness/metalness/emissive attributes (aMat/aEmis) on one shared material, so a humanoid costs
+   1 draw call (+1 in the shadow pass) instead of ~20.
    Private helpers (owned here): _merge (a local geometry merge with vertex-colour support — used instead of
-   G.mergeGeometries so painted vertex colours are guaranteed to survive), _paint.
+   G.mergeGeometries so painted vertex colours are guaranteed to survive), _paint, buildMerged (skin/static baker).
    Assumptions about other modules: G.Items.get(inst) → merged item view with .visual/.armourType/.rarity/.subtype
    (falls back to G.Data.items[inst.tid] or the instance itself); G.Data.races for race height/build.
    ==== */
@@ -66,6 +74,7 @@
     m = new THREE.MeshStandardMaterial({ color: hex, roughness: rough, metalness: metal, vertexColors: vc, side: dbl ? THREE.DoubleSide : THREE.FrontSide, flatShading: flat });
     if (em) { m.emissive.setHex(em); m.emissiveIntensity = emi; }
     if (tr) { m.transparent = true; m.opacity = o.opacity; m.depthWrite = false; }
+    m.userData.cape = cape; m.userData.dbl = dbl;
     if (cape) {
       m.onBeforeCompile = (sh) => {
         sh.uniforms.uTime = _shaderTime;
@@ -181,6 +190,167 @@
   function disposeTree(root) {
     root.traverse(o => { if (o.isSprite && o.material && o.material.map && !o.material.map.userData.shared) { o.material.map.dispose(); o.material.dispose(); } });
     if (root.parent) root.parent.remove(root);
+  }
+
+
+  // ================================================================== SKINNED RIG SUPPORT
+  // Every rig renders as ONE SkinnedMesh: each vertex is bound rigidly (weight 1) to the joint group its part hangs
+  // from, so the existing pose code (which rotates joint groups) drives the skin untouched. Roughness, metalness and
+  // emissive are per-vertex attributes (aMat = rough/metal/capeWave, aEmis = emissive*0.25) so skin, cloth, plate,
+  // hair, glowing eyes and the wind-blown cape all share ONE material → one draw call per rig (two with shadows).
+  // The same baker produces the level-2 static mesh (no skin attributes, neutral pose, cached per look).
+  const IDENT = new THREE.Matrix4();
+  const _m4 = new THREE.Matrix4(), _m3 = new THREE.Matrix3(), _v3 = new THREE.Vector3();
+  let _rigMat = null;
+  function rigMaterial() {
+    if (_rigMat) return _rigMat;
+    const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, vertexColors: true });
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = _shaderTime;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec4 aMat;\nattribute vec4 aEmis;\nvarying vec3 vMat;\nvarying vec3 vEmis;\nuniform float uTime;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMat = aMat.xyz; vEmis = aEmis.rgb * 4.0;\n{ float w = aMat.z; if (w > 0.0) { float ph = uTime * 4.0 + position.x * 9.0 + position.y * 3.0; transformed.z += (sin(ph) * 0.05 + sin(ph * 1.7 + 1.3) * 0.02) * w; transformed.x += cos(ph * 0.8) * 0.02 * w; } }');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vMat;\nvarying vec3 vEmis;')
+        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vMat.x;')
+        .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vMat.y;')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vEmis;');
+    };
+    m.customProgramCacheKey = () => 'chars_rig';
+    m.name = 'chars_rig';
+    _rigMat = m; _matCount++;
+    return m;
+  }
+  // per-vertex material descriptor derived from a (cached) THREE material — the material itself is never rendered
+  function matDesc(mat) {
+    let d = mat.userData.desc; if (d) return d;
+    const ei = mat.emissive ? (mat.emissiveIntensity != null ? mat.emissiveIntensity : 1) : 0;
+    const er = mat.emissive ? mat.emissive.r * ei : 0, eg = mat.emissive ? mat.emissive.g * ei : 0, eb = mat.emissive ? mat.emissive.b * ei : 0;
+    d = { rough: mat.roughness != null ? mat.roughness : 0.75, metal: mat.metalness || 0, er, eg, eb, cape: !!mat.userData.cape, dbl: mat.side === THREE.DoubleSide, vc: !!mat.vertexColors, cr: mat.color ? mat.color.r : 1, cg: mat.color ? mat.color.g : 1, cb: mat.color ? mat.color.b : 1 };
+    d.key = d.rough.toFixed(2) + ',' + d.metal.toFixed(2) + ',' + er.toFixed(3) + ',' + eg.toFixed(3) + ',' + eb.toFixed(3) + (d.cape ? 'c' : '') + (d.dbl ? 'd' : '') + (d.vc ? 'v' : d.cr.toFixed(3) + ',' + d.cg.toFixed(3) + ',' + d.cb.toFixed(3));
+    mat.userData.desc = d;
+    return d;
+  }
+  // matrix of `obj` relative to `root` from the current local transforms (rest/bind pose)
+  function chainsFor(bones, root) {
+    const out = [];
+    for (let i = 0; i < bones.length; i++) {
+      const m = new THREE.Matrix4();
+      let o = bones[i];
+      while (o && o !== root) { o.updateMatrix(); _m4.multiplyMatrices(o.matrix, m); m.copy(_m4); o = o.parent; }
+      out.push(m);
+    }
+    return out;
+  }
+  function niGeo(g) { if (!g.index) return g; return g.userData.ni || (g.userData.ni = g.toNonIndexed()); }
+  // parts: [{geo, joint, md, offset?, detail?}] → one BufferGeometry in root space; core parts first so a drawRange can
+  // drop the detail parts (LOD 1). skin=true adds rigid skinIndex/skinWeight; withDetail=false omits detail parts.
+  function buildMerged(parts, boneIndex, chains, skin, withDetail) {
+    const ordered = [];
+    for (let i = 0; i < parts.length; i++) { const p = parts[i]; if (p && p.geo && !p.detail) ordered.push(p); }
+    const nCore = ordered.length;
+    if (withDetail) for (let i = 0; i < parts.length; i++) { const p = parts[i]; if (p && p.geo && p.detail) ordered.push(p); }
+    let n = 0, coreCount = 0;
+    for (let i = 0; i < ordered.length; i++) { const p = ordered[i], g = niGeo(p.geo), c = g.getAttribute('position').count * (p.md.dbl ? 2 : 1); n += c; if (i < nCore) coreCount += c; }
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3), amat = new Uint8Array(n * 4), aem = new Uint8Array(n * 4);
+    const sidx = skin ? new Uint8Array(n * 4) : null, swt = skin ? new Uint8Array(n * 4) : null;
+    let o = 0, maxD2 = 0;
+    for (let pi = 0; pi < ordered.length; pi++) {
+      const p = ordered[pi], g = niGeo(p.geo), md = p.md;
+      const bi = boneIndex.get(p.joint), bone = bi != null ? bi : 0;
+      const M = _m4.copy(chains[bone]); if (p.offset) M.multiply(p.offset);
+      _m3.getNormalMatrix(M);
+      const gp = g.getAttribute('position'), gn = g.getAttribute('normal'), gc = md.vc ? g.getAttribute('color') : null, guv = md.cape ? g.getAttribute('uv') : null;
+      const cnt = gp.count;
+      const r8 = clamp(Math.round(md.rough * 255), 0, 255), m8 = clamp(Math.round(md.metal * 255), 0, 255);
+      const er = clamp(Math.round(md.er * 63.75), 0, 255), eg = clamp(Math.round(md.eg * 63.75), 0, 255), eb = clamp(Math.round(md.eb * 63.75), 0, 255);
+      const passes = md.dbl ? 2 : 1;
+      for (let pass = 0; pass < passes; pass++) {
+        for (let i = 0; i < cnt; i++) {
+          const src = pass === 0 ? i : (i - (i % 3)) + (2 - (i % 3));       // flipped copy: reversed winding + normals
+          _v3.fromBufferAttribute(gp, src).applyMatrix4(M);
+          const k = (o + i) * 3;
+          pos[k] = _v3.x; pos[k + 1] = _v3.y; pos[k + 2] = _v3.z;
+          const d2 = _v3.x * _v3.x + _v3.y * _v3.y + _v3.z * _v3.z; if (d2 > maxD2) maxD2 = d2;
+          if (gn) { _v3.fromBufferAttribute(gn, src).applyMatrix3(_m3).normalize(); if (pass) _v3.negate(); } else _v3.set(0, 1, 0);
+          nor[k] = _v3.x; nor[k + 1] = _v3.y; nor[k + 2] = _v3.z;
+          if (gc) { col[k] = gc.getX(src); col[k + 1] = gc.getY(src); col[k + 2] = gc.getZ(src); } else { col[k] = md.cr; col[k + 1] = md.cg; col[k + 2] = md.cb; }
+          const k4 = (o + i) * 4;
+          let wave = 0; if (guv) { const t = 1 - guv.getY(src); wave = clamp(Math.round(t * t * 255), 0, 255); }
+          amat[k4] = r8; amat[k4 + 1] = m8; amat[k4 + 2] = wave; amat[k4 + 3] = 0;
+          aem[k4] = er; aem[k4 + 1] = eg; aem[k4 + 2] = eb; aem[k4 + 3] = 0;
+          if (sidx) { sidx[k4] = bone; swt[k4] = 255; }
+        }
+        o += cnt;
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setAttribute('aMat', new THREE.Uint8BufferAttribute(amat, 4, true));
+    geo.setAttribute('aEmis', new THREE.Uint8BufferAttribute(aem, 4, true));
+    if (skin) { geo.setAttribute('skinIndex', new THREE.Uint8BufferAttribute(sidx, 4)); geo.setAttribute('skinWeight', new THREE.Uint8BufferAttribute(swt, 4, true)); }
+    // conservative sphere: poses rotate parts about joints close to the origin (and shift the body ≤ ~1 m),
+    // so the farthest rest-pose vertex plus slack covers every animation without per-frame recomputation
+    const maxD = Math.sqrt(maxD2);
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, maxD * 0.35, 0), maxD * 1.1 + 0.6);
+    return { geometry: geo, coreCount: coreCount, maxD: maxD };
+  }
+  // shared skin / LOD plumbing for both rig kinds (`this` = rig with group, bones, boneIndex, partMap, cur/P, applyPose, _neutralPose)
+  function rigRebuildSkin(rig) {
+    rig._dirty = false;
+    const parts = []; for (const k in rig.partMap) parts.push(rig.partMap[k]);
+    rig._neutralPose();
+    const chains = chainsFor(rig.bones, rig.group);
+    const res = buildMerged(parts, rig.boneIndex, chains, true, true);
+    rig.applyPose(rig.cur);
+    rig.skinCore = res.coreCount;
+    if (!rig.skin) {
+      const inv = []; for (let i = 0; i < chains.length; i++) inv.push(chains[i].clone().invert());
+      const sk = new THREE.Skeleton(rig.bones, inv);
+      const sm = new THREE.SkinnedMesh(res.geometry, rigMaterial());
+      sm.bind(sk, IDENT);
+      sm.castShadow = rig._shadow; sm.receiveShadow = false; sm.name = 'skin'; sm.frustumCulled = true; sm.matrixAutoUpdate = true;
+      rig.skin = sm; rig.group.add(sm);
+    } else {
+      const sk = rig.skin.skeleton; for (let i = 0; i < chains.length; i++) sk.boneInverses[i].copy(chains[i]).invert();
+      rig.skin.geometry.dispose(); rig.skin.geometry = res.geometry;
+    }
+    rig.skin.boundingSphere = res.geometry.boundingSphere.clone();
+    rig._staticKey = null;
+    rig._applyLOD();
+    rig.meshCount = 0; rig.group.traverse(o => { if (o.isMesh) rig.meshCount++; });
+  }
+  function rigEnsureStatic(rig, key) {
+    if (rig.lodMesh && rig._staticKey === key) return rig.lodMesh;
+    rigReleaseStatic(rig);
+    const geo = cached(key, () => {
+      const parts = []; for (const k in rig.partMap) parts.push(rig.partMap[k]);
+      rig._neutralPose();
+      const chains = chainsFor(rig.bones, rig.group);
+      const r = buildMerged(parts, rig.boneIndex, chains, false, false);
+      rig.applyPose(rig.cur);
+      r.geometry.computeBoundingSphere();
+      return r.geometry;
+    });
+    geo.userData.refs = (geo.userData.refs || 0) + 1;
+    const m = mesh(geo, rigMaterial(), false); m.name = 'lod2'; m.visible = false;
+    rig.group.add(m); rig.lodMesh = m; rig._staticKey = key;
+    return m;
+  }
+  function rigReleaseStatic(rig) {
+    const m = rig.lodMesh; if (!m) return;
+    if (m.geometry.userData.refs) m.geometry.userData.refs--;
+    if (m.parent) m.parent.remove(m);
+    rig.lodMesh = null; rig._staticKey = null;
+  }
+  function rigDisposeSkin(rig) {
+    rigReleaseStatic(rig);
+    const sm = rig.skin; if (!sm) return;
+    try { sm.geometry.dispose(); if (sm.skeleton && typeof sm.skeleton.dispose === 'function') sm.skeleton.dispose(); } catch (e) { /* already gone */ }
+    if (sm.parent) sm.parent.remove(sm);
+    rig.skin = null;
   }
 
   // ================================================================== HUMANOID DIMENSIONS
@@ -504,15 +674,21 @@
   }
   function capeGeo(d, col, col2, len) {
     return cached('cape|' + d.key + '|' + col + '|' + col2 + '|' + len.toFixed(2), () => {
-      const w = d.shoulderHalf * 2.2;
+      // a narrow cloth (≈ shoulder width, slightly flared) that curls forward around the shoulders at the top and
+      // bulges gently backwards towards the hem; hangs from the shoulder line behind the back
+      const w = d.shoulderHalf * 1.75, wrap = d.shoulderHalf * 0.35, bulge = len * 0.07;
       const g = new THREE.PlaneGeometry(w, len, 6, 10);
       const p = g.getAttribute('position');
-      for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i); const t = (y + len / 2) / len; // 1 at top
-        p.setX(i, x * lerp(1.25, 0.85, t)); p.setZ(i, (1 - t) * (1 - t) * len * 0.15 + (1 - Math.abs(x / (w / 2))) * 0.02 * (1 - t)); }
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), y = p.getY(i); const t = (y + len / 2) / len;         // 1 at the top
+        const xn = x / (w / 2);
+        p.setX(i, x * lerp(1.12, 0.94, t));
+        p.setZ(i, -wrap * xn * xn * (0.35 + 0.65 * t) + bulge * (1 - t) * (1 - t));
+      }
       g.translate(0, -len / 2, 0); g.computeVertexNormals();
       const c = _paint(g, col);
       const ca = c.getAttribute('color'); _colTmp.setHex(toHex(col2));
-      for (let i = 0; i < p.count; i++) { if (p.getY(i) > -len * 0.12) { ca.setXYZ(i, _colTmp.r, _colTmp.g, _colTmp.b); } }
+      for (let i = 0; i < p.count; i++) { if (p.getY(i) > -len * 0.1) { ca.setXYZ(i, _colTmp.r, _colTmp.g, _colTmp.b); } }
       return c;
     });
   }
@@ -643,19 +819,25 @@
       const g = new THREE.OctahedronGeometry(0.05, 0); g.translate(0, 0.3, 0); return g;
     });
   }
+  const weaponIsMetal = (shape) => shape !== 'bow' && shape !== 'staff' && shape !== 'lute' && shape !== 'club' && shape !== 'rod';
+  const weaponMat = (shape) => MAT_VC(weaponIsMetal(shape) ? 0.42 : 0.7, weaponIsMetal(shape) ? 0.55 : 0.05);
+  // emissive (sometimes translucent) glow overlay → a small separate mesh, or null when the weapon does not glow
+  function weaponGlowMesh(shape, color, glow) {
+    if (!(glow || shape === 'staff' || shape === 'runestone')) return null;
+    const gc = glow != null ? toHex(glow) : (shape === 'staff' ? 0x66ccff : (color || 0x66ccff));
+    const gm = mesh(weaponGlowGeo(shape), material(gc, { emissive: gc, emissiveIntensity: shape === 'staff' || shape === 'runestone' ? 1.6 : 0.9, rough: 0.3, opacity: (shape === 'sword' || shape === 'greatsword' || shape === 'dagger') ? 0.35 : (shape === 'staff' || shape === 'runestone') ? 1 : 0.55 }), false);
+    gm.name = 'glow';
+    return gm;
+  }
   function buildWeapon(shape, color, glow, opts) {
     opts = opts || {};
     shape = WEAPON_SHAPES.indexOf(shape) >= 0 ? shape : 'sword';
     color = color != null ? toHex(color) : null;
     const g = new THREE.Group(); g.name = 'weapon_' + shape;
-    const metalish = shape !== 'bow' && shape !== 'staff' && shape !== 'lute' && shape !== 'club' && shape !== 'rod';
-    const m = mesh(weaponGeo(shape, color, opts), MAT_VC(metalish ? 0.42 : 0.7, metalish ? 0.55 : 0.05), true);
+    const m = mesh(weaponGeo(shape, color, opts), weaponMat(shape), true);
     g.add(m);
-    if (glow || shape === 'staff' || shape === 'runestone') {
-      const gc = glow != null ? toHex(glow) : (shape === 'staff' ? 0x66ccff : (color || 0x66ccff));
-      const gm = mesh(weaponGlowGeo(shape), material(gc, { emissive: gc, emissiveIntensity: shape === 'staff' || shape === 'runestone' ? 1.6 : 0.9, rough: 0.3, opacity: (shape === 'sword' || shape === 'greatsword' || shape === 'dagger') ? 0.35 : (shape === 'staff' || shape === 'runestone') ? 1 : 0.55 }), false);
-      g.add(gm); g.userData.glow = gm;
-    }
+    const gm = weaponGlowMesh(shape, color, glow);
+    if (gm) { g.add(gm); g.userData.glow = gm; }
     g.userData.shape = shape;
     const sc = opts.scale || 1; g.scale.setScalar(sc);
     return g;
@@ -744,6 +926,7 @@
   let _rigCount = 0, _humanoidCount = 0, _monsterCount = 0, _horseCount = 0;
   const _tmpV = new THREE.Vector3(), _tmpV2 = new THREE.Vector3();
 
+  const _tmpPose = new Float32Array(NCH);
   function HumanoidRig(spec) {
     spec = spec || {};
     this.spec = spec;
@@ -753,7 +936,8 @@
     this.group = new THREE.Group(); this.group.name = 'rig_' + (spec.race || 'man');
     this.body = grp(0, 0, 0, this.group);
     const rd = raceData(spec.race);
-    this.skin = toHex(spec.skin != null ? spec.skin : (rd && rd.skinTones && rd.skinTones[0]) || DEFAULT_SKIN[spec.race] || 0xe3b48f);
+    this.skin = null;               // the SkinnedMesh (built by setEquipment)
+    this.skinTone = toHex(spec.skin != null ? spec.skin : (rd && rd.skinTones && rd.skinTones[0]) || DEFAULT_SKIN[spec.race] || 0xe3b48f);
     const hairIsStyle = typeof spec.hair === 'number' && spec.hair >= 0 && spec.hair < 8;
     this.hairColor = toHex(spec.hairColor != null ? spec.hairColor : (!hairIsStyle && spec.hair != null) ? spec.hair : (rd && rd.hairColors && rd.hairColors[0]) || DEFAULT_HAIR[spec.race] || 0x4a2f1a);
     this.hairStyle = spec.hairStyle != null ? spec.hairStyle : hairIsStyle ? spec.hair : (d.R.hair ? d.R.hair[d.female ? 1 : 0] : 0);
@@ -762,8 +946,8 @@
     this.eyeColor = toHex(spec.eyes != null ? spec.eyes : spec.eyeColor != null ? spec.eyeColor : (spec.race === 'elf' || spec.race === 'highelf' ? 0x5a8ab0 : spec.race === 'dwarf' || spec.race === 'stoutaxe' ? 0x4a3020 : 0x3a5a7a));
     const rce = spec.race || 'man';
     this.faceOpts = Object.assign({ eye: this.eyeColor, brow: hexMul(this.hairColor, 0.8), browScale: (rce === 'dwarf' || rce === 'stoutaxe' || rce === 'beorning') ? 1.45 : (rce === 'elf' || rce === 'highelf') ? 0.75 : d.female ? 0.8 : 1, mouth: d.female ? 0xa04a52 : 0x8a4a48 }, spec.faceOpts || {});
-    this.meshes = {}; this.parts = {};
-    // hierarchy
+    this.meshes = {}; this.parts = {}; this.partMap = {};
+    // hierarchy (joint groups double as the skeleton bones)
     const hips = this.parts.hips = grp(0, d.hipY, 0, this.body);
     const torso = this.parts.torso = grp(0, 0, 0, hips);
     const head = this.parts.head = grp(0, d.torsoLen + d.neckLen + d.headR * 0.85, 0, torso);
@@ -775,7 +959,7 @@
     this.parts.legL = grp(-d.legX, -d.s * 0.02, 0, hips); this.parts.legR = grp(d.legX, -d.s * 0.02, 0, hips);
     this.parts.shinL = grp(0, -d.thigh, 0, this.parts.legL); this.parts.shinR = grp(0, -d.thigh, 0, this.parts.legR);
     this.parts.footL = grp(0, -d.shin, 0, this.parts.shinL); this.parts.footR = grp(0, -d.shin, 0, this.parts.shinR);
-    this.parts.capeGroup = grp(0, d.torsoLen * 0.98, d.chestR * 0.62, torso);
+    this.parts.capeGroup = grp(0, d.torsoLen * 0.98, d.chestR * 0.86, torso);
     this.parts.weaponMain = grp(0, -d.handLen * 0.55, 0, this.parts.handR); this.parts.weaponMain.rotation.set(-PI / 2, PI / 2, 0);
     this.parts.weaponOff = grp(0, -d.handLen * 0.55, 0, this.parts.handL); this.parts.weaponOff.rotation.set(-PI / 2, -PI / 2, 0);
     this.parts.weaponRanged = grp(0, 0, 0, torso);
@@ -783,13 +967,19 @@
     this.parts.attachHead = grp(0, d.headR * 1.4, 0, head);
     this.jointList = [hips, torso, head, this.parts.armL, this.parts.armR, this.parts.forearmL, this.parts.forearmR, this.parts.handL, this.parts.handR, this.parts.legL, this.parts.legR, this.parts.shinL, this.parts.shinR, this.parts.footL, this.parts.footR, this.parts.capeGroup];
     this.hipsRest = d.hipY;
+    this.weaponScale = d.s * (spec.weaponScale || 1);
+    // weapon bones: a child under each grip group carries the weapon scale / float animation and drives its vertices
+    this.wbones = { weaponMain: grp(0, 0, 0, this.parts.weaponMain), weaponOff: grp(0, 0, 0, this.parts.weaponOff), weaponRanged: grp(0, 0, 0, this.parts.weaponRanged) };
+    for (const k in this.wbones) { const wb = this.wbones[k]; wb.name = k; wb.scale.setScalar(this.weaponScale); wb.userData.shape = null; wb.userData.float = false; wb.userData.glow = null; }
+    this.bones = this.jointList.concat([this.wbones.weaponMain, this.wbones.weaponOff, this.wbones.weaponRanged]);
+    this.boneIndex = new Map(); for (let i = 0; i < this.bones.length; i++) this.boneIndex.set(this.bones[i], i);
+    this.skinCore = 0; this.lodMesh = null; this._staticKey = null; this.lodLevel = 0; this._shadow = true; this._weaponsHidden = false; this._dirty = false; this.meshCount = 0;
     // pose state
     this.P = new Float32Array(NCH); this.cur = new Float32Array(NCH); this.prev = new Float32Array(NCH);
     restPose(this.P); this.cur.set(this.P); this.prev.set(this.P);
     this.blendT = 1; this.anim = 'idle'; this.lastAnim = null; this.animT = 0; this.time = 0; this.cycle = 0; this.speed = 0;
     this.oneShot = null; this.oneShotT = 0; this.oneShotDur = 0; this.oneShotRemaining = 0; this.state = null; this.mounted = false; this.lookY = 0; this.lookX = 0;
     this.idleSeed = (hashStr(spec.name || spec.race || 'x') % 1000) / 1000 * 10;
-    this.weaponScale = d.s * (spec.weaponScale || 1);
     this.lookKeys = {}; this.look = null; this.prop = null; this.propKind = null;
     this.rangedInHands = false;
     this.setEquipment(spec.equipment || {}, true);
@@ -798,18 +988,21 @@
     this.applyPose(this.cur);
   }
   const HP = HumanoidRig.prototype;
-  HP.setMesh = function (name, parent, geo, mat, shadow, x, y, z) {
-    let m = this.meshes[name];
-    if (m && m.geometry === geo && m.material === mat) return m;
-    if (m) { if (m.geometry && m.geometry.userData.refs) m.geometry.userData.refs--; m.parent.remove(m); }
-    if (!geo) { delete this.meshes[name]; return null; }
-    m = mesh(geo, mat, shadow); m.position.set(x || 0, y || 0, z || 0); m.name = name;
-    geo.userData.refs = (geo.userData.refs || 0) + 1;
-    parent.add(m); this.meshes[name] = m;
-    return m;
+  // register / replace a body part: geometry in joint-local space, material only describes rough/metal/emissive
+  HP.setMesh = function (name, parent, geo, mat, shadow, opts) {
+    const old = this.partMap[name];
+    if (!geo || !geo.getAttribute('position') || !geo.getAttribute('position').count) {
+      if (old) { delete this.partMap[name]; delete this.meshes[name]; this._dirty = true; }
+      return null;
+    }
+    if (old && old.geo === geo && old.mat === mat && old.joint === parent) return old;
+    const md = matDesc(mat);
+    const rec = { name: name, joint: parent, geo: geo, mat: mat, md: md, geometry: geo, material: mat, shadow: !!shadow, detail: !!(opts && opts.detail), offset: null, key: (geo.userData.key || geo.uuid) + '@' + this.boneIndex.get(parent) + '#' + md.key };
+    this.partMap[name] = rec; this.meshes[name] = rec; this._dirty = true;
+    return rec;
   };
   HP.setEquipment = function (map, initial) {
-    const spec = this.spec, d = this.d, skin = this.skin;
+    const spec = this.spec, d = this.d, skin = this.skinTone;
     if (map) spec.equipment = map;
     const look = this.look = deriveLook(spec, spec.equipment || {});
     const K = {}; for (const k in look) K[k] = lookKey(look[k]);
@@ -823,7 +1016,7 @@
     // --- head / face / hair
     if (changed(['head'])) {
       const hm = this.setMesh('head', this.parts.head, headGeo(d, skin), bodyMat('skin'), true);
-      this.setMesh('face', this.parts.head, faceGeo(d, this.faceOpts), MAT_FACE(), false);
+      this.setMesh('face', this.parts.head, faceGeo(d, this.faceOpts), MAT_FACE(), false, { detail: true });
       const hl = look.head;
       let hideHair = false, helmType = null, hc = 0, hc2 = 0;
       if (hl) {
@@ -837,7 +1030,8 @@
       const hg = hairGeo(d, style, hideHair && helmType !== 'hood' ? this.beard : this.beard, this.hairColor);
       this.setMesh('hair', this.parts.head, hg.getAttribute('position').count ? hg : null, bodyMat('hair'), true);
       this.parts.hair = this.meshes.hair || null;
-      if (this.faceOpts.glowEyes) { const eg = cached('eyeglow|' + d.key, () => { const r = d.headR, l = []; for (const sd of [-1, 1]) { const e = sphere(r * 0.13, 8, 6); e.scale(1, 1, 0.6); e.translate(sd * r * 0.36, r * 0.12, -r * 0.92); l.push(e); } return _merge(l); }); this.setMesh('eyeglow', this.parts.head, eg, material(this.faceOpts.glowEyes, { emissive: this.faceOpts.glowEyes, emissiveIntensity: 2.2 }), false); }
+      if (this.faceOpts.glowEyes) { const eg = cached('eyeglow|' + d.key, () => { const r = d.headR, l = []; for (const sd of [-1, 1]) { const e = sphere(r * 0.13, 8, 6); e.scale(1, 1, 0.6); e.translate(sd * r * 0.36, r * 0.12, -r * 0.92); l.push(e); } return _merge(l); }); this.setMesh('eyeglow', this.parts.head, eg, material(this.faceOpts.glowEyes, { emissive: this.faceOpts.glowEyes, emissiveIntensity: 2.2 }), false, { detail: true }); }
+      else this.setMesh('eyeglow', this.parts.head, null);
     }
     // --- torso & arms
     if (changed(['chest', 'hands', 'legs'])) {
@@ -894,29 +1088,79 @@
     }
     if (changed(['back'])) {
       const bl = look.back;
-      if (bl) { const len = d.hipY * 0.85 + d.torsoLen * 0.9; this.setMesh('cape', this.parts.capeGroup, capeGeo(d, bl.color, hexMul(bl.color, 0.7), len), material(0xffffff, { vertexColors: true, rough: 0.9, double: true, cape: true, emissive: bl.legendary ? 0xff9c3a : 0, emissiveIntensity: bl.legendary ? 0.06 : 0 }), true); }
+      if (bl) { const len = d.hipY * 0.85 + d.torsoLen * 0.9; this.setMesh('cape', this.parts.capeGroup, capeGeo(d, bl.color, hexMul(bl.color, 0.7), len), material(0xffffff, { vertexColors: true, rough: 0.9, double: true, cape: true, emissive: bl.legendary ? 0xff9c3a : 0, emissiveIntensity: bl.legendary ? 0.06 : 0 }), true, { detail: true }); }
       else this.setMesh('cape', this.parts.capeGroup, null);
       this.parts.cape = this.meshes.cape || null;
     }
     // --- weapons
-    if (changed(['mainhand'])) this.setWeapon('weaponMain', look.mainhand && look.mainhand.shape !== 'gauntlets' ? look.mainhand : null, this.parts.weaponMain);
+    if (changed(['mainhand'])) this.setWeapon('weaponMain', look.mainhand && look.mainhand.shape !== 'gauntlets' ? look.mainhand : null);
     if (changed(['offhand'])) {
       const ol = look.offhand;
-      this.setWeapon('weaponOff', ol, this.parts.weaponOff);
+      this.setWeapon('weaponOff', ol);
       if (ol && ol.shape === 'shield') { this.parts.weaponOff.position.set(-d.foreR * 1.35, -d.foreArm * 0.5, 0); this.parts.weaponOff.rotation.set(0, 0, 0); this.parts.forearmL.add(this.parts.weaponOff); }
       else { this.parts.weaponOff.position.set(0, -d.handLen * 0.55, 0); this.parts.weaponOff.rotation.set(-PI / 2, -PI / 2, 0); this.parts.handL.add(this.parts.weaponOff); }
     }
-    if (changed(['ranged'])) { this.setWeapon('weaponRanged', look.ranged, this.parts.weaponRanged); this.placeRanged(false); }
+    if (changed(['ranged'])) { this.setWeapon('weaponRanged', look.ranged); this.placeRanged(false); }
     this.lookKeys = K;
-    this.meshCount = 0; this.group.traverse(o => { if (o.isMesh) this.meshCount++; });
+    if (this._dirty || !this.skin) this._rebuildSkin();
   };
-  HP.setWeapon = function (name, wl, parent) {
-    const old = this.meshes[name];
-    if (old) { parent.remove(old); }
-    if (!wl) { delete this.meshes[name]; this.parts[name + 'Mesh'] = null; return; }
-    const w = buildWeapon(wl.shape, wl.color, wl.glow, { race: this.spec.race, scale: this.weaponScale });
-    parent.add(w); this.meshes[name] = w; this.parts[name + 'Mesh'] = w;
-    if (wl.shape === 'runestone') { w.position.set(0, -0.05, -0.12 * this.weaponScale); w.userData.float = true; }
+  HP.setWeapon = function (name, wl) {
+    const wb = this.wbones[name];
+    if (wb.userData.glow) { wb.remove(wb.userData.glow); wb.userData.glow = null; }
+    wb.userData.shape = null; wb.userData.float = false; wb.position.set(0, 0, 0); wb.rotation.set(0, 0, 0);
+    if (!wl) { this.setMesh(name, wb, null); delete this.meshes[name]; this.parts[name + 'Mesh'] = null; return; }
+    const shape = WEAPON_SHAPES.indexOf(wl.shape) >= 0 ? wl.shape : 'sword';
+    const color = wl.color != null ? toHex(wl.color) : null;
+    this.setMesh(name, wb, weaponGeo(shape, color, { race: this.spec.race }), weaponMat(shape), true);
+    const gm = weaponGlowMesh(shape, color, wl.glow);
+    if (gm) { wb.add(gm); wb.userData.glow = gm; }
+    wb.userData.shape = shape;
+    if (shape === 'runestone') { wb.position.set(0, -0.05, -0.12 * this.weaponScale); wb.userData.float = true; }
+    this.meshes[name] = wb; this.parts[name + 'Mesh'] = wb;
+    this._applyWeaponVis();
+  };
+  // main/off-hand weapons hide while a prop (rod, torch…) is held: collapse their bones (vertices follow) + hide glows
+  HP._applyWeaponVis = function () {
+    const hide = this._weaponsHidden, lv = this.lodLevel, ws = this.weaponScale;
+    for (const k in this.wbones) {
+      const wb = this.wbones[k], on = !hide || k === 'weaponRanged';
+      wb.scale.setScalar(on ? ws : 1e-4);
+      const gm = wb.userData.glow; if (gm) gm.visible = on && lv === 0;
+    }
+  };
+  HP._neutralPose = function () { restPose(_tmpPose); this.applyPose(_tmpPose); };
+  HP._rebuildSkin = function () { rigRebuildSkin(this); };
+  HP._staticKeyNow = function () {
+    let key = 'hstatic|' + this.d.key + '|' + (this.rangedInHands ? 'h' : 's') + (this._weaponsHidden ? 'w' : 'n') + '|';
+    for (const k in this.partMap) { const p = this.partMap[k]; if (!p.detail) key += p.key + ';'; }
+    return key;
+  };
+  HP._ensureStatic = function () { return rigEnsureStatic(this, this._staticKeyNow()); };
+  HP._applyLOD = function () {
+    const lv = this.lodLevel, sk = this.skin;
+    if (lv === 2) { if (sk) sk.visible = false; const lm = this._ensureStatic(); if (lm) lm.visible = true; }
+    else {
+      if (sk) { sk.visible = true; if (lv === 1) sk.geometry.setDrawRange(0, this.skinCore); else sk.geometry.setDrawRange(0, Infinity); }
+      if (this.lodMesh) this.lodMesh.visible = false;
+    }
+    this._applyWeaponVis();
+    if (this.prop) this.prop.visible = lv < 2;
+  };
+  // level 0 full, 1 no small details (face, cape, glows), 2 one static merged mesh in a neutral pose (play() is free).
+  // Rigs in a state or one-shot animation (sit, ride, death, attack…) never drop below level 1 so they keep moving.
+  HP.setLOD = function (level) {
+    level = level | 0; if (level < 0) level = 0; if (level > 2) level = 2;
+    if (level === 2 && (this.state || this.oneShot || this.mounted)) level = 1;
+    if (level === this.lodLevel || this.disposed) return;
+    this.lodLevel = level;
+    this._applyLOD();
+  };
+  HP._wake = function () { if (this.lodLevel === 2) { this.lodLevel = 1; this._applyLOD(); } };
+  HP.setShadow = function (on) {
+    on = !!on; if (on === this._shadow) return;
+    this._shadow = on;
+    if (this.skin) this.skin.castShadow = on;
+    if (this.prop) this.prop.traverse(o => { if (o.isMesh && o.name !== 'glow') o.castShadow = on; });
   };
   HP.placeRanged = function (inHands) {
     const w = this.meshes.weaponRanged, d = this.d, g = this.parts.weaponRanged;
@@ -941,17 +1185,20 @@
     if (kind) {
       const shape = kind === 'rod' ? 'rod' : kind === 'torch' ? 'club' : kind === 'lute' ? 'lute' : kind;
       this.prop = buildWeapon(WEAPON_SHAPES.indexOf(shape) >= 0 ? shape : 'rod', null, kind === 'torch' ? 0xffa030 : null, { scale: this.weaponScale });
+      this.prop.visible = this.lodLevel < 2;
+      if (!this._shadow) this.prop.traverse(o => { if (o.isMesh) o.castShadow = false; });
       this.parts.propGroup.add(this.prop);
     }
-    if (this.meshes.weaponMain) this.meshes.weaponMain.visible = !kind;
-    if (this.meshes.weaponOff) this.meshes.weaponOff.visible = !kind;
+    this._weaponsHidden = !!kind;
+    this._applyWeaponVis();
+    this.meshCount = 0; this.group.traverse(o => { if (o.isMesh) this.meshCount++; });
   };
   HP.setMounted = function (b) { this.mounted = !!b; if (!b && this.state === 'ride') this.state = null; };
   HP.dispose = function () {
-    for (const k in this.meshes) { const m = this.meshes[k]; if (m && m.geometry && m.geometry.userData.refs) m.geometry.userData.refs--; }
     if (this.nameplate) { releaseNameplate(this.nameplate); this.nameplate = null; }
+    rigDisposeSkin(this);
     disposeTree(this.group);
-    this.meshes = {}; this.disposed = true;
+    this.meshes = {}; this.partMap = {}; this.disposed = true;
     _rigCount--; if (this.kind === 'humanoid') _humanoidCount--; else _monsterCount--;
   };
 
@@ -1160,14 +1407,14 @@
     if (ONE_SHOT[name] != null) {
       if (this.oneShot === name && !force) return;
       if (this.oneShot) this.endOneShot(true);
-      this.oneShot = name; this.oneShotT = 0;
+      this.oneShot = name; this.oneShotT = 0; this._wake();
       this.oneShotDur = name === 'roll' ? ((G.C && G.C.ROLL_TIME) || 0.55) : ONE_SHOT[name];
       this.oneShotRemaining = this.oneShotDur;
       if (name === 'attack_shoot' && this.meshes.weaponRanged) this.placeRanged(true);
       if (name === 'fish_cast' && this.propKind !== 'rod') this.setProp('rod');
       return;
     }
-    if (STATE_ANIM[name]) { if (this.oneShot) this.endOneShot(true); if (name === 'ride') this.mounted = true; this.state = name; return; }
+    if (STATE_ANIM[name]) { if (this.oneShot) this.endOneShot(true); if (name === 'ride') this.mounted = true; this.state = name; this._wake(); return; }
     // locomotion (idle/walk/run/jump/fall): clears any state, keeps a running one-shot unless forced
     if (this.state) this.state = null;
     if (force && this.oneShot) this.endOneShot(true);
@@ -1188,6 +1435,11 @@
   HP.play = function (dt, ent) {
     if (this.disposed) return;
     dt = dt > 0.1 ? 0.1 : dt < 0 ? 0 : dt || 0;
+    if (this.lodLevel === 2) {           // static far mesh: keep the clocks running, skip every bit of pose math
+      let sp = 0; if (ent && ent.vel) sp = Math.sqrt(ent.vel.x * ent.vel.x + ent.vel.z * ent.vel.z) || 0;
+      this.speed += (sp - this.speed) * Math.min(1, dt * 10); this.time += dt;
+      return;
+    }
     const c = this.ctx || (this.ctx = { rig: this, d: this.d, speed: 0, cycle: 0, phase: 0, t: 0, vy: 0, combat: false, ent: null, dt: 0, anim: 'idle', oneShot: null });
     let speed = 0, vy = 0, onGround = true, swimming = false, mounted = this.mounted;
     c.ent = ent || null; c.dt = dt;
@@ -1239,7 +1491,7 @@
     this.parts.head.rotation.y += this.lookY;
     // cape lift with speed
     const cg = this.parts.capeGroup;
-    cg.rotation.x += -(0.1 + Math.min(1.1, this.speed * 0.11)) + sin(this.time * 3.1) * 0.02;
+    cg.rotation.x += -(0.06 + Math.min(1.1, this.speed * 0.11)) + sin(this.time * 3.1) * 0.02;
     // floating runestones & glow pulse
     const wm = this.meshes.weaponMain, wr = this.meshes.weaponRanged;
     if (wm && wm.userData.float) { wm.position.y = -0.05 + sin(this.time * 2.5) * 0.025; wm.rotation.y += dt * 1.6; }
@@ -1257,7 +1509,8 @@
     this.kind = 'monster'; this.family = family;
     this.group = new THREE.Group(); this.group.name = 'rig_' + family;
     this.body = grp(0, 0, 0, this.group);
-    this.joints = []; this.J = {}; this.rest = []; this.parts = {}; this.meshes = {}; this.anims = {}; this.height = 1; this.meshCount = 0;
+    this.joints = []; this.J = {}; this.rest = []; this.parts = {}; this.meshes = {}; this.partMap = {}; this.anims = {}; this.height = 1; this.meshCount = 0;
+    this.skin = null; this.skinCore = 0; this.lodMesh = null; this._staticKey = null; this.lodLevel = 0; this._shadow = true; this._dirty = false; this.staticKey = family; this.dyn = [];
     this.time = 0; this.animT = 0; this.cycle = 0; this.speed = 0; this.anim = 'idle'; this.lastAnim = null; this.state = null; this.oneShot = null; this.oneShotT = 0; this.oneShotDur = 0; this.oneShotRemaining = 0; this.blendT = 1;
     this.idleSeed = (hashStr(family + _rigCount) % 1000) / 100;
     this.mounted = false; this.flying = false; this.hover = 0;
@@ -1266,13 +1519,49 @@
     this.P = new Float32Array(this.N); this.cur = new Float32Array(this.N); this.prev = new Float32Array(this.N);
     this.restPose(this.P); this.cur.set(this.P); this.prev.set(this.P);
     this.ctx = { rig: this, speed: 0, cycle: 0, phase: 0, t: 0, dt: 0, ent: null, anim: 'idle' };
-    this.group.traverse(o => { if (o.isMesh) this.meshCount++; });
-    _rigCount++; _monsterCount++;
+    this.bones = this.joints;
+    this.boneIndex = new Map(); for (let i = 0; i < this.bones.length; i++) this.boneIndex.set(this.bones[i], i);
+    this._tmpPose = new Float32Array(this.N);
     this.applyPose(this.cur);
+    this._rebuildSkin();
+    _rigCount++; _monsterCount++;
   }
   const CP = CreatureRig.prototype;
   CP.joint = function (name, x, y, z, parent, rx, ry, rz) { const g = grp(x, y, z, parent || this.body); g.name = name; this.J[name] = this.joints.length; this.joints.push(g); this.rest.push(rx || 0, ry || 0, rz || 0); this.parts[name] = g; return g; };
-  CP.add = function (name, parent, geo, mat, shadow) { const m = mesh(geo, mat, shadow); m.name = name; parent.add(m); this.meshes[name] = m; return m; };
+  // register a part (merged into the skin) — opts.dynamic keeps a real mesh (scaled/animated per frame, e.g. drake fire)
+  CP.add = function (name, parent, geo, mat, shadow, opts) {
+    if (opts && opts.dynamic) { const m = mesh(geo, mat, shadow); m.name = name; parent.add(m); this.meshes[name] = m; this.dyn.push(m); return m; }
+    const md = matDesc(mat);
+    const detail = !!(opts && opts.detail) || name === 'face' || name === 'mouth' || name === 'eyeL' || name === 'eyeR';
+    const rec = { name: name, joint: parent, geo: geo, mat: mat, md: md, geometry: geo, material: mat, shadow: !!shadow, detail: detail, offset: null, key: name + '#' + md.key };
+    this.partMap[name] = rec; this.meshes[name] = rec; this._dirty = true;
+    return rec;
+  };
+  CP._neutralPose = function () { this.restPose(this._tmpPose); this.applyPose(this._tmpPose); };
+  CP._rebuildSkin = function () { rigRebuildSkin(this); };
+  CP._ensureStatic = function () {
+    let key = 'cstatic|' + this.staticKey + '|';
+    for (const k in this.partMap) { const p = this.partMap[k]; if (!p.detail) key += p.key + ';'; }
+    return rigEnsureStatic(this, key);
+  };
+  CP._applyLOD = function () {
+    const lv = this.lodLevel, sk = this.skin;
+    if (lv === 2) { if (sk) sk.visible = false; const lm = this._ensureStatic(); if (lm) lm.visible = true; }
+    else {
+      if (sk) { sk.visible = true; if (lv === 1) sk.geometry.setDrawRange(0, this.skinCore); else sk.geometry.setDrawRange(0, Infinity); }
+      if (this.lodMesh) this.lodMesh.visible = false;
+    }
+    for (let i = 0; i < this.dyn.length; i++) this.dyn[i].visible = lv === 0;
+  };
+  CP.setLOD = function (level) {
+    level = level | 0; if (level < 0) level = 0; if (level > 2) level = 2;
+    if (level === 2 && (this.state || this.oneShot || this.mounted)) level = 1;
+    if (level === this.lodLevel || this.disposed) return;
+    this.lodLevel = level;
+    this._applyLOD();
+  };
+  CP._wake = function () { if (this.lodLevel === 2) { this.lodLevel = 1; this._applyLOD(); } };
+  CP.setShadow = function (on) { on = !!on; if (on === this._shadow) return; this._shadow = on; if (this.skin) this.skin.castShadow = on; };
   CP.restPose = function (P) { P.fill(0); for (let i = 0; i < this.rest.length; i++) P[i] = this.rest[i]; };
   CP.S = function (P, name, x, y, z) { const j = this.J[name]; if (j == null) return; P[j * 3] = x; P[j * 3 + 1] = y; P[j * 3 + 2] = z; };
   CP.A = function (P, name, x, y, z) { const j = this.J[name]; if (j == null) return; P[j * 3] += x; P[j * 3 + 1] += y; P[j * 3 + 2] += z; };
@@ -1286,9 +1575,9 @@
     if (CREATURE_ONE_SHOT[name] != null) {
       const n = name === 'hit' ? 'hit' : name === 'roll' ? 'hit' : 'attack';
       if (this.oneShot === n && !force) return;
-      this.oneShot = n; this.oneShotT = 0; this.oneShotDur = n === 'hit' ? 0.35 : (this.attackDur || 0.7); this.oneShotRemaining = this.oneShotDur; return;
+      this.oneShot = n; this.oneShotT = 0; this.oneShotDur = n === 'hit' ? 0.35 : (this.attackDur || 0.7); this.oneShotRemaining = this.oneShotDur; this._wake(); return;
     }
-    if (name === 'death') { this.oneShot = null; this.state = 'death'; return; }
+    if (name === 'death') { this.oneShot = null; this.state = 'death'; this._wake(); return; }
     if (name === 'sit' || name === 'emote_dance' || name === 'fish_wait' || name === 'fish_reel' || name === 'swim' || name === 'ride') { this.state = null; return; }
     if (this.state) this.state = null;
     if (force && this.oneShot) { this.oneShot = null; this.oneShotRemaining = 0; }
@@ -1301,6 +1590,7 @@
     if (ent && ent.vel) speed = Math.sqrt(ent.vel.x * ent.vel.x + ent.vel.z * ent.vel.z) || 0;
     this.speed += (speed - this.speed) * Math.min(1, dt * 10);
     this.time += dt;
+    if (this.lodLevel === 2) return;      // static far mesh: no pose math
     if (this.oneShot) { this.oneShotT += dt; this.oneShotRemaining = Math.max(0, this.oneShotDur - this.oneShotT); if (this.oneShotT >= this.oneShotDur) { this.oneShot = null; this.oneShotRemaining = 0; } }
     let eff = this.oneShot || this.state;
     if (!eff) eff = this.speed > (this.runAt || 3.2) ? 'run' : this.speed > 0.2 ? 'walk' : 'idle';
@@ -1324,7 +1614,7 @@
     const BP = this.BP;
     this.body.position.set(cur[BP], cur[BP + 1], cur[BP + 2]); this.body.rotation.set(cur[BP + 3], cur[BP + 4], cur[BP + 5]);
   };
-  CP.dispose = function () { if (this.nameplate) { releaseNameplate(this.nameplate); this.nameplate = null; } disposeTree(this.group); this.disposed = true; _rigCount--; _monsterCount--; };
+  CP.dispose = function () { if (this.nameplate) { releaseNameplate(this.nameplate); this.nameplate = null; } rigDisposeSkin(this); disposeTree(this.group); this.meshes = {}; this.partMap = {}; this.disposed = true; _rigCount--; _monsterCount--; };
 
   // face for creatures: eyes (vertex coloured) ; returns geometry
   function creatureEyes(r, x, y, z, col, count, spread) {
@@ -1414,7 +1704,7 @@
       else if (Q.tail === 'curl') { tg = tube([[0, 0, 0], [0, 0.08, 0.08], [0.04, 0.12, 0.14], [0, 0.06, 0.18]], Q.r * 0.08, 8); }
       else { tg = sphere(Q.r * 0.3, 8, 6); tg.scale(1, 0.8, 1.2); tg.translate(0, 0, Q.r * 0.15); }
       R.add('tail', tail, _paint(tg, col), M.body, false);
-      R.height = (spineY + Q.r + Q.head * 1.2) * 1.05; R.spineY = spineY; R.Q = Q;
+      R.height = (spineY + Q.r + Q.head * 1.2) * 1.05; R.spineY = spineY; R.Q = Q; R.staticKey = 'quad|' + fam + '|' + col + '|' + (td.boss ? 'b' : td.elite ? 'e' : '');
       R.runAt = 3.0; R.attackDur = 0.75;
       R.cycleFreq = (sp, eff) => (eff === 'run' ? 1.2 + sp * 0.18 : 0.8 + sp * 0.4) / Math.max(0.5, Q.leg / 0.5);
       R.anims = QUAD_ANIMS;
@@ -1512,7 +1802,7 @@
         const tip = cone(lr * 0.8, lr * 2, 5); tip.rotateZ(-PI / 2); tip.translate(loL + lr * 0.5, 0, 0);
         R.add('knee' + nm, knee, _merge([_paint(lo, dark), _paint(tip, 0x1a1410)]), M.shiny, false);
       }
-      R.height = bodyY + br * 1.6; R.br = br; R.bodyY = bodyY;
+      R.height = bodyY + br * 1.6; R.br = br; R.bodyY = bodyY; R.staticKey = 'spider|' + fam + '|' + col + '|' + (td.boss ? 'b' : td.elite ? 'e' : '');
       R.runAt = 2.8; R.attackDur = 0.7;
       R.cycleFreq = (sp, eff) => 1.2 + sp * 0.45;
       R.anims = SPIDER_ANIMS;
@@ -1593,7 +1883,7 @@
         const w = R.joint('wing' + nm, sd * 0.09, 0.05, 0, body, 0, sd < 0 ? PI : 0, 0);
         R.add('wing' + nm, w, wingGeo(0.55, 0.32, dark, mem, 3), material(0xffffff, { vertexColors: true, rough: 0.7, double: true }), true);
       }
-      R.height = hoverY + 0.35; R.hoverY = hoverY; R.flying = true;
+      R.height = hoverY + 0.35; R.hoverY = hoverY; R.flying = true; R.staticKey = 'bat|' + col + '|' + (td.boss ? 'b' : td.elite ? 'e' : '');
       R.runAt = 2.5; R.attackDur = 0.6;
       R.cycleFreq = (sp) => 4;
       R.anims = BAT_ANIMS;
@@ -1636,7 +1926,7 @@
       const jg = capsule(r * 0.24, r * 0.55, 3, 8); jg.rotateX(PI / 2); jg.scale(1, 0.45, 1); jg.translate(0, 0, -r * 0.45);
       R.add('jaw', jaw, _paint(jg, col), M.body, false);
       const fire = sphere(r * 0.2, 8, 6); fire.scale(1, 0.6, 1.6); fire.translate(0, -r * 0.05, -r * 0.6);
-      R.add('fire', head, fire, material(0xff7020, { emissive: 0xff5010, emissiveIntensity: 2.5 }), false); R.meshes.fire.scale.setScalar(0.35);
+      R.add('fire', head, fire, material(0xff7020, { emissive: 0xff5010, emissiveIntensity: 2.5 }), false, { dynamic: true }); R.meshes.fire.scale.setScalar(0.35);
       // wings
       for (const sd of [-1, 1]) {
         const nm = sd < 0 ? 'L' : 'R';
@@ -1667,7 +1957,7 @@
         R.add('tail' + i, tj, _merge(parts), M.body, i === 0);
         par = tj; pz = tl; py = 0;
       }
-      R.height = spineY + r * 3.2; R.spineY = spineY; R.Q = { r, leg };
+      R.height = spineY + r * 3.2; R.spineY = spineY; R.Q = { r, leg }; R.staticKey = 'drake|' + col + '|' + (td.boss ? 'b' : td.elite ? 'e' : '');
       R.runAt = 3.2; R.attackDur = 0.9;
       R.cycleFreq = (sp, eff) => (eff === 'run' ? 1.0 + sp * 0.15 : 0.7 + sp * 0.35);
       R.anims = DRAKE_ANIMS;
@@ -1747,7 +2037,7 @@
       }
       const mouth = sphere(0.08, 8, 6); mouth.scale(1.3, 0.5, 0.6); mouth.translate(0, -0.1, -0.3);
       R.add('mouth', head, _paint(mouth, 0x3a2a30), M.face, false);
-      R.height = 0.75; R.runAt = 1.8; R.attackDur = 0.8;
+      R.height = 0.75; R.runAt = 1.8; R.attackDur = 0.8; R.staticKey = 'slug|' + col + '|' + (td.boss ? 'b' : td.elite ? 'e' : '');
       R.cycleFreq = (sp) => 1.0 + sp * 0.6;
       R.anims = SLUG_ANIMS;
       R.post = function (dt, ent, c) {
@@ -1794,7 +2084,7 @@
         R.add('seg' + i, j, _merge(parts), M.shiny, i < 4);
         par = j; z = (r + r0 * (1 - (i + 1) / n * 0.75)) * 0.95;
       }
-      R.height = 2.6; R.n = n; R.runAt = 2.5; R.attackDur = 1.0;
+      R.height = 2.6; R.n = n; R.runAt = 2.5; R.attackDur = 1.0; R.staticKey = 'serpent|' + col + '|' + (td.boss ? 'b' : td.elite ? 'e' : '');
       R.cycleFreq = (sp) => 0.5 + sp * 0.25;
       R.anims = SERPENT_ANIMS;
     });
@@ -1929,7 +2219,7 @@
       const girth = cyl(r * 1.06, r * 1.06, r * 0.18, 16, 1, true); girth.translate(0, -r * 0.7, 0); sl.push(_paint(girth, 0x3a2a1a));
       R.add('saddle', saddle, _merge(sl), MAT_VC(0.65, 0.05), false);
       R.parts.saddle = saddle;
-      R.height = spineY + r * 2.5; R.spineY = spineY; R.Q = { r, leg };
+      R.height = spineY + r * 2.5; R.spineY = spineY; R.Q = { r, leg }; R.staticKey = 'horse|' + col;
       R.runAt = 5.0; R.attackDur = 0.6;
       R.cycleFreq = (sp, eff) => eff === 'run' ? 1.1 + sp * 0.09 : 0.6 + sp * 0.35;
       R.anims = HORSE_ANIMS;
@@ -2170,14 +2460,15 @@
     if (_animProps.size) for (const p of _animProps) { try { p.update(dt); } catch (e) { _animProps.delete(p); } }
   }
   function stats() {
-    return { rigs: _rigCount, humanoids: _humanoidCount, monsters: _monsterCount, horses: _horseCount, geometries: _geoCount, materials: _matCount, nameplates: _npLive, nameplateTextures: _npTex.size, animatedProps: _animProps.size };
+    let statics = 0; for (const k of _geos.keys()) if (k.startsWith('hstatic|') || k.startsWith('cstatic|')) statics++;
+    return { rigs: _rigCount, humanoids: _humanoidCount, monsters: _monsterCount, horses: _horseCount, geometries: _geoCount, materials: _matCount, nameplates: _npLive, nameplateTextures: _npTex.size, animatedProps: _animProps.size, lodStatics: statics };
   }
   // trim the geometry cache when it grows large (only entries no live mesh references)
   function trimCache(max) {
     max = max || 900;
     if (_geos.size <= max) return 0;
     let n = 0;
-    for (const [k, g] of _geos) { if (!(g.userData.refs > 0) && (k.startsWith('torso|') || k.startsWith('hips|') || k.startsWith('uarm|') || k.startsWith('farm|') || k.startsWith('hand|') || k.startsWith('thigh|') || k.startsWith('shin|') || k.startsWith('foot|') || k.startsWith('weapon|') || k.startsWith('helm|') || k.startsWith('pauld|') || k.startsWith('cape|') || k.startsWith('head|') || k.startsWith('face|') || k.startsWith('hair|'))) { g.dispose(); _geos.delete(k); _geoCount--; n++; if (_geos.size <= max * 0.7) break; } }
+    for (const [k, g] of _geos) { if (!(g.userData.refs > 0) && (k.startsWith('hstatic|') || k.startsWith('cstatic|') || k.startsWith('torso|') || k.startsWith('hips|') || k.startsWith('uarm|') || k.startsWith('farm|') || k.startsWith('hand|') || k.startsWith('thigh|') || k.startsWith('shin|') || k.startsWith('foot|') || k.startsWith('weapon|') || k.startsWith('helm|') || k.startsWith('pauld|') || k.startsWith('cape|') || k.startsWith('head|') || k.startsWith('face|') || k.startsWith('hair|'))) { if (g.userData.ni) g.userData.ni.dispose(); g.dispose(); _geos.delete(k); _geoCount--; n++; if (_geos.size <= max * 0.7) break; } }
     return n;
   }
   G.Chars = {

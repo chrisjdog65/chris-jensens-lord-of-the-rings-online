@@ -1970,7 +1970,7 @@
     if (modal) return;
     for (const id in panels) {
       const k = panels[id].def.key;
-      if (k && I.pressed(k)) { I.consume(k); UI.togglePanel(id); return; }
+      if (k && I.pressed(k)) { I.consume(k); UI.togglePanel(id); }   // no early return: two panel keys in one slow frame must both count
     }
   }
 
