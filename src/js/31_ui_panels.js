@@ -1505,7 +1505,7 @@
     MP.hits.length = 0;
     // ---- zones
     if (w && Array.isArray(w.zones) && !baked) {
-      const a = zoom < 2.5 ? 0.9 : Math.max(0.2, 0.9 - (zoom - 2.5) * 0.3);
+      const a = zoom < 1.6 ? 0.9 : Math.max(0.22, 0.9 - (zoom - 1.6) * 0.3);
       w.zones.forEach(function (z) {
         if (!z.center) return;
         const sx = _mpSX(z.center.x), sy = _mpSY(z.center.z);

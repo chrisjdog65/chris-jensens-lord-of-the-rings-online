@@ -130,3 +130,6 @@
 ## 24_quests.js
 - `G.Quests.init()` at game start (before Save.apply). Collect-from drops are implemented by Quests in the `entityKilled` handler (Monsters/Combat need not drop quest items). `questDropsFor(typeId)`. Reward `choose` via `G.UI.Choose.open({quest, items, onPick(index)})`. s100 grants the Lost Kingdom set. `serialize/restore` in `{state, tracked}` shape. Extras: `get/list/storyIds/sideIds/activeIds/readyIds/availableIds/statusOf/progressOf/completeObjective(id,i)/bestChoice/posOfNpc/nextStory/bookOf/resolveObjective/grantLostKingdom`. Events: `questAbandoned, questTracked, questsInit, questsRestored, autoQuestStart/Stop/Finished`.
 - `G.AutoQuest`: `start/stop/toggle/active/paused/speed/status()/stats/plan/goTo/teleportNear/log`. Uses `G.Boats.pathToZone/instantTravel/sailTo`, `G.Fishing.autoFish`, `G.Player.autoMove`. Quest XP alone reaches ~L65; kills fill the rest (finish bumps to cap with a warn if short).
+
+## 25_aiplayers.js
+- `init(scene?)`, `update(dt)`; hooks: Combat should call `G.AIPlayers.onDamaged(ent, src, amount)` for aiplayer victims (optional). HUD `/w Name text` must emit `chat {channel:'whisper', to:'Name', text}`. `setChatRate` stores `G.state.settings.aiChat`. Emits `aiLevelUp`, `aiDeath`, `aiChat`. Extras: `spawnNear(pos)`, `whisper(name,text)`, `say(id,text)`, `fellowships`, `chatLog`, `all`.

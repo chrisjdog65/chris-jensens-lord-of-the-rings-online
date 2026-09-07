@@ -1021,6 +1021,7 @@
     counters.farTicks++;
     const a = e.ai;
     e.playTime += dt;
+    if (a.fightTarget && (!e._near || !alive(a.fightTarget) || a.fightTarget.despawned)) releaseTarget(e);   // fights only exist in the near LOD
     if (e.fellowshipRole === 'member') { memberTick(e, dt, t); return; }
     switch (a.state) {
       case 'dead':
@@ -1317,7 +1318,7 @@
     const a = e.ai;
     if (!m || m === a.fightTarget) return;
     if (a.fightTarget) releaseTarget(e);
-    a.fightTarget = m; e.target = m; a.defend = !!defend; a.noTargetT = 0; a.sit = false; a.dance = false; a.eatUntil = 0; e.inCombat = true;
+    a.fightTarget = m; e.target = m; a.defend = !!defend; a.noTargetT = 0; a.sit = false; a.dance = false; a.eatUntil = 0; e.inCombat = true; a.lastActT = now(); a.closeIn = false;
     if (!m.engagedBy) m.engagedBy = e.id;
     setMounted(e, false);
     if (e.rig && hasFn(e.rig, 'setAnim') && e.rig.state) e.rig.setAnim('idle', true);
@@ -1386,13 +1387,14 @@
     }
     if (t < a.nextCast) return;
     a.nextCast = t + 0.3;
-    const range = RANGED_CLASSES[e.cls] ? 20 : 2.4;
+    const range = (RANGED_CLASSES[e.cls] && !a.closeIn) ? 20 : 2.4;
     const d = Math.sqrt(_dist2sq(e.pos.x, e.pos.z, m.pos.x, m.pos.z)) - num(m.radius, 0.5) - e.radius;
     if (d > range + 0.3) return;
+    if (t - num(a.lastActT, t) > 4) a.closeIn = true;                         // nothing landed for a while (no line of sight): walk up to it
     const gcdFree = num(e.gcdReady, 0) <= t && !e.casting;
-    if (gcdFree && tryHeal(e, t)) return;
-    if (gcdFree && tryAbility(e, m)) return;
-    if (num(e.nextSwing, 0) <= t && d <= 2.8 + 0.3) tryBasic(e, m);         // auto-attack runs alongside skills (melee reach)
+    if (gcdFree && tryHeal(e, t)) { a.lastActT = t; return; }
+    if (gcdFree && tryAbility(e, m)) { a.lastActT = t; return; }
+    if (num(e.nextSwing, 0) <= t && d <= 2.8 + 0.3 && tryBasic(e, m)) a.lastActT = t;   // auto-attack runs alongside skills (melee reach)
   }
   function onDamaged(dst, src, amount) {
     if (!dst || dst.kind !== 'aiplayer' || dst.dead) return;
@@ -1466,7 +1468,7 @@
     }
     else if (a.eatUntil > t || (a.sit && !a.fightTarget) || a.emoteUntil > t) { want = false; }
     else if (a.fightTarget) {
-      const m = a.fightTarget; const range = RANGED_CLASSES[e.cls] ? 18 : 2.2;
+      const m = a.fightTarget; const range = (RANGED_CLASSES[e.cls] && !a.closeIn) ? 18 : 2.2;
       const d = Math.sqrt(_dist2sq(e.pos.x, e.pos.z, m.pos.x, m.pos.z)) - num(m.radius, 0.5) - e.radius;
       if (d > range) { tx = m.pos.x; tz = m.pos.z; speed = RUN_SPEED; want = true; }
     }
@@ -1504,7 +1506,16 @@
       const moved = Math.sqrt(_dist2sq(ox, oz, e.pos.x, e.pos.z));
       if (moved < speed * dt * 0.35) a.stuckT += dt; else a.stuckT = Math.max(0, a.stuckT - dt * 2);
       if (a.stuckT > 2.5 && a.stuckT < 2.5 + dt * 1.01) { if (e.onGround) e.vel.y = JUMP_VEL; a.avoidSide = -a.avoidSide; a.avoidAng = a.avoidSide * 1.2; a.avoidUntil = t + 0.8; }
-      else if (a.stuckT > 6) { a.stuckT = 0; a.nudges++; if (a.nudges >= 3) { a.nudges = 0; if (a.path && a.pathIdx < a.path.length && !nearHero(a.path[a.pathIdx].x, a.path[a.pathIdx].z, 30)) { const wp = a.path[a.pathIdx]; placeAt(e, wp.x, wp.z, e.yaw); } else if (a.fightTarget) releaseTarget(e); else if (a.path) { a.pathIdx++; if (a.pathIdx >= a.path.length) a.path = null; } else a.follow = false; } else nudge(e, dx, dz); }
+      else if (a.stuckT > 6) {
+        a.stuckT = 0; a.nudges++;
+        const wp = (a.path && a.pathIdx < a.path.length) ? a.path[a.pathIdx] : null;
+        const lastWp = !!(wp && a.pathIdx === a.path.length - 1);
+        if (a.fightTarget) releaseTarget(e);                                   // cannot reach it: let it go
+        else if (a.follow) a.follow = false;
+        else if (lastWp) { a.path = null; a.nudges = 0; if (a.spot) { a.spot.x = e.pos.x; a.spot.z = e.pos.z; } updateMount(e); }   // the spot is behind a wall: this is close enough
+        else if (wp && a.nudges >= 3) { a.nudges = 0; if (!nearHero(wp.x, wp.z, 30)) placeAt(e, wp.x, wp.z, e.yaw); else { a.pathIdx++; if (a.pathIdx >= a.path.length) a.path = null; } }
+        else nudge(e, dx, dz);
+      }
     } else a.stuckT = 0;
   }
   function emoteStep(e, dt, t) {
