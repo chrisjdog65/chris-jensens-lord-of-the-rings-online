@@ -628,13 +628,13 @@
 
   // ---------------------------------------------------------------- docks & boat routes (§9) ---------------------------------
   W.docks = [
-    { id: 'dock_celondim', name: 'The Quay of Celondim', town: 'celondim', pos: { x: -1492, z: -700 }, yaw: yawTo(-1, 0), routes: ['dock_tolfuin', 'dock_morwen', 'dock_duillond'] },
-    { id: 'dock_duillond', name: 'Duillond Landing', town: 'duillond', pos: { x: -1492, z: -790 }, yaw: yawTo(-1, 0), routes: ['dock_celondim', 'dock_tolfuin'] },
-    { id: 'dock_tinnudir', name: 'Tinnudir Quay', town: 'tinnudir', pos: { x: -270, z: -1010 }, yaw: yawTo(-0.87, 0.5), routes: ['dock_forochel'] },
-    { id: 'dock_forochel', name: 'Ice-bay Landing', town: 'surikyla', pos: { x: 540, z: -1877 }, yaw: yawTo(-0.66, -0.75), routes: ['dock_tinnudir'] },
-    { id: 'dock_tolfuin', name: 'The Quay of Ost Fuin', town: 'ostfuin', pos: { x: -1620, z: -1500 }, yaw: yawTo(1, 0), routes: ['dock_celondim', 'dock_himling', 'dock_duillond'] },
-    { id: 'dock_himling', name: 'Ras Himling Landing', town: 'rashimling', pos: { x: -1558, z: -440 }, yaw: yawTo(1, 0), routes: ['dock_tolfuin', 'dock_morwen'] },
-    { id: 'dock_morwen', name: 'Morwen Harbour', town: 'morwenvillage', pos: { x: -1704, z: 700 }, yaw: yawTo(1, 0), routes: ['dock_himling', 'dock_celondim'] },
+    { id: 'dock_celondim', name: 'The Quay of Celondim', town: 'celondim', pos: { x: -1524, z: -674 }, yaw: 4.3197, routes: ['dock_tolfuin', 'dock_morwen', 'dock_duillond'] },
+    { id: 'dock_duillond', name: 'Duillond Landing', town: 'duillond', pos: { x: -1512, z: -796 }, yaw: 3.5343, routes: ['dock_celondim', 'dock_tolfuin'] },
+    { id: 'dock_tinnudir', name: 'Tinnudir Quay', town: 'tinnudir', pos: { x: -256, z: -1020 }, yaw: 0.0000, routes: ['dock_forochel'] },
+    { id: 'dock_forochel', name: 'Ice-bay Landing', town: 'surikyla', pos: { x: 514, z: -1899 }, yaw: 3.1416, routes: ['dock_tinnudir'] },
+    { id: 'dock_tolfuin', name: 'The Quay of Ost Fuin', town: 'ostfuin', pos: { x: -1620, z: -1494 }, yaw: 0.7854, routes: ['dock_celondim', 'dock_himling', 'dock_duillond'] },
+    { id: 'dock_himling', name: 'Ras Himling Landing', town: 'rashimling', pos: { x: -1554, z: -444 }, yaw: 0.7854, routes: ['dock_tolfuin', 'dock_morwen'] },
+    { id: 'dock_morwen', name: 'Morwen Harbour', town: 'morwenvillage', pos: { x: -1718, z: 702 }, yaw: 0.7854, routes: ['dock_himling', 'dock_celondim'] },
   ];
 
   // ---------------------------------------------------------------- stable-master swift travel ------------------------------

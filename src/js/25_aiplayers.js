@@ -804,3 +804,329 @@
     while (e.level < LEVEL_CAP && e.xp >= xpForLevel(e.level + 1) && guard++ < 10) levelUp(e, false);
     return n;
   }
+
+  // ------------------------------------------------------------------------------------------------ far simulation
+  function speedOf(e) { return e.sailing ? BOAT_SPEED : e.mounted ? MOUNT_SPEED : RUN_SPEED * (e.stats && e.stats.speed > 0 ? e.stats.speed : 1); }
+  function setPath(e, pts, arriveDist) {
+    const a = e.ai;
+    a.path = pts && pts.length ? pts : null; a.pathIdx = 0; a.arriveDist = arriveDist || 2.5;
+    a.stuckT = 0; a.nudges = 0; a.lastX = e.pos.x; a.lastZ = e.pos.z;
+    if (a.path) { const last = a.path[a.path.length - 1]; a.goal.x = last.x; a.goal.z = last.z; }
+    updateMount(e);
+  }
+  function walledTowns() {
+    const W = world(); if (!W) return _tmp;
+    if (W._aiWalled) return W._aiWalled;
+    const out = []; const ts = W.towns || [];
+    for (let i = 0; i < ts.length; i++) if (ts[i] && ts[i].pos && (ts[i].walls || ts[i].id === 'bree')) out.push(ts[i]);
+    W._aiWalled = out;
+    return out;
+  }
+  function withGates(pts, x, z) {
+    const wt = walledTowns(); let path = pts;
+    for (let i = 0; i < wt.length; i++) path = insertGates(path, x, z, wt[i].id);
+    return path;
+  }
+  function goStraight(e, x, z, arriveDist) { setPath(e, withGates([{ x: x, z: z, boat: false }], e.pos.x, e.pos.z), arriveDist); }
+  function landPointNear(x, z, r) {
+    for (let k = 0; k < 8; k++) { const a = S() * TAU, d = sr(r * 0.3, r); const px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d; if (!isWaterAt(px, pz)) { _spot.x = px; _spot.z = pz; return _spot; } }
+    _spot.x = x; _spot.z = z; return _spot;
+  }
+  function updateMount(e) {
+    const a = e.ai;
+    if (e.dead || e.sailing || a.fightTarget || a.sit) { setMounted(e, false); return; }
+    const rem = pathRemaining(a.path, a.pathIdx, e.pos.x, e.pos.z);
+    if (!e.mounted && rem > MOUNT_MIN_DIST && (a.state === 'travelling' || a.state === 'questing' || a.state === 'exploring' || a.state === 'fishing')) setMounted(e, true);
+    else if (e.mounted && (rem < 12 || !a.path)) setMounted(e, false);
+  }
+  function setMounted(e, on) {
+    on = !!on;
+    if (e.mounted === on) return;
+    e.mounted = on;
+    if (e.rig) syncMountRig(e);
+    if (on && e.rig && nearHero(e.pos.x, e.pos.z, 40)) { fx('mount_dust', e.pos, { yaw: e.yaw, scale: 0.7 }); sfx('horse_mount', e.pos, 0.5); }
+  }
+  // Advance along the current path (abstract LOD). Returns true when the path is finished.
+  function advancePath(e, dt) {
+    const a = e.ai; const path = a.path;
+    if (!path) return true;
+    if (a.pathIdx >= path.length) { a.path = null; e.sailing = false; return true; }
+    if (e._near && !e.sailing && !path[a.pathIdx].boat) return false;   // physics moves it; nearMove() advances pathIdx
+    let remaining = speedOf(e) * dt;
+    let moved = false;
+    while (remaining > 0 && a.pathIdx < path.length) {
+      const wp = path[a.pathIdx];
+      const boat = !!wp.boat;
+      if (boat !== e.sailing) { e.sailing = boat; if (boat) { counters.sailings++; setMounted(e, false); if (e.rig) disposeRig(e); } }
+      const dx = wp.x - e.pos.x, dz = wp.z - e.pos.z; const d = Math.sqrt(dx * dx + dz * dz);
+      if (d <= remaining) { e.pos.x = wp.x; e.pos.z = wp.z; remaining -= d; a.pathIdx++; }
+      else { e.pos.x += dx / d * remaining; e.pos.z += dz / d * remaining; e.yaw = _yawTo(dx, dz); remaining = 0; }
+      moved = true;
+    }
+    if (moved) {
+      e.pos.y = e.sailing ? num(C.SEA_LEVEL, 0) : coarseY(e.pos.x, e.pos.z);
+      if (G.Spatial && hasFn(G.Spatial, 'update')) G.Spatial.update(e);
+    }
+    if (a.pathIdx >= path.length) { a.path = null; if (e.sailing) { e.sailing = false; } updateMount(e); return true; }
+    if (((frame + a.pathIdx) & 7) === 0) updateMount(e);
+    return false;
+  }
+  function fillActivity(e, list) { return fill(spick(list) || '', e, null); }
+  function setActivity(e, text) { e.activity = text; e.ai.lastActivityT = now(); }
+  function fellowshipOf(e) { return e && e.fellowshipId ? fellowshipById[e.fellowshipId] : null; }
+  function leaderOf(e) { const f = fellowshipOf(e); if (!f) return null; const l = byId[f.leaderId]; return (l && l !== e && l.online !== false) ? l : null; }
+  function forEachMember(e, fn) { const f = fellowshipOf(e); if (!f) return; for (let i = 0; i < f.members.length; i++) { const m = byId[f.members[i]]; if (m && m !== e) fn(m); } }
+
+  // ---- state entries
+  function enterTown(e, opts) {
+    const a = e.ai; opts = opts || {};
+    const town = townData(e.townId);
+    a.state = 'town'; a.phase = 'walk'; a.fightTarget = null; e.target = null; a.sit = false; a.inInn = false; a.explore = null;
+    const night = isNight();
+    let kind = 'any';
+    if (town) {
+      const hasFire = propsOf(town, 'campfire').length > 0, hasInn = !!innOf(town);
+      if (night && hasInn && schance(0.7)) kind = 'inn';
+      else if (night && hasFire && schance(0.7)) kind = 'campfire';
+      else if (opts.turnin) kind = spick(['well', 'vendor', 'market', 'any']);
+      else kind = G.weightedPick(['vendor', 'market', 'well', 'campfire', 'stable', 'inn', 'any'], (k) => k === 'campfire' ? (hasFire ? 1.4 : 0) : k === 'inn' ? (hasInn ? 1 : 0) : k === 'stable' ? (town.hasStable ? 0.5 : 0) : k === 'vendor' ? 1.6 : k === 'market' ? 1.1 : k === 'well' ? 1 : 0.8, S) || 'any';
+      const sp = townSpot(town, kind, _spot);
+      a.spot = { x: sp.x, z: sp.z }; a.spotKind = sp.kind;
+      if (_dist2sq(e.pos.x, e.pos.z, sp.x, sp.z) > 2) goStraight(e, sp.x, sp.z, 1.8); else { a.path = null; a.phase = 'idle'; }
+      a.inInn = sp.kind === 'inn';
+    } else { a.path = null; a.phase = 'idle'; }
+    a.timer = opts.timer != null ? opts.timer : sr(TOWN_TIME[0], TOWN_TIME[1]) * (night ? 2.5 : 1) * (e.persona.playstyle === 'social' ? 1.5 : 1);
+    setActivity(e, a.inInn ? fillActivity(e, INN_ACTIVITIES) : a.spotKind === 'campfire' ? fillActivity(e, CAMP_ACTIVITIES) : opts.turnin ? 'Turning in quests in ' + townName(e.townId) : fillActivity(e, TOWN_ACTIVITIES));
+    setMounted(e, false);
+  }
+  function startQuesting(e, grind) {
+    const a = e.ai;
+    const sp = pickSpawn(e.zone, e.level);
+    if (!sp) { enterTown(e, { timer: 20 }); return; }
+    a.state = 'questing'; a.phase = 'walk'; a.spawn = sp; a.grind = !!grind; a.killsThisFight = 0;
+    const p = landPointNear(num(sp.center.x), num(sp.center.z), Math.max(6, num(sp.radius, 20) * 0.7));
+    goStraight(e, p.x, p.z, 4);
+    setActivity(e, (grind ? 'Off to grind ' : 'Heading to ') + spawnName(sp));
+    counters.fights++;
+  }
+  function startTravel(e, townId) {
+    const a = e.ai; const town = townData(townId);
+    if (!town) { enterTown(e, { timer: 15 }); return; }
+    a.state = 'travelling'; a.phase = 'walk'; a.travelTo = null; a.arrive = townId;
+    let path = routeTo(e.pos.x, e.pos.z, townId, e.townId);
+    if (!path) { enterTown(e, { timer: 15 }); return; }
+    path = withGates(path, e.pos.x, e.pos.z);
+    setPath(e, path, 4);
+    setActivity(e, 'Travelling to ' + town.name);
+    counters.travels++;
+  }
+  function startFishing(e) {
+    const a = e.ai; const spots = fishSpotsIn(e.zone);
+    if (!spots.length) { startQuesting(e, false); return; }
+    const spot = spick(spots);
+    a.state = 'fishing'; a.phase = 'walk'; a.fishSpot = spot;
+    const p = landPointNear(num(spot.pos.x), num(spot.pos.z), Math.max(3, num(spot.radius, 10) * 0.8));
+    goStraight(e, p.x, p.z, 2);
+    setActivity(e, 'Heading to ' + (spot.name || 'the water') + ' to fish');
+  }
+  function startExplore(e) {
+    const a = e.ai; const pois = poisIn(e.zone);
+    const towns = townsInZone(e.zone).filter((t) => t.id !== e.townId);
+    if (!pois.length && !towns.length) { startQuesting(e, false); return; }
+    if (towns.length && (!pois.length || schance(0.35))) { startTravel(e, spick(towns).id); return; }
+    const poi = spick(pois);
+    a.state = 'exploring'; a.phase = 'walk'; a.explore = poi;
+    const p = landPointNear(num(poi.pos.x), num(poi.pos.z), 8);
+    goStraight(e, p.x, p.z, 4);
+    setActivity(e, 'Heading to ' + poi.name);
+  }
+  function chooseNext(e) {
+    const a = e.ai;
+    if (a.travelTo && a.travelTo !== e.townId) { startTravel(e, a.travelTo); return; }
+    a.travelTo = null;
+    if (e.level > zoneMaxLevel(e.zone) && promoteZone(e) && a.travelTo) { startTravel(e, a.travelTo); return; }
+    if (isNight() && a.state === 'town' && schance(0.4)) { enterTown(e, {}); return; }
+    const ps = e.persona.playstyle; const r = S();
+    const hasFish = fishSpotsIn(e.zone).length > 0;
+    switch (ps) {
+      case 'grinder': if (r < 0.8) startQuesting(e, true); else if (r < 0.9) enterTown(e, {}); else startExplore(e); break;
+      case 'explorer': if (r < 0.45) startExplore(e); else if (r < 0.85) startQuesting(e, false); else startTravel(e, (spick(townsInZone(e.zone)) || townData(e.townId) || {}).id); break;
+      case 'social': if (r < 0.4) enterTown(e, {}); else if (r < 0.75) startQuesting(e, false); else if (r < 0.9) startTravel(e, (spick(townsInZone(e.zone)) || townData(e.townId) || {}).id); else startExplore(e); break;
+      case 'fisher': if (r < 0.5 && hasFish) startFishing(e); else if (r < 0.85) startQuesting(e, false); else enterTown(e, {}); break;
+      default: if (r < 0.7) startQuesting(e, false); else if (r < 0.8) startExplore(e); else if (r < 0.9 && hasFish) startFishing(e); else enterTown(e, {});
+    }
+  }
+  function returnToTown(e, turnin) {
+    const a = e.ai; const town = townData(e.townId);
+    a.phase = 'return'; a.turnin = !!turnin; a.fightTarget = null; e.target = null; a.sit = false;
+    if (!town) { enterTown(e, {}); return; }
+    const sp = townSpot(town, turnin ? 'well' : 'any', _spot);
+    goStraight(e, sp.x, sp.z, 3);
+    setActivity(e, 'Returning to ' + town.name);
+  }
+  function arriveTown(e, townId) {
+    const town = townData(townId);
+    if (town) { e.townId = town.id; const z = town.zone; if (z && (zoneData(z) && e.level >= num(zoneData(z).level[0], 1) - 3)) e.zone = z; }
+    forEachMember(e, (m) => { m.townId = e.townId; m.zone = e.zone; });
+    enterTown(e, {});
+  }
+
+  // ---- abstract combat
+  function spawnLevelFor(e, sp) {
+    const mt = sp ? monsterType(sp.type) : null; if (!mt) return e.level;
+    const lv = mt.level; const lo = Array.isArray(lv) ? num(lv[0], e.level) : num(lv, e.level), hi = Array.isArray(lv) ? num(lv[1], lo) : lo;
+    return clamp(e.level, lo, hi);
+  }
+  function abstractKill(e, mobLevel) {
+    e.kills++; counters.kills++;
+    addXP(e, killXP(mobLevel, e.level) * xpPace(e.level));
+    forEachMember(e, (m) => { if (alive(m) && m.fellowshipRole === 'member') { m.kills++; addXP(m, killXP(mobLevel, m.level) * xpPace(m.level) * 0.8); } });
+  }
+  function die(e, killer, abstract) {
+    if (e.dead) return;
+    const a = e.ai;
+    e.deaths++; counters.deaths++;
+    releaseTarget(e);
+    if (abstract || !hasFn(G.Combat, 'kill')) { e.alive = false; e.dead = true; e.deathTime = now(); e.morale = 0; e.target = null; if (e.rig && hasFn(e.rig, 'setAnim')) e.rig.setAnim('death', true); }
+    setMounted(e, false);
+    a.state = 'dead'; a.phase = ''; a.timer = RESPAWN_TIME; a.path = null; a.sit = false; a.deathAt = now();
+    setActivity(e, 'Defeated — retreating to ' + townName(e.townId));
+    if (e.persona.chatty > 0.3 && schance(e.persona.chatty * 0.35) && chatEnabled()) schedule(e, pickLine(e, 'death', null), 'world', sr(3, 9));
+    emit('aiDeath', e);
+  }
+  function respawn(e) {
+    const a = e.ai; const town = townData(e.townId);
+    const rp = rallyOf(town);
+    const wasNear = e.pos && nearHero(e.pos.x, e.pos.z, 60);
+    if (G.Combat && hasFn(G.Combat, 'revive')) { try { G.Combat.revive(e, 0.5); } catch (err) { report(err, 'revive'); } }
+    else { e.alive = true; e.dead = false; e.deathTime = 0; e.target = null; e.casting = null; computeStats(e); e.morale = Math.round(e.stats.maxMorale * 0.5); e.power = Math.round(e.stats.maxPower * 0.5); }
+    e.alive = true; e.dead = false;
+    if (e.rig && hasFn(e.rig, 'setAnim')) e.rig.setAnim('idle', true);
+    if (wasNear) fx('teleport', e.pos, { out: true, scale: 0.7 });
+    const p = landPointNear(rp.x, rp.z, 4);
+    placeAt(e, p.x, p.z, S() * TAU);
+    if (nearHero(e.pos.x, e.pos.z, 60)) fx('teleport', e.pos, { scale: 0.8 });
+    a.deathAt = 0;
+    enterTown(e, { timer: sr(10, 40) });
+    setActivity(e, 'Recovering in ' + townName(e.townId));
+  }
+
+  // ---- the tick (leaders & solo players)
+  function farTick(e, dt, t) {
+    counters.farTicks++;
+    const a = e.ai;
+    e.playTime += dt;
+    if (e.fellowshipRole === 'member') { memberTick(e, dt, t); return; }
+    switch (a.state) {
+      case 'dead':
+        a.timer -= dt;
+        if (a.timer <= 0) respawn(e);
+        break;
+      case 'idle':
+        a.timer -= dt;
+        if (a.timer <= 0) chooseNext(e);
+        break;
+      case 'town': {
+        if (a.phase === 'walk') { if (advancePath(e, dt)) { a.phase = 'idle'; if (a.spotKind === 'campfire' || a.inInn) a.sit = schance(a.inInn ? 0.7 : 0.8); } }
+        a.timer -= dt;
+        if (a.timer <= 0) { a.sit = false; chooseNext(e); }
+        break;
+      }
+      case 'questing': {
+        if (a.phase === 'walk') {
+          if (advancePath(e, dt)) {
+            a.phase = 'fight'; a.timer = sr(FIGHT_TIME[0], FIGHT_TIME[1]) * (a.grind ? 1.6 : 1) * (1 + e.level / 100); a.killT = sr(3, 7); a.fightUntil = t + a.timer; a.wander = 0; a.noTargetT = 0;
+            setMounted(e, false);
+            const mt = a.spawn ? monsterType(a.spawn.type) : null;
+            setActivity(e, (a.grind ? 'Grinding ' : 'Fighting ') + (mt ? mt.name + 's' : 'monsters') + ' at ' + spawnName(a.spawn));
+          }
+        } else if (a.phase === 'fight') {
+          a.timer -= dt;
+          const mobL = spawnLevelFor(e, a.spawn);
+          const real = e._near && (a.fightTarget || a.noTargetT < 8);   // real combat happening (or still looking) nearby
+          if (!real) {
+            a.killT -= dt;
+            if (a.killT <= 0) { a.killT = sr(5, 9) * (1 + e.level / 60); abstractKill(e, mobL); }
+            const risk = 0.0008 * (1 + Math.max(0, mobL - e.level) * 0.5) * (fellowshipOf(e) ? 0.5 : 1) * dt;
+            if (S() < risk) { die(e, null, true); break; }
+            // shuffle around the camp so distant dots move plausibly
+            a.wander -= dt;
+            if (a.wander <= 0 && !e._near) { a.wander = sr(4, 9); const p = landPointNear(a.goal.x, a.goal.z, 7); const dx = p.x - e.pos.x, dz = p.z - e.pos.z; const d = Math.sqrt(dx * dx + dz * dz) || 1; const s = Math.min(d, sr(2, 6)); e.pos.x += dx / d * s; e.pos.z += dz / d * s; e.yaw = _yawTo(dx, dz); if (G.Spatial && hasFn(G.Spatial, 'update')) G.Spatial.update(e); }
+            if (e.morale < e.stats.maxMorale) e.morale = Math.min(e.stats.maxMorale, e.morale + e.stats.maxMorale * 0.05 * dt);
+          }
+          if (a.timer <= 0 && !a.fightTarget) { if (a.grind && schance(0.5)) { a.timer = sr(20, 50); } else returnToTown(e, !a.grind); }
+        } else if (a.phase === 'return') {
+          if (advancePath(e, dt)) {
+            if (a.turnin && schance(0.6)) { e.questsDone = Math.min(150, e.questsDone + 1); counters.quests++; addXP(e, questXP(e.level, schance(0.3) ? 'story' : 'side') * 0.6); forEachMember(e, (m) => { if (m.fellowshipRole === 'member') { m.questsDone = Math.min(150, m.questsDone + 1); addXP(m, questXP(m.level, 'side') * 0.5); } }); }
+            enterTown(e, { turnin: a.turnin });
+          }
+        }
+        break;
+      }
+      case 'travelling': {
+        if (advancePath(e, dt)) arriveTown(e, a.arrive);
+        else if (e.sailing && e.activity.indexOf('Sailing') !== 0) setActivity(e, 'Sailing to ' + townName(a.arrive));
+        break;
+      }
+      case 'fishing': {
+        if (a.phase === 'walk') {
+          if (advancePath(e, dt)) { a.phase = 'fish'; a.timer = sr(FISH_TIME[0], FISH_TIME[1]); a.fishT = sr(12, 25); setMounted(e, false); faceWater(e); setActivity(e, 'Fishing at ' + ((a.fishSpot && a.fishSpot.name) || 'the water')); }
+        } else if (a.phase === 'fish') {
+          a.timer -= dt; a.fishT -= dt;
+          if (a.fishT <= 0) { a.fishT = sr(12, 28); if (schance(0.6)) { e.fish++; counters.fish++; if (e.rig && hasFn(e.rig, 'setAnim')) { e.rig.setAnim('fish_reel', true); a.fishCastT = t + 1.2; } } }
+          if (a.timer <= 0) returnToTown(e, false);
+        } else if (a.phase === 'return') { if (advancePath(e, dt)) enterTown(e, {}); }
+        break;
+      }
+      case 'exploring': {
+        if (a.phase === 'walk') { if (advancePath(e, dt)) { a.phase = 'look'; a.timer = sr(20, 60); setMounted(e, false); setActivity(e, fill(spick(EXPLORE_ACTIVITIES), e, { poi: a.explore ? a.explore.name : 'the wilds' })); } }
+        else { a.timer -= dt; if (a.timer <= 0) { a.explore = null; chooseNext(e); } }
+        break;
+      }
+      default: a.state = 'town'; a.timer = 5;
+    }
+  }
+  function faceWater(e) {
+    for (let k = 0; k < 8; k++) { const ang = k / 8 * TAU; const px = e.pos.x + Math.sin(ang) * 4, pz = e.pos.z + Math.cos(ang) * 4; if (isWaterAt(px, pz)) { e.yaw = _yawTo(Math.sin(ang), Math.cos(ang)); return; } }
+  }
+  const FORMATION = [[0, 0], [-1.6, 1.6], [1.6, 1.6], [0, 3.2], [-3.2, 3.4], [3.2, 3.4]];
+  function memberTarget(e, leader, out) {
+    const f = FORMATION[Math.min(FORMATION.length - 1, e.formation)] || FORMATION[1];
+    const cy = Math.cos(leader.yaw), sy = Math.sin(leader.yaw);
+    // leader faces −Z at yaw 0; "behind" is +Z in local space
+    out.x = leader.pos.x + f[0] * cy + f[1] * sy;
+    out.z = leader.pos.z - f[0] * sy + f[1] * cy;
+    return out;
+  }
+  function memberTick(e, dt, t) {
+    const a = e.ai; const leader = leaderOf(e);
+    if (!leader) { e.fellowshipRole = 'leader'; farTick(e, dt, t); return; }
+    if (a.state === 'dead') { a.timer -= dt; if (a.timer <= 0) respawn(e); return; }
+    e.zone = leader.zone; e.townId = leader.townId;
+    const la = leader.ai;
+    const lstate = la.state === 'dead' ? 'idle' : la.state;
+    if (a.state !== lstate) { a.state = lstate; a.phase = la.phase; a.spawn = la.spawn; a.grind = la.grind; a.fishSpot = la.fishSpot; a.explore = la.explore; a.spotKind = la.spotKind; a.inInn = la.inInn; a.sit = la.sit && schance(0.8); }
+    else { a.phase = la.phase; if (la.state === 'town' && la.phase === 'idle' && !a.sit && la.sit) a.sit = schance(0.6); if (!la.sit) a.sit = false; }
+    e.activity = leader.activity;
+    if (!e.sailing && leader.sailing) { if (e.rig) disposeRig(e); }
+    e.sailing = leader.sailing;
+    if (e.sailing) { e.pos.x = leader.pos.x + sr(-2, 2); e.pos.z = leader.pos.z + sr(-2, 2); e.pos.y = num(C.SEA_LEVEL, 0); if (G.Spatial && hasFn(G.Spatial, 'update')) G.Spatial.update(e); return; }
+    if (leader.mounted !== e.mounted && !a.fightTarget && !a.sit) setMounted(e, leader.mounted);
+    memberTarget(e, leader, _spot);
+    a.goal.x = _spot.x; a.goal.z = _spot.z;
+    const d2 = _dist2sq(e.pos.x, e.pos.z, _spot.x, _spot.z);
+    if (d2 > 450 * 450 && !e._near && !nearHero(_spot.x, _spot.z, 80)) { placeAt(e, _spot.x, _spot.z, leader.yaw); return; }   // lost far away: catch up off-screen
+    if (e._near) { a.followX = _spot.x; a.followZ = _spot.z; a.follow = d2 > 6; if (a.follow) a.followT = t; }
+    else if (d2 > 1.5) {
+      const d = Math.sqrt(d2); const step = Math.min(d, speedOf(e) * (d > 40 ? 1.6 : 1.15) * dt);
+      const dx = (_spot.x - e.pos.x) / d, dz = (_spot.z - e.pos.z) / d;
+      e.pos.x += dx * step; e.pos.z += dz * step; e.yaw = _yawTo(dx, dz);
+      e.pos.y = coarseY(e.pos.x, e.pos.z);
+      if (G.Spatial && hasFn(G.Spatial, 'update')) G.Spatial.update(e);
+    } else if (!e._near) e.yaw = alerp(e.yaw, leader.yaw, 0.5);
+    // abstract fights: members recover morale; real ones are handled by the near sim; small death risk when the leader fights
+    if (la.state === 'questing' && la.phase === 'fight' && !e._near) {
+      if (e.morale < e.stats.maxMorale) e.morale = Math.min(e.stats.maxMorale, e.morale + e.stats.maxMorale * 0.05 * dt);
+      if (S() < 0.0003 * dt) die(e, null, true);
+    }
+  }

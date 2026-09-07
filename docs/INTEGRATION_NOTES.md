@@ -118,3 +118,11 @@
 
 ## 32_ui_admin.js
 - Opens on typed `chris` and `G.UI.Admin.open()`; panel id `admin`. Owns on `G.state`: `godMode, damageMult, speedMult (mirrored to player.speedMult), noCooldowns, noclip, flyCam, freeTraining, customPlaces, clockPaused, wireframe, topDown`. Events: `customPlacesChanged`, `townRenamed`, `adminOverride`. Uses `G.UI.Map.pickOnce` if panels provide it. Town renames not persisted by save (TODO polish).
+
+## 26_fishing_boats.js
+- Fishing reads `KeyF` itself (`G.Fishing.handlesKey = true`) — Player must NOT also toggle fishing. `G.Fishing.autoFish()` for the bot; events `fishingStart/fishCaught/fishingEnd`.
+- Boats: main must call `G.Boats.init(scene?)` AFTER Buildings, and `G.Fishing.update/G.Boats.update` after `G.Player.update`. `sailTo(dockId, fromDock, opts)` charges the fare itself (opts.paid/free to skip) — Travel panel must not charge again. Camera during sailing/cinematic is driven through `G.Player.cam`. Owns a `#boatFade` overlay (uses `G.UI.fade` if present). `pathToZone`, `routesFrom`, `nearestDock`, `dockForZone`, `instantTravel`, `travelCost`. Events: `boarded/disembarked/sailDepart/sailArrived`.
+- Dock positions in 05 were moved to the shoreline by the orchestrator (all 7 now at terrain height ≈1.5 m with water within 14 m).
+
+## 33_ui_charcreate.js
+- Auto-initialises on DOM ready (loading screen visible before main). Main: forward `G.Game.progress(pct,text)` → `G.UI.Menu.progress`; call `G.UI.Menu.show()` when ready; call `G.UI.Menu.update(dt)` each frame during menu/create and render with `G.UI.Menu.getCamera()` (= `G.Player.camera`). `G.UI.Menu.driveWorld` (default true) streams Terrain/Veg/Buildings/Sky around the menu camera — set false if main drives them. Spec includes `eyeColor`. Events: `menuShown/menuHidden/createShown/createHidden/createConfirmed(spec)/loadingDone`. Calls `G.Game.startNew(spec)` / `G.Game.startFromSave()`.
