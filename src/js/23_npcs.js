@@ -125,7 +125,7 @@
   let townById = Object.create(null), questRefs = null;
   const cand = [];                       // reused candidate buffer for the render set
   let tickAcc = 0, markerAcc = 0, markersDirty = true, nodeAcc = 0, lastBuildingCount = -1;
-  let talking = null, activeVendor = null, ducked = false, duckWatchT = 0, channel = null, hiddenCount = 0;
+  let talking = null, talkStartedAt = 0, activeVendor = null, ducked = false, duckWatchT = 0, channel = null, hiddenCount = 0;
   const stockCache = Object.create(null);
   const _v = new THREE.Vector3(), _v2 = new THREE.Vector3();
 
@@ -830,7 +830,7 @@
     if (!e || e.kind !== 'npc' || e.hidden) return false;
     const p = player();
     if (talking && talking !== e) endTalk(talking);
-    e.talkingTo = p || true; talking = e;
+    e.talkingTo = p || true; talking = e; talkStartedAt = now();
     if (p && p.pos) { e.yaw = yawTo(e.pos.x, e.pos.z, p.pos.x, p.pos.z); if (e.rig) e.rig.group.rotation.y = e.yaw; }
     e.vel.set(0, 0, 0);
     sfx('ui_open'); duck(true); duckWatchT = 0;
@@ -1233,7 +1233,8 @@
     updateNodes(dt);
     updateChannel();
     if (ducked) { duckWatchT += dt; if (duckWatchT > 0.5) { duckWatchT = 0; if (!hasFn(G.UI, 'isOpen') && !talking && !activeVendor) duck(false); else maybeUnduck(); } }
-    if (talking && hasFn(G.UI, 'isOpen') && !panelOpen('dialogue') && !panelOpen('vendor') && !panelOpen('travel')) endTalk(talking);
+    // a panel that opens a frame late must not have its conversation ended under it: half a second of grace
+    if (talking && hasFn(G.UI, 'isOpen') && t - talkStartedAt > 0.5 && !panelOpen('dialogue') && !panelOpen('vendor') && !panelOpen('travel')) endTalk(talking);
   }
 
   // ------------------------------------------------------------------------------------------------ events

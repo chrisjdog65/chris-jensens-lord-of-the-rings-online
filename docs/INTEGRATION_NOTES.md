@@ -82,3 +82,8 @@
 - Humanoid spec extras: `name/title/level/nameColor` (auto nameplate), `eyes`, `beard`, `look`, `faceOpts`, `hover`, `weaponScale`. Rig extras: `setProp('rod'|'chest'|null)`, `onOneShotEnd`, `oneShotRemaining`, `meshes`, `meshCount`. The `attack` anim alias picks slash/thrust/cast/shoot from the main-hand shape. Non-forced `idle/walk/run` clear any state anim including death — so owners must NOT call setAnim('idle') on dead entities.
 - Monster `size` is relative to the family's natural size (troll/giant/etc. treat size > 1.6 as absolute human-height multiples). Sea-serpent needs to be placed at the water surface by its owner.
 - Extras: `buildWeapon(shape,color,glow)`, `updateNameplate(sprite, camera)`, `releaseNameplate`, `material(hex, opts)`, `update(dt)` self-hooked on `update`, `stats()`, `trimCache(max)`, boat `animate(t)`, prop `open()/close()/update(dt)`.
+
+## 22_monsters.js
+- `init(scene?)` (else `G.Game.scene`), camera from `G.Player.camera`/`G.Game.camera`. Combat must call `G.Monsters.onDamaged(ent, src)` and `onTaunt(ent, src)`; Monsters listens to `entityKilled`. Monsters honour `ent.invulnerable`/`leashing` by healing (Combat may also skip damage on `invulnerable`).
+- Entity extras: `dmg, armour, speed, aggroRange, abilities, lootTable, xpMult, attackInterval, home, group, bossRec, leashing, invulnerable, immune{stun,knockback}, engagedBy, plate`. Registry boss/elite types are already pre-scaled by 05 (Monsters does not double-scale).
+- API: `hostilesNear(pos,r)` (reused buffer), `nearestHostile(pos,r,filter)`, `spawnAt(typeId,x,z,opts)`, `spawnForQuest(typeId,pos,count)`, `nearestSpawnOf(typeId,pos)` → `{x,z,dist}|null`, `killAllNear`, `respawnAll`, `all()`, `get(id)`, `inTown(pos)`, `setTarget/dropTarget`, `stats()`.
