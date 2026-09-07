@@ -1231,12 +1231,31 @@
     }
   }
 
+  const QUEUE_MAX = 32;
+  /** Record a key-down edge. pressed(code) reports each code at most once per frame; a repeat tap of a code that is
+   *  already exposed — and every edge after it, to keep arrival order — waits in the queue for the following frames.
+   *  So a key that went down and up between two frames (low FPS, headless GL) still counts for exactly one frame. */
+  function queueEdge(code) {
+    if (Input._queue.length || Input._pressed.has(code)) {
+      if (Input._queue.length >= QUEUE_MAX) Input._queue.shift();
+      Input._queue.push(code);
+    } else Input._pressed.add(code);
+  }
+  /** Move queued edges into the exposed set, in order, stopping at the first code already exposed this frame. */
+  function drainQueue() {
+    const q = Input._queue;
+    while (q.length && !Input._pressed.has(q[0])) Input._pressed.add(q.shift());
+  }
+
   function onKeyDown(e) {
-    if (Input.typing || isTypingEl(e.target)) { Input.typing = true; return; }
+    // Decide from the live DOM, never from the cached flag: a stale `typing` (a text field removed without focusout)
+    // must not swallow the keys of a player who is back on the canvas.
+    if (isTypingEl(e.target) || isTypingEl(document.activeElement)) { Input.typing = true; return; }
+    Input.typing = false;
     const code = codeOfEvent(e);
     if (!code) return;
     if (code.length === 4 && code.charCodeAt(0) === 75 && code.charCodeAt(1) === 101 && code.charCodeAt(2) === 121) feedSequence(code.charAt(3).toLowerCase());
-    if (!e.repeat && !Input.keys.has(code)) Input._pressed.add(code);
+    if (!e.repeat && !Input.keys.has(code)) queueEdge(code);
     Input.keys.add(code);
     if (shouldPrevent(e, code)) e.preventDefault();
   }
