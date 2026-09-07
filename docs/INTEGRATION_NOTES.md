@@ -77,3 +77,8 @@
 
 ## 12_vegetation.js
 - `setWind(strength)` auto-driven by `weatherChanged`; `treesNear(x,z,r)` reused buffer; `stats()`, `cellAt`, `setDensity` regenerates everything (heavy frame — call only from settings). Assumes `groundType` 'grass' for meadows, 'dirt' in towns.
+
+## 14_characters.js
+- Humanoid spec extras: `name/title/level/nameColor` (auto nameplate), `eyes`, `beard`, `look`, `faceOpts`, `hover`, `weaponScale`. Rig extras: `setProp('rod'|'chest'|null)`, `onOneShotEnd`, `oneShotRemaining`, `meshes`, `meshCount`. The `attack` anim alias picks slash/thrust/cast/shoot from the main-hand shape. Non-forced `idle/walk/run` clear any state anim including death — so owners must NOT call setAnim('idle') on dead entities.
+- Monster `size` is relative to the family's natural size (troll/giant/etc. treat size > 1.6 as absolute human-height multiples). Sea-serpent needs to be placed at the water surface by its owner.
+- Extras: `buildWeapon(shape,color,glow)`, `updateNameplate(sprite, camera)`, `releaseNameplate`, `material(hex, opts)`, `update(dt)` self-hooked on `update`, `stats()`, `trimCache(max)`, boat `animate(t)`, prop `open()/close()/update(dt)`.

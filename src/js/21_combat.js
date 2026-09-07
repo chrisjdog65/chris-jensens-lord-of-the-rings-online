@@ -1714,9 +1714,10 @@
 
   // ------------------------------------------------------------------------------------------------ balance curves
   // Measured with tools/scratch/_balance.js: sustained DPS (full rotation + auto-attack) of a hero wearing uncommon
-  // gear in every slot, median over six classes: L10 ≈ 320, L40 ≈ 1280, L80 ≈ 3020 → 50 + 24L + 0.16L².
+  // gear in every slot, median over six classes: L10 ≈ 320, L40 ≈ 1280, L80 ≈ 3020 (champion ≈ +40 %, burglar ≈ −35 %).
+  // Curve 55 + 24L + 0.2L² sits a little above the median so the top DPS class stays ≥ 4 s per kill.
   // Hero max morale in that gear ≈ 100 + 190L, physical mitigation sits at the 60 % cap from L5 on.
-  function heroDPSEstimate(level) { const L = Math.max(1, Math.min(120, num(level, 1))); return 50 + 24 * L + 0.16 * L * L; }
+  function heroDPSEstimate(level) { const L = Math.max(1, Math.min(120, num(level, 1))); return 55 + 24 * L + 0.2 * L * L; }
   function suggestMonsterStats(level, opts) {
     opts = opts || EMPTY;
     const L = Math.max(1, Math.min(120, Math.round(num(level, 1))));

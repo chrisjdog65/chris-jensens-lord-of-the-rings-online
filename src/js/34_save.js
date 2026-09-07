@@ -605,7 +605,6 @@
       const place = jsonClone(src, 4) || {};
       place.x = clamp(x, -WORLD_HALF, WORLD_HALF); place.z = clamp(z, -WORLD_HALF, WORLD_HALF);
       place.name = str(place.name, 'Place').slice(0, 48) || 'Place';
-      if (typeof place.id !== 'string' || !place.id) place.id = 'place_' + (i + 1);
       delete place.pos;
       out.push(place);
     }

@@ -300,22 +300,24 @@
     _measureCtx.font = 'bold 42px "Trebuchet MS", "Segoe UI", Arial, sans-serif';
     return _measureCtx.measureText(s).width;
   }
-  const PLATE_MAX_W = 486;
+  const PLATE_MAX_W = 500;
   const _plateOut = { text: '', tagDropped: false };
   function plateText(ent) {
-    const prefix = ent.boss ? '♛ ' : '', suffix = ent.elite ? ' (Elite)' : '';
+    let prefix = ent.boss ? '♛ ' : '', suffix = ent.elite ? ' (Elite)' : '';
     let name = String(ent.name || '');
     _plateOut.tagDropped = false;
     let text = prefix + name + suffix;
     if (plateWidth(text) <= PLATE_MAX_W) { _plateOut.text = text; return _plateOut; }
     const comma = name.indexOf(',');                      // "Lómëcar, the Serpent of…" → "Lómëcar"
     if (comma > 0) { name = name.slice(0, comma); text = prefix + name + suffix; if (plateWidth(text) <= PLATE_MAX_W) { _plateOut.text = text; return _plateOut; } }
-    if (suffix) { _plateOut.tagDropped = true; text = prefix + name; if (plateWidth(text) <= PLATE_MAX_W) { _plateOut.text = text; return _plateOut; } }
+    // the sub-line already says Elite / Boss: drop the tag, then the crown, before touching the name itself
+    if (suffix) { _plateOut.tagDropped = true; suffix = ''; text = prefix + name; if (plateWidth(text) <= PLATE_MAX_W) { _plateOut.text = text; return _plateOut; } }
+    if (prefix) { _plateOut.tagDropped = true; prefix = ''; text = name; if (plateWidth(text) <= PLATE_MAX_W) { _plateOut.text = text; return _plateOut; } }
     const words = name.split(' ');
-    while (words.length > 1) { words.pop(); text = prefix + words.join(' ') + '…'; if (plateWidth(text) <= PLATE_MAX_W) { _plateOut.text = text; return _plateOut; } }
+    while (words.length > 1) { words.pop(); text = words.join(' ') + '…'; if (plateWidth(text) <= PLATE_MAX_W) { _plateOut.text = text; return _plateOut; } }
     let s = name;
-    while (s.length > 3 && plateWidth(prefix + s + '…') > PLATE_MAX_W) s = s.slice(0, -1);
-    _plateOut.text = prefix + s + '…';
+    while (s.length > 3 && plateWidth(s + '…') > PLATE_MAX_W) s = s.slice(0, -1);
+    _plateOut.text = s + '…';
     return _plateOut;
   }
   function makeNameplate(ent) {
@@ -329,7 +331,7 @@
     const subColor = ent.boss ? '#ff9c3a' : ent.elite ? '#c48bff' : undefined;
     let sp = null;
     const pt = plateText(ent);
-    const sub = 'Level ' + ent.level + (ent.boss ? ' Boss' : (ent.elite && pt.tagDropped ? ' Elite' : ''));
+    const sub = (ent.boss && pt.tagDropped ? '♛ ' : '') + 'Level ' + ent.level + (ent.boss ? ' Boss' : (ent.elite && pt.tagDropped ? ' Elite' : ''));
     try { sp = Ch.nameplate(pt.text, color, { sub: sub, subColor: subColor }); } catch (e) { sp = null; }
     if (!sp) return;
     const rig = ent.rig;

@@ -398,13 +398,18 @@
       }
       case 'bard': { spec.cls = 'minstrel'; tunic([0xc08a3a, 0x8a2a5a, 0x2a6a8a, 0x9a4a2a, 0x6a2a8a]); boots('light'); spec.look.mainhand = { shape: 'lute', color: 0x8a5a2a, rarity: 'common' }; if (r() < 0.5) spec.equipment.head = gen('head', { armourType: 'light', rarity: 'uncommon' }); break; }
       case 'questgiver': {
-        spec.cls = rec.cls || classForRace(e.race, r); spec.armourType = isElf ? 'light' : classArmour(spec.cls);
-        spec.equipment.chest = gen('chest', { armourType: spec.armourType, rarity: 'uncommon', cls: spec.cls });
-        spec.equipment.legs = gen('legs', { armourType: spec.armourType, rarity: 'uncommon', cls: spec.cls });
-        spec.equipment.feet = gen('feet', { armourType: spec.armourType, rarity: 'common', cls: spec.cls });
+        spec.cls = rec.cls || classForRace(e.race, r); spec.armourType = (isElf || isHobbit) ? 'light' : classArmour(spec.cls);
+        if (isHobbit) {                                           // Shire folk: bright waistcoats, not armour
+          tunic(HOBBIT_TUNICS); boots('light');
+          if (r() < 0.4) spec.equipment.head = gen('head', { armourType: 'light', rarity: 'uncommon' });
+        } else {
+          spec.equipment.chest = gen('chest', { armourType: spec.armourType, rarity: 'uncommon', cls: spec.cls });
+          spec.equipment.legs = gen('legs', { armourType: spec.armourType, rarity: 'uncommon', cls: spec.cls });
+          spec.equipment.feet = gen('feet', { armourType: spec.armourType, rarity: 'common', cls: spec.cls });
+          if (r() < 0.55) spec.equipment.mainhand = gen('mainhand', { rarity: 'uncommon', cls: spec.cls, noTwoHanded: true });
+          if (isElf) spec.look.chest = { type: 'light', color: pickFrom(ELF_TUNICS, r), rarity: 'uncommon' };
+        }
         spec.equipment.back = gen('back', { armourType: 'light', rarity: 'uncommon' });
-        if (r() < 0.55 && !isHobbit) spec.equipment.mainhand = gen('mainhand', { rarity: 'uncommon', cls: spec.cls, noTwoHanded: true });
-        if (isElf) { spec.look.chest = { type: 'light', color: pickFrom(ELF_TUNICS, r), rarity: 'uncommon' }; }
         break;
       }
       case 'stablemaster': { spec.armourType = 'medium'; spec.equipment.chest = gen('chest', { armourType: 'medium', rarity: 'common' }); spec.look.legs = { type: 'light', color: 0x4a3a2a, rarity: 'common' }; boots('medium'); break; }
@@ -538,19 +543,27 @@
       if (e.rig) applyMarker(e, st); else e._markState = st;
     }
   }
-  function updateMarker(e, d2, t) {
+  function updateMarker(e, d2, t, camera) {
     const sp = e._marker; if (!sp) return;
     if (d2 > MARKER_DIST * MARKER_DIST || e.hidden) { sp.visible = false; return; }
     sp.visible = true;
-    const d = Math.sqrt(d2), s = clamp(d * 0.05, 0.35, 4.0);
+    // constant on-screen size like the nameplates: scale by CAMERA distance (the player may stand right next to the NPC)
+    let d;
+    if (camera && camera.position) { const dx = e.pos.x - camera.position.x, dy = e.pos.y + e.height - camera.position.y, dz = e.pos.z - camera.position.z; d = Math.sqrt(dx * dx + dy * dy + dz * dz); }
+    else d = Math.sqrt(d2);
+    const s = clamp(d * 0.062, 0.3, 6) * 0.85;
     sp.scale.set(s, s, 1);
     const plate = e.rig.nameplate; const plateH = plate && plate.visible ? plate.scale.y : 0;
-    sp.position.y = e.rig.height + 0.15 + plateH + 0.12 + Math.sin(t * 2.4 + e._phase) * 0.06 * (1 + s);
+    const y = e.rig.height + 0.15 + plateH + 0.1 + Math.sin(t * 2.4 + e._phase) * 0.06 * (1 + s);
+    sp.position.y = y;
+    e._markerY = y + s * 0.45;                                  // world-space centre of the glyph (glow anchor)
   }
   function stopGlow(e) { if (e._glow) { try { if (e._glow.alive && hasFn(e._glow, 'stop')) e._glow.stop(); else if (hasFn(G.FX, 'stop')) G.FX.stop(e._glow); } catch (err) { /* handle may already be dead */ } e._glow = null; } }
   function updateGlow(e, d2) {
     if (e._markState === 'turnin' && !e.hidden && d2 < GLOW_DIST * GLOW_DIST) {
-      if (!e._glow || !e._glow.alive) { e._glow = null; if (hasFn(G.FX, 'spawn')) e._glow = fx('questmark_glow', e.pos, { target: e, yOff: e.height * 0.55, loop: true, color: 0xffd44a, scale: 0.8 }); }
+      const y = e.pos.y + (e._markerY || e.height + 0.9);
+      if (!e._glow || !e._glow.alive) { e._glow = null; if (hasFn(G.FX, 'spawn')) { _v2.set(e.pos.x, y, e.pos.z); e._glow = fx('questmark_glow', _v2, { loop: true, color: 0xffd44a, scale: 0.7 }); } }
+      else if (e._glow.pos) e._glow.pos.set(e.pos.x, y, e.pos.z);   // the glow rides on the bobbing marker
     } else if (e._glow) stopGlow(e);
   }
 
@@ -745,7 +758,7 @@
     if (e._lodN % lod === 0) { try { rig.play(e._lodAcc, e); } catch (err) { report(err, 'NPC play'); } e._lodAcc = 0; }
     const np = rig.nameplate;
     if (np) { const vis = d2 < NAMEPLATE_DIST * NAMEPLATE_DIST; np.visible = vis; if (vis && camera && hasFn(G.Chars, 'updateNameplate')) G.Chars.updateNameplate(np, camera); }
-    updateMarker(e, d2, t);
+    updateMarker(e, d2, t, camera);
     updateGlow(e, d2);
   }
 
