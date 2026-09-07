@@ -782,3 +782,809 @@
   Fishing.init = fishingInit;
   Fishing.group = root;
   if (typeof G.on === 'function') G.on('init', fishingInit);
+
+  // ================================================================================================ BOATS
+  const GRID_CELL = 64, TRAVEL_TIME = 9, FADE_T = 0.6;
+  const ROW_MAX = 9, ROW_REV = 3, ROW_ACCEL = 3.2, ROW_BRAKE = 4.5, ROW_DRAG = 0.55, TURN_RATE = 1.35;
+  const DRAFT_ROW = 0.10, DRAFT_SHIP = 0.16, DISEMBARK_R = 8, MOOR_BUILD = 380, MOOR_DISPOSE = 480, RETIRE_T = 30, RETIRE_FADE = 2.2;
+  const HULL_L = { rowboat: 2.1, elfship: 3.9, ferry: 3.3 }, HULL_W = { rowboat: 0.95, elfship: 1.2, ferry: 1.8 };
+  const Boats = { sailing: false, travelling: false, boat: null, speed: 0, travel: null, docks: [], group: root };
+  G.Boats = Boats;
+  const BS = {
+    inited: false, subscribed: false, recs: [], byId: {}, ents: [], cur: null, retired: [], travel: null,
+    moorT: 0, wakeT: 0, splashT: 0, creakT: 3, oarT: 0, shoreT: 0, shoreNear: false, hint: null, hintText: '',
+    menuDock: null, menuRegistered: false, sceneArg: null, camYaw: 0,
+  };
+  const _shore = { x: 0, z: 0, d: 0 };
+  const _rally = { x: 0, z: 0 };
+
+  function recOf(x) {
+    if (!x) return null;
+    if (typeof x === 'string') return BS.byId[x] || null;
+    if (typeof x === 'object') { if (x.data && x.id && BS.byId[x.id] === x) return x; if (x.id && BS.byId[x.id]) return BS.byId[x.id]; if (x.dock && x.dock.id && BS.byId[x.dock.id]) return BS.byId[x.dock.id]; }
+    return null;
+  }
+  function pierDir(rec) {
+    const b = rec.data.building, e = b && b.dockEnd;
+    if (e && typeof e.x === 'number') { const dx = e.x - rec.pos.x, dz = e.z - rec.pos.z; if (dx * dx + dz * dz > 0.25) return Math.atan2(dx, dz); }
+    return rec.yaw + PI;                                                     // forward of yaw = (sin a, cos a) with a = yaw + π
+  }
+  function pierEnd(rec, out) {
+    const b = rec.data.building, e = b && b.dockEnd;
+    if (e && typeof e.x === 'number') { out.x = e.x; out.z = e.z; return out; }
+    const a = pierDir(rec); out.x = rec.pos.x + Math.sin(a) * 12; out.z = rec.pos.z + Math.cos(a) * 12; return out;
+  }
+  const _pe = { x: 0, z: 0 };
+  function waterSide(rec) {
+    if (rec.water && rec.waterHadBuilding === !!rec.data.building) return rec.water;
+    const a = pierDir(rec), sx = Math.sin(a), cz = Math.cos(a);
+    pierEnd(rec, _pe);
+    let found = null;
+    for (let r = 0; r <= 40 && !found; r += 2) { const x = _pe.x + sx * r, z = _pe.z + cz * r; if (depth(x, z) >= 1.6) found = { x: x, z: z, dir: a }; }
+    if (!found) {                                                           // 16 directions from the dock position
+      let bestD = 0, bx = 0, bz = 0, ba = a;
+      for (let i = 0; i < 16; i++) {
+        const ang = i / 16 * TAU;
+        for (let r = 4; r <= 30; r += 2) { const x = rec.pos.x + Math.sin(ang) * r, z = rec.pos.z + Math.cos(ang) * r; const d = depth(x, z); if (d >= 1.6) { if (d > bestD || (bestD < 1.6)) { bestD = d; bx = x; bz = z; ba = ang; } break; } }
+        if (bestD >= 1.6) break;
+      }
+      found = bestD >= 1.6 ? { x: bx, z: bz, dir: ba } : { x: _pe.x + sx * 8, z: _pe.z + cz * 8, dir: a };
+    }
+    rec.water = found; rec.waterHadBuilding = !!rec.data.building;
+    return found;
+  }
+  function moorPoint(rec) {
+    const w = waterSide(rec), a = w.dir, rx = Math.cos(a), rz = -Math.sin(a);
+    let side = 1;
+    if (depth(w.x - rx * 2.6, w.z - rz * 2.6) > depth(w.x + rx * 2.6, w.z + rz * 2.6)) side = -1;
+    let x = w.x + rx * 2.6 * side, z = w.z + rz * 2.6 * side;
+    if (depth(x, z) < 1.2) { x = w.x + Math.sin(a) * 3; z = w.z + Math.cos(a) * 3; }
+    if (depth(x, z) < 1.2) { x = w.x; z = w.z; }
+    return { x: x, z: z, yaw: wrapA(a + PI) };
+  }
+  function outOfWorld(x, z) { const lim = worldSize() * 0.5 - 8; return x < -lim || x > lim || z < -lim || z > lim; }
+
+  // ---- dock entities
+  function placeDockEntity(rec) {
+    const d = rec.data, ent = rec.ent; if (!ent) return;
+    const a = pierDir(rec); pierEnd(rec, _pe);
+    let x = _pe.x - Math.sin(a) * 4.5, z = _pe.z - Math.cos(a) * 4.5;
+    if (!d.building) { x = rec.pos.x + Math.sin(a) * 5; z = rec.pos.z + Math.cos(a) * 5; }
+    const y = typeof d.deckY === 'number' ? d.deckY : Math.max(groundY(x, z), SEA() + 0.5);
+    ent.pos.set(x, y, z); ent.yaw = rec.yaw;
+    rec.placedWithBuilding = !!d.building; rec.placed = true;
+    if (G.Spatial && isFn(G.Spatial, 'update')) G.Spatial.update(ent);
+  }
+  function openDock(rec) {
+    const U = G.UI;
+    if (U && U.Travel && isFn(U.Travel, 'openDock')) { try { U.Travel.openDock(rec.data, rec.ent); return true; } catch (e) { report(e, 'Travel.openDock'); } }
+    return openDockMenu(rec);
+  }
+  function subscribe() {
+    if (BS.subscribed || typeof G.on !== 'function') return; BS.subscribed = true;
+    G.on('playerDeath', function () { if (Boats.sailing) disembark(true); });
+    const reset = function () { if (Boats.sailing) endSail(true, true); if (Boats.travelling) { abortTravel(); } for (let i = BS.retired.length - 1; i >= 0; i--) removeBoat(BS.retired[i].ent); BS.retired.length = 0; };
+    G.on('gameStart', function () { if (!BS.inited) init(); reset(); });
+    G.on('load', reset);
+  }
+  function init(scene) {
+    subscribe();
+    BS.sceneArg = (scene && scene.isScene) ? scene : null;
+    attachRoot(BS.sceneArg);
+    for (let i = 0; i < BS.ents.length; i++) { if (isFn(G, 'removeEntity')) G.removeEntity(BS.ents[i]); }
+    for (let i = 0; i < BS.recs.length; i++) disposeMoor(BS.recs[i]);
+    BS.ents.length = 0; BS.recs.length = 0; BS.byId = {};
+    const W = world(); const docks = (W && Array.isArray(W.docks)) ? W.docks : [];
+    for (let i = 0; i < docks.length; i++) {
+      const d = docks[i]; if (!d || !d.id || !d.pos) continue;
+      const rec = { id: String(d.id), name: d.name || 'Dock', town: d.town || null, data: d, pos: { x: num(d.pos.x, 0), z: num(d.pos.z, 0) }, yaw: num(d.yaw, 0), routes: Array.isArray(d.routes) ? d.routes.slice() : [], ent: null, water: null, moor: null, placed: false };
+      const ent = { id: 'dock:' + rec.id, kind: 'dock', name: rec.name, pos: new THREE.Vector3(rec.pos.x, 0, rec.pos.z), vel: new THREE.Vector3(), yaw: rec.yaw, radius: 1.2, height: 2, alive: true, dock: d,
+        interact: { label: 'Sail from ' + rec.name, range: 5, fn: function () { return openDock(rec); } } };
+      rec.ent = ent;
+      if (isFn(G, 'addEntity')) G.addEntity(ent);
+      BS.ents.push(ent); BS.recs.push(rec); BS.byId[rec.id] = rec;
+      placeDockEntity(rec);
+    }
+    Boats.docks = docks;
+    BS.inited = true;
+    return BS.recs.length;
+  }
+
+  // ---- boat spawning / placement
+  function spawnBoat(kind, x, z, yaw) {
+    let b = null;
+    if (isFn(G.Chars, 'buildBoat')) { try { b = G.Chars.buildBoat(kind); } catch (e) { report(e, 'buildBoat'); b = null; } }
+    if (!b || !b.group) {
+      const g = new THREE.Group(); const hull = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 3.6), new THREE.MeshStandardMaterial({ color: 0x8a6a42 })); hull.position.y = 0.1; g.add(hull);
+      const seat = new THREE.Group(); seat.position.set(0, 0.35, 0.1); g.add(seat);
+      b = { group: g, seat: seat, mast: null, oars: [], animate: function () { }, dispose: function () { if (g.parent) g.parent.remove(g); hull.geometry.dispose(); hull.material.dispose(); } };
+    }
+    b.group.position.set(x, SEA(), z); b.group.rotation.set(0, yaw, 0);
+    root.add(b.group);
+    const ent = { id: isFn(G, 'uid') ? G.uid() : 'boat' + Math.floor(rand() * 1e9), kind: 'boat', name: kind === 'elfship' ? 'Elven Ship' : kind === 'ferry' ? 'Ferry' : 'Rowboat',
+      pos: new THREE.Vector3(x, SEA(), z), vel: new THREE.Vector3(), yaw: yaw, radius: kind === 'elfship' ? 2.5 : 1.2, height: 1.6, alive: true,
+      mesh: b.group, boat: b, boatKind: kind, speed: 0, throttle: 0, steer: 0, roll: 0, pitch: 0 };
+    if (isFn(G, 'addEntity')) G.addEntity(ent);
+    placeBoat(ent, 0);
+    return ent;
+  }
+  function removeBoat(ent) {
+    if (!ent) return;
+    const b = ent.boat;
+    if (ent._fadeMats) { for (let i = 0; i < ent._fadeMats.length; i++) ent._fadeMats[i].dispose(); ent._fadeMats = null; }
+    if (b && isFn(b, 'dispose')) { try { b.dispose(); } catch (e) { /* ignore */ } }
+    if (b && b.group && b.group.parent) b.group.parent.remove(b.group);
+    if (isFn(G, 'removeEntity')) G.removeEntity(ent);
+    ent.boat = null; ent.mesh = null;
+  }
+  function placeBoat(ent, dt) {
+    const g = ent.mesh; if (!g) return;
+    const t = waveTime();
+    waveAt(ent.pos.x, ent.pos.z, t);
+    const draft = ent.boatKind === 'elfship' ? DRAFT_SHIP : DRAFT_ROW;
+    const y = SEA() + wave.h - draft;
+    ent.pos.y = y;
+    const fx_ = -Math.sin(ent.yaw), fz = -Math.cos(ent.yaw), rx = Math.cos(ent.yaw), rz = -Math.sin(ent.yaw);
+    const slopeF = wave.dx * fx_ + wave.dz * fz, slopeR = wave.dx * rx + wave.dz * rz;
+    const maxV = ent.boatKind === 'elfship' ? 60 : ROW_MAX;
+    const tp = Math.atan(slopeF) * 0.8 + clamp(ent.speed / maxV, -1, 1) * 0.045;
+    const trl = Math.atan(slopeR) * 0.8 + num(ent.steer, 0) * clamp(Math.abs(ent.speed) / maxV, 0, 1) * 0.11;
+    if (dt > 0) { ent.pitch = damp(ent.pitch, tp, 4, dt); ent.roll = damp(ent.roll, trl, 4, dt); } else { ent.pitch = tp; ent.roll = trl; }
+    g.position.set(ent.pos.x, y, ent.pos.z);
+    g.rotation.set(ent.pitch, ent.yaw, ent.roll, 'YXZ');
+    g.updateMatrixWorld(true);
+  }
+  function seatPlayer(ent) {
+    const pl = player(); if (!pl || !pl.pos || !ent.boat || !ent.boat.seat) return;
+    ent.boat.seat.getWorldPosition(_v1);
+    pl.pos.set(_v1.x, _v1.y - 0.08, _v1.z);
+    pl.yaw = ent.yaw;
+    if (pl.vel) pl.vel.set(0, 0, 0);
+    pl.onGround = true; pl.swimming = false; pl.inWater = false; pl.sliding = false;
+    if (pl.mesh) { pl.mesh.position.copy(pl.pos); pl.mesh.rotation.set(0, pl.yaw, 0); pl.mesh.updateMatrixWorld(true); }
+    if (G.Spatial && isFn(G.Spatial, 'update')) G.Spatial.update(pl);
+    rigAnim('sit');
+  }
+  function retireBoat(ent) { if (!ent) return; ent.speed = 0; ent.steer = 0; BS.retired.push({ ent: ent, t: 0, fading: false }); }
+  function updateRetired(dt) {
+    for (let i = BS.retired.length - 1; i >= 0; i--) {
+      const r = BS.retired[i], ent = r.ent; r.t += dt;
+      if (!ent || !ent.mesh) { BS.retired.splice(i, 1); continue; }
+      placeBoat(ent, dt);
+      if (r.t >= RETIRE_T - RETIRE_FADE) {
+        if (!r.fading) {
+          r.fading = true; const mats = [];
+          ent.mesh.traverse(function (o) { if (o.isMesh && o.material && !o.material.userData.fadeClone) { const m = o.material.clone(); m.transparent = true; m.userData.fadeClone = true; o.material = m; mats.push(m); } });
+          ent._fadeMats = mats;
+        }
+        const op = clamp((RETIRE_T - r.t) / RETIRE_FADE, 0, 1);
+        if (ent._fadeMats) for (let k = 0; k < ent._fadeMats.length; k++) ent._fadeMats[k].opacity = op;
+      }
+      if (r.t >= RETIRE_T) { removeBoat(ent); BS.retired.splice(i, 1); }
+    }
+  }
+  function disposeMoor(rec) {
+    if (!rec || !rec.moor) return;
+    const b = rec.moor.boat;
+    if (b && isFn(b, 'dispose')) { try { b.dispose(); } catch (e) { /* ignore */ } }
+    if (b && b.group && b.group.parent) b.group.parent.remove(b.group);
+    rec.moor = null;
+  }
+  function updateMoored(dt) {
+    const pl = player();
+    BS.moorT -= dt;
+    if (BS.moorT <= 0) {
+      BS.moorT = 0.5;
+      for (let i = 0; i < BS.recs.length; i++) {
+        const rec = BS.recs[i];
+        if (!rec.placed || (rec.placedWithBuilding !== !!rec.data.building)) placeDockEntity(rec);
+        if (!pl || !pl.pos) continue;
+        const d = Math.hypot(rec.pos.x - pl.pos.x, rec.pos.z - pl.pos.z);
+        if (d < MOOR_BUILD && !rec.moor && isFn(G.Chars, 'buildBoat')) {
+          let b = null; try { b = G.Chars.buildBoat('rowboat'); } catch (e) { report(e, 'moorBoat'); }
+          if (b && b.group) { const mp = moorPoint(rec); rec.moor = { boat: b, x: mp.x, z: mp.z, yaw: mp.yaw, roll: 0, pitch: 0, hidden: false }; b.group.position.set(mp.x, SEA(), mp.z); b.group.rotation.set(0, mp.yaw, 0); root.add(b.group); }
+        } else if (d > MOOR_DISPOSE && rec.moor) disposeMoor(rec);
+      }
+    }
+    const t = waveTime();
+    for (let i = 0; i < BS.recs.length; i++) {
+      const m = BS.recs[i].moor; if (!m) continue;
+      const g = m.boat.group; g.visible = !m.hidden; if (m.hidden) continue;
+      waveAt(m.x, m.z, t);
+      const fx_ = -Math.sin(m.yaw), fz = -Math.cos(m.yaw), rx = Math.cos(m.yaw), rz = -Math.sin(m.yaw);
+      m.pitch = damp(m.pitch, Math.atan(wave.dx * fx_ + wave.dz * fz) * 0.7, 3, dt); m.roll = damp(m.roll, Math.atan(wave.dx * rx + wave.dz * rz) * 0.7, 3, dt);
+      g.position.set(m.x, SEA() + wave.h - DRAFT_ROW, m.z);
+      g.rotation.set(m.pitch, m.yaw, m.roll, 'YXZ');
+    }
+  }
+
+  // ---- sailing hint (tiny HUD line)
+  const HINT_CSS = '#boatHint{position:absolute;left:50%;bottom:168px;transform:translateX(-50%);padding:6px 14px;background:var(--glass,rgba(10,8,5,.65));border:1px solid var(--border,#6f5322);border-radius:var(--radius,6px);color:var(--parch,#e8dcc0);font-family:var(--font-ui,Georgia,serif);font-size:13px;pointer-events:none;z-index:29;white-space:nowrap}#boatHint b{color:var(--gold,#d4af5a)}#boatHint.bh-hidden{display:none}';
+  let hintCss = false;
+  function ensureHint() {
+    if (BS.hint || typeof document === 'undefined') return BS.hint;
+    if (!hintCss) { hintCss = true; if (isFn(G.UI, 'addCSS')) { try { G.UI.addCSS(HINT_CSS); } catch (e) { report(e, 'addCSS'); } } else { const s = document.createElement('style'); s.textContent = HINT_CSS; (document.head || document.documentElement).appendChild(s); } }
+    BS.hint = el('div', { id: 'boatHint', class: 'bh-hidden' });
+    const host = document.getElementById('hud') || document.getElementById('overlays') || document.body;
+    if (host) host.appendChild(BS.hint);
+    return BS.hint;
+  }
+  function showHint(html) { const h = ensureHint(); if (!h) return; if (html !== BS.hintText) { BS.hintText = html; h.innerHTML = html; } h.classList.remove('bh-hidden'); }
+  function hideHint() { if (BS.hint) { BS.hint.classList.add('bh-hidden'); BS.hintText = ''; } }
+
+  // ---- shore search (reused result object)
+  function nearShore(pos, r) {
+    if (!pos) return null;
+    let best = null, bd = Infinity;
+    const R = num(r, DISEMBARK_R);
+    for (let i = 0; i < 16; i++) {
+      const ang = i / 16 * TAU, sx = Math.sin(ang), cz = Math.cos(ang);
+      for (let d = 2; d <= R + 0.001; d += 2) {
+        const x = pos.x + sx * d, z = pos.z + cz * d;
+        if (isWater(x, z)) { if (depth(x, z) < 1.5 && d + 2 > R) { /* shallow at the edge of the search: keep looking for actual land */ } continue; }
+        if (!slopeOk(x, z)) break;
+        if (d < bd) { bd = d; _shore.x = x; _shore.z = z; _shore.d = d; best = _shore; }
+        break;
+      }
+    }
+    return best;
+  }
+  function boardPoint(rec) {
+    const w = waterSide(rec), a = w.dir, rx = Math.cos(a), rz = -Math.sin(a);
+    let side = 1;
+    if (depth(w.x - rx * 2.4, w.z - rz * 2.4) > depth(w.x + rx * 2.4, w.z + rz * 2.4)) side = -1;
+    let x = w.x + rx * 2.4 * side, z = w.z + rz * 2.4 * side;
+    if (depth(x, z) < 1.3) { x = w.x; z = w.z; }
+    return { x: x, z: z, yaw: wrapA(a + PI) };
+  }
+
+  // ---- free sailing
+  function board(dock) {
+    if (Boats.travelling) return false;
+    const pl = player(); if (!pl || !pl.pos || pl.dead || pl.alive === false) return false;
+    if (Boats.sailing) return true;
+    let rec = recOf(dock);
+    if (!rec) rec = nearestRec(pl.pos, null);
+    if (!rec) { notify('There is no boat to be had here.', 'warning'); return false; }
+    if (pl.mounted && isFn(G.Player, 'dismount')) { try { G.Player.dismount(); } catch (e) { report(e, 'dismount'); } }
+    if (G.Fishing && G.Fishing.state !== 'idle') G.Fishing.cancel(false);
+    if (isFn(G.Player, 'autoStop')) { try { G.Player.autoStop(); } catch (e) { /* ignore */ } }
+    attachRoot();
+    const bp = boardPoint(rec);
+    const ent = spawnBoat('rowboat', bp.x, bp.z, bp.yaw);
+    BS.cur = { ent: ent, rec: rec, kind: 'rowboat' };
+    Boats.boat = ent; Boats.sailing = true; Boats.speed = 0; pl.onBoat = ent;
+    if (rec.moor) rec.moor.hidden = true;
+    BS.creakT = 4 + rand() * 3; BS.wakeT = 0; BS.splashT = 0; BS.shoreT = 0; BS.shoreNear = false;
+    rigAnim('sit', true);
+    placeBoat(ent, 0); seatPlayer(ent);
+    const cam = G.Player && G.Player.cam; if (cam) { cam.yaw = ent.yaw; if (num(cam.targetDist, 0) < 5) cam.targetDist = 7; }
+    music('sailing');
+    sfx('boat_creak', { pos: ent.pos, vol: 0.8 }); sfx('splash', { pos: ent.pos, vol: 0.35, pitch: 0.9 });
+    notify('You push off from ' + rec.name + '. W/S to row, A/D to steer, E near the shore to land.', 'info');
+    chat('You take a rowboat from ' + rec.name + '.');
+    showHint('<b>W</b>/<b>S</b> row &middot; <b>A</b>/<b>D</b> steer &middot; <b>E</b> near the shore to land');
+    emit('boarded', ent);
+    return true;
+  }
+  function endSail(silent, removeNow) {
+    const cur = BS.cur;
+    const pl = player();
+    if (pl) { pl.onBoat = null; if (pl.vel) pl.vel.set(0, 0, 0); }
+    if (cur) {
+      if (removeNow) removeBoat(cur.ent); else retireBoat(cur.ent);
+      if (cur.rec && cur.rec.moor) cur.rec.moor.hidden = false;
+    }
+    BS.cur = null; Boats.boat = null; Boats.sailing = false; Boats.speed = 0;
+    hideHint();
+    if (!silent) rigAnim('idle', true);
+  }
+  function placePlayerOnLand(x, z, yaw) {
+    const pl = player(); if (!pl) return;
+    if (isFn(G.Player, 'spawnAt')) { try { G.Player.spawnAt(x, z, yaw); return; } catch (e) { report(e, 'spawnAt'); } }
+    if (isFn(G.Player, 'teleport')) { try { G.Player.teleport(x, z, yaw); return; } catch (e) { report(e, 'teleport'); } }
+    let fx_ = x, fz = z, fy;
+    if (isFn(G.Physics, 'nearestFree')) { const f = G.Physics.nearestFree(x, z, num(pl.radius, 0.4)); if (f) { fx_ = num(f.x, x); fz = num(f.z, z); } }
+    fy = groundY(fx_, fz);
+    pl.pos.set(fx_, fy, fz); if (pl.vel) pl.vel.set(0, 0, 0); pl.onGround = true; pl.swimming = false; pl.inWater = false;
+    if (typeof yaw === 'number') pl.yaw = wrapA(yaw);
+    if (pl.mesh) { pl.mesh.position.copy(pl.pos); pl.mesh.rotation.set(0, pl.yaw, 0); }
+    if (G.Spatial && isFn(G.Spatial, 'update')) G.Spatial.update(pl);
+  }
+  function disembark(force) {
+    if (!Boats.sailing || !BS.cur) return false;
+    const ent = BS.cur.ent, pl = player(); if (!pl) { endSail(true, true); return false; }
+    let shore = nearShore(ent.pos, DISEMBARK_R);
+    if (!shore && !force) { notify('You are too far from the shore to land here.', 'warning'); sfx('ui_error', { vol: 0.4 }); return false; }
+    let tx, tz;
+    if (shore) { tx = shore.x; tz = shore.z; }
+    else {
+      const s2 = nearShore(ent.pos, 60);
+      if (s2) { tx = s2.x; tz = s2.z; }
+      else { const rec = BS.cur.rec; const rp = rec ? rallyOf(rec) : null; tx = rp ? rp.x : ent.pos.x; tz = rp ? rp.z : ent.pos.z; }
+    }
+    const yaw = yawTo(tx - ent.pos.x, tz - ent.pos.z);
+    const originRec = BS.cur.rec;
+    endSail(false, false);
+    rigAnim('idle', true);
+    placePlayerOnLand(tx, tz, yaw);
+    sfx('splash', { pos: pl.pos, vol: 0.35, pitch: 1.1 });
+    fx('splash', ent.pos, { scale: 0.5 });
+    notify('You step ashore.', 'info');
+    chat('You bring the rowboat in and step ashore' + (originRec ? ' (from ' + originRec.name + ')' : '') + '.');
+    restoreZoneMusic();
+    emit('disembarked');
+    return true;
+  }
+  function updateSail(dt) {
+    const cur = BS.cur; if (!cur || !cur.ent || !cur.ent.mesh) { endSail(true, true); return; }
+    const ent = cur.ent, pl = player();
+    if (!pl || !pl.pos) { endSail(true, true); return; }
+    if (pl.dead || pl.alive === false) { disembark(true); return; }
+    const free = !typing() && !uiOpen();
+    let thr = 0, steer = 0;
+    if (free) {
+      if (keyDown('KeyW') || keyDown('ArrowUp')) thr += 1;
+      if (keyDown('KeyS') || keyDown('ArrowDown')) thr -= 1;
+      if (keyDown('KeyA') || keyDown('ArrowLeft')) steer += 1;
+      if (keyDown('KeyD') || keyDown('ArrowRight')) steer -= 1;
+      if (keyPressed('KeyE')) { consumeKey('KeyE'); if (disembark(false)) return; }
+    }
+    let v = ent.speed;
+    if (thr > 0) v += ROW_ACCEL * dt * (v < 0 ? 1.6 : 1);
+    else if (thr < 0) v -= (v > 0 ? ROW_BRAKE : ROW_ACCEL * 0.6) * dt;
+    v *= Math.exp(-ROW_DRAG * dt * (thr === 0 ? 1.4 : 1));
+    v = clamp(v, -ROW_REV, ROW_MAX);
+    if (thr === 0 && Math.abs(v) < 0.05) v = 0;
+    const tr = TURN_RATE * clamp(Math.abs(v) / 4, 0.3, 1) * (v < -0.2 ? -1 : 1);
+    if (steer) ent.yaw = wrapA(ent.yaw + steer * tr * dt);
+    ent.steer = damp(ent.steer, steer, 6, dt); ent.throttle = thr;
+    const fx_ = -Math.sin(ent.yaw), fz = -Math.cos(ent.yaw), rx = Math.cos(ent.yaw), rz = -Math.sin(ent.yaw);
+    const nx = ent.pos.x + fx_ * v * dt, nz = ent.pos.z + fz * v * dt;
+    const L = HULL_L[ent.boatKind] || 2.1, Wd = HULL_W[ent.boatKind] || 0.95;
+    const blocked = outOfWorld(nx, nz) || depth(nx + fx_ * L, nz + fz * L) < 1.0 || depth(nx - fx_ * L * 0.9, nz - fz * L * 0.9) < 1.0 || depth(nx + rx * Wd, nz + rz * Wd) < 1.0 || depth(nx - rx * Wd, nz - rz * Wd) < 1.0;
+    if (blocked) {
+      if (Math.abs(v) > 1.2) {
+        sfx('boat_creak', { pos: ent.pos, vol: 0.9, pitch: 1.1 });
+        _v2.set(ent.pos.x + fx_ * L * (v > 0 ? 1 : -1), SEA() + 0.05, ent.pos.z + fz * L * (v > 0 ? 1 : -1));
+        fx('splash', _v2, { scale: 0.45 });
+      }
+      const dir = v > 0 ? 1 : v < 0 ? -1 : 0;
+      v = -v * 0.35;
+      if (dir) { const bx = ent.pos.x - fx_ * dir * 0.15, bz = ent.pos.z - fz * dir * 0.15; if (depth(bx, bz) >= 1.0 && !outOfWorld(bx, bz)) { ent.pos.x = bx; ent.pos.z = bz; } }
+    } else { ent.pos.x = nx; ent.pos.z = nz; }
+    ent.speed = v; Boats.speed = v; ent.vel.set(fx_ * v, 0, fz * v);
+    placeBoat(ent, dt); seatPlayer(ent);
+    if (G.Spatial && isFn(G.Spatial, 'update')) G.Spatial.update(ent);
+    wakeFX(ent, dt, fx_, fz, L);
+    // oars
+    if (Math.abs(v) > 0.3 && ent.boat && isFn(ent.boat, 'animate')) { BS.oarT += dt * (0.6 + Math.abs(v) / ROW_MAX * 1.4); ent.boat.animate(BS.oarT); }
+    // chase camera (mouse-look is disabled by the Player module while sailing)
+    const cam = G.Player && G.Player.cam;
+    if (cam) cam.yaw = adamp(cam.yaw, ent.yaw, Math.abs(v) > 0.5 ? 2.4 : 0.9, dt);
+    // creaks
+    BS.creakT -= dt;
+    if (BS.creakT <= 0) { BS.creakT = 4 + rand() * 5; if (Math.abs(v) > 0.5) sfx('boat_creak', { pos: ent.pos, vol: 0.5 }); }
+    // shore hint (4 Hz)
+    BS.shoreT -= dt;
+    if (BS.shoreT <= 0) { BS.shoreT = 0.25; BS.shoreNear = !!nearShore(ent.pos, DISEMBARK_R); }
+    showHint(BS.shoreNear ? 'Press <b>E</b> to go ashore' : '<b>W</b>/<b>S</b> row &middot; <b>A</b>/<b>D</b> steer &middot; <b>E</b> near the shore to land');
+  }
+  function wakeFX(ent, dt, fx_, fz, L) {
+    const v = ent.speed;
+    BS.wakeT -= dt; BS.splashT -= dt;
+    if (Math.abs(v) > 1.5 && BS.wakeT <= 0) {
+      BS.wakeT = ent.boatKind === 'elfship' ? 0.16 : 0.22;
+      _v2.set(ent.pos.x - fx_ * L * 0.85 * (v > 0 ? 1 : -1), SEA() + 0.02 + wave.h * 0.5, ent.pos.z - fz * L * 0.85 * (v > 0 ? 1 : -1));
+      fx('water_ring', _v2, { scale: 0.7 + Math.min(1.2, Math.abs(v) / 12), duration: 1.4 });
+    }
+    if (v > 5 && BS.splashT <= 0) {
+      BS.splashT = 0.4;
+      _v2.set(ent.pos.x + fx_ * L, SEA() + 0.05, ent.pos.z + fz * L);
+      fx('splash', _v2, { scale: 0.32 });
+    }
+  }
+
+  // ---- routes, docks, costs
+  function nearestRec(pos, exclude) {
+    if (!pos) return null;
+    let best = null, bd = Infinity;
+    for (let i = 0; i < BS.recs.length; i++) { const r = BS.recs[i]; if (r === exclude) continue; const d = Math.hypot(r.pos.x - pos.x, r.pos.z - pos.z); if (d < bd) { bd = d; best = r; } }
+    return best;
+  }
+  function recZone(rec) { const t = rec.town ? townData(rec.town) : null; if (t && t.zone) return t.zone; return zoneAt(rec.pos.x, rec.pos.z); }
+  function rallyOf(rec) {
+    const t = rec.town ? townData(rec.town) : null;
+    const rp = t && (t.rallyPoint || t.pos);
+    if (rp && typeof rp.x === 'number' && Math.hypot(rp.x - rec.pos.x, rp.z - rec.pos.z) < 160) { _rally.x = rp.x; _rally.z = rp.z; return _rally; }
+    const a = pierDir(rec); _rally.x = rec.pos.x - Math.sin(a) * 6; _rally.z = rec.pos.z - Math.cos(a) * 6;
+    if (isWater(_rally.x, _rally.z)) { _rally.x = rec.pos.x; _rally.z = rec.pos.z; }
+    return _rally;
+  }
+  function travelCost(a, b) {
+    const ra = recOf(a), rb = recOf(b); if (!ra || !rb) return 0;
+    const d = Math.hypot(ra.pos.x - rb.pos.x, ra.pos.z - rb.pos.z);
+    return Math.round(20 + d / 20) * 100;                                   // 20 s + 5 s per 100 m, in copper
+  }
+  function routesFrom(dockId) {
+    const rec = recOf(dockId); const out = [];
+    if (!rec) return out;
+    for (let i = 0; i < rec.routes.length; i++) {
+      const r = recOf(rec.routes[i]); if (!r || r === rec) continue;
+      out.push({ dock: r.data, id: r.id, name: r.name, cost: travelCost(rec, r), dist: Math.hypot(rec.pos.x - r.pos.x, rec.pos.z - r.pos.z) });
+    }
+    return out;
+  }
+  function dockForZone(zoneId) {
+    if (!zoneId) return null;
+    for (let i = 0; i < BS.recs.length; i++) { const r = BS.recs[i]; const t = r.town ? townData(r.town) : null; if (t && t.zone === zoneId) return r.data; }
+    for (let i = 0; i < BS.recs.length; i++) { const r = BS.recs[i]; if (zoneAt(r.pos.x, r.pos.z) === zoneId) return r.data; }
+    return null;
+  }
+
+  // ---- coarse grids: navigable water (A*) and walkable land components (AutoQuest routing)
+  let gridN = 0, gridHalf = 0, waterGrid = null, landComp = null;
+  function cellIndex(x, z) {
+    if (!gridN) return -1;
+    const i = Math.floor((x + gridHalf) / GRID_CELL), j = Math.floor((z + gridHalf) / GRID_CELL);
+    if (i < 0 || j < 0 || i >= gridN || j >= gridN) return -1;
+    return j * gridN + i;
+  }
+  function cellX(idx) { return -gridHalf + ((idx % gridN) + 0.5) * GRID_CELL; }
+  function cellZ(idx) { return -gridHalf + (Math.floor(idx / gridN) + 0.5) * GRID_CELL; }
+  function ensureWaterGrid() {
+    if (waterGrid) return true;
+    if (!isFn(G.Terrain, 'height')) return false;
+    const size = worldSize(); gridN = Math.ceil(size / GRID_CELL); gridHalf = size * 0.5;
+    waterGrid = new Uint8Array(gridN * gridN);
+    const o = GRID_CELL * 0.3;
+    for (let j = 0; j < gridN; j++) for (let i = 0; i < gridN; i++) {
+      const cx = -gridHalf + (i + 0.5) * GRID_CELL, cz = -gridHalf + (j + 0.5) * GRID_CELL;
+      const d0 = depth(cx, cz);
+      if (d0 <= 1.5) continue;
+      let v = 1;
+      if (d0 > 3 && depth(cx - o, cz) > 2.5 && depth(cx + o, cz) > 2.5 && depth(cx, cz - o) > 2.5 && depth(cx, cz + o) > 2.5) v = 2;
+      waterGrid[j * gridN + i] = v;
+    }
+    return true;
+  }
+  function ensureLandGrid() {
+    if (landComp) return true;
+    if (!ensureWaterGrid()) return false;
+    const N = gridN * gridN, land = new Uint8Array(N);
+    for (let idx = 0; idx < N; idx++) { const x = cellX(idx), z = cellZ(idx); if (height(x, z) > SEA() - 1.2 || onRoad(x, z) > 0.4) land[idx] = 1; }
+    landComp = new Int16Array(N); landComp.fill(-1);
+    const stack = new Int32Array(N); let comp = 0;
+    for (let s = 0; s < N; s++) {
+      if (!land[s] || landComp[s] >= 0) continue;
+      let sp = 0; stack[sp++] = s; landComp[s] = comp;
+      while (sp > 0) {
+        const c = stack[--sp], ci = c % gridN, cj = (c / gridN) | 0;
+        if (ci > 0 && land[c - 1] && landComp[c - 1] < 0) { landComp[c - 1] = comp; stack[sp++] = c - 1; }
+        if (ci < gridN - 1 && land[c + 1] && landComp[c + 1] < 0) { landComp[c + 1] = comp; stack[sp++] = c + 1; }
+        if (cj > 0 && land[c - gridN] && landComp[c - gridN] < 0) { landComp[c - gridN] = comp; stack[sp++] = c - gridN; }
+        if (cj < gridN - 1 && land[c + gridN] && landComp[c + gridN] < 0) { landComp[c + gridN] = comp; stack[sp++] = c + gridN; }
+      }
+      comp++;
+    }
+    return true;
+  }
+  function landComponent(x, z) {
+    if (!ensureLandGrid()) return -1;
+    const idx = cellIndex(num(x, 0), num(z, 0)); if (idx < 0) return -1;
+    if (landComp[idx] >= 0) return landComp[idx];
+    const ci = idx % gridN, cj = (idx / gridN) | 0;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const ni = ci + di, nj = cj + dj; if (ni < 0 || nj < 0 || ni >= gridN || nj >= gridN) continue;
+      const c = landComp[nj * gridN + ni]; if (c >= 0) return c;
+    }
+    return -1;
+  }
+  function nearestNavCell(x, z) {
+    const idx = cellIndex(x, z); if (idx < 0) return -1;
+    if (waterGrid[idx]) return idx;
+    const ci = idx % gridN, cj = (idx / gridN) | 0;
+    for (let ring = 1; ring <= 6; ring++) {
+      let best = -1, bv = 0, bd = Infinity;
+      for (let dj = -ring; dj <= ring; dj++) for (let di = -ring; di <= ring; di++) {
+        if (Math.abs(di) !== ring && Math.abs(dj) !== ring) continue;
+        const ni = ci + di, nj = cj + dj; if (ni < 0 || nj < 0 || ni >= gridN || nj >= gridN) continue;
+        const c = nj * gridN + ni, v = waterGrid[c]; if (!v) continue;
+        const d = di * di + dj * dj;
+        if (v > bv || (v === bv && d < bd)) { bv = v; bd = d; best = c; }
+      }
+      if (best >= 0) return best;
+    }
+    return -1;
+  }
+  // binary heap keyed by f
+  function heapPush(heap, f, idx, n) { let i = n; heap[i * 2] = f; heap[i * 2 + 1] = idx; while (i > 0) { const p = (i - 1) >> 1; if (heap[p * 2] <= heap[i * 2]) break; const tf = heap[p * 2], ti = heap[p * 2 + 1]; heap[p * 2] = heap[i * 2]; heap[p * 2 + 1] = heap[i * 2 + 1]; heap[i * 2] = tf; heap[i * 2 + 1] = ti; i = p; } return n + 1; }
+  function heapPop(heap, n) { const outIdx = heap[1]; n--; heap[0] = heap[n * 2]; heap[1] = heap[n * 2 + 1]; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < n && heap[l * 2] < heap[m * 2]) m = l; if (r < n && heap[r * 2] < heap[m * 2]) m = r; if (m === i) break; const tf = heap[m * 2], ti = heap[m * 2 + 1]; heap[m * 2] = heap[i * 2]; heap[m * 2 + 1] = heap[i * 2 + 1]; heap[i * 2] = tf; heap[i * 2 + 1] = ti; i = m; } return outIdx; }
+  function astar(a, b) {
+    const N = gridN * gridN;
+    const g = new Float32Array(N); g.fill(Infinity);
+    const came = new Int32Array(N); came.fill(-1);
+    const closed = new Uint8Array(N);
+    const heap = new Float64Array(N * 2 * 2 + 4); let hn = 0;
+    const bi = b % gridN, bj = (b / gridN) | 0;
+    const h = (c) => { const di = Math.abs((c % gridN) - bi), dj = Math.abs(((c / gridN) | 0) - bj); return Math.max(di, dj) + 0.4142 * Math.min(di, dj); };
+    g[a] = 0; hn = heapPush(heap, h(a), a, hn);
+    let iter = 0;
+    while (hn > 0 && iter++ < N * 4) {
+      const c = heapPop(heap, hn); hn--;
+      if (closed[c]) continue;
+      if (c === b) break;
+      closed[c] = 1;
+      const ci = c % gridN, cj = (c / gridN) | 0;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        if (!di && !dj) continue;
+        const ni = ci + di, nj = cj + dj; if (ni < 0 || nj < 0 || ni >= gridN || nj >= gridN) continue;
+        const n = nj * gridN + ni, v = waterGrid[n]; if (!v || closed[n]) continue;
+        if (di && dj && (!waterGrid[cj * gridN + ni] || !waterGrid[nj * gridN + ci])) continue;   // no corner cutting past land
+        const step = (di && dj ? 1.4142 : 1) * (v === 2 ? 1 : 3);
+        const ng = g[c] + step;
+        if (ng < g[n]) { g[n] = ng; came[n] = c; if (hn * 2 + 2 < heap.length) hn = heapPush(heap, ng + h(n), n, hn); }
+      }
+    }
+    if (came[b] < 0 && a !== b) return null;
+    const path = []; let c = b; let guard = 0;
+    while (c >= 0 && guard++ < N) { path.push(c); if (c === a) break; c = came[c]; }
+    path.reverse();
+    return path;
+  }
+  function segmentClear(ax, az, bx, bz, minDepth) {
+    const d = Math.hypot(bx - ax, bz - az); const n = Math.max(1, Math.ceil(d / 10));
+    for (let i = 0; i <= n; i++) { const k = i / n; if (depth(lerp(ax, bx, k), lerp(az, bz, k)) < minDepth) return false; }
+    return true;
+  }
+  function stringPull(pts) {
+    const out = [pts[0]]; let i = 0; const n = pts.length;
+    while (i < n - 1) {
+      let j = n - 1;
+      while (j > i + 1 && !segmentClear(pts[i].x, pts[i].z, pts[j].x, pts[j].z, 1.5)) j--;
+      out.push(pts[j]); i = j;
+    }
+    return out;
+  }
+  function seaPath(a, b) {
+    const A = { x: num(a && a.x, 0), z: num(a && a.z, 0) }, B = { x: num(b && b.x, 0), z: num(b && b.z, 0) };
+    if (segmentClear(A.x, A.z, B.x, B.z, 1.2)) return [A, B];
+    if (!ensureWaterGrid()) return [A, B];
+    const ca = nearestNavCell(A.x, A.z), cb = nearestNavCell(B.x, B.z);
+    if (ca < 0 || cb < 0) return [A, B];
+    const cells = astar(ca, cb);
+    if (!cells) return [A, B];
+    const pts = [A];
+    for (let i = 0; i < cells.length; i++) pts.push({ x: cellX(cells[i]), z: cellZ(cells[i]) });
+    pts.push(B);
+    return stringPull(pts);
+  }
+  function polyLen(pts) { let l = 0; for (let i = 1; i < pts.length; i++) l += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z); return l; }
+  function buildRoute(pts) {
+    let samples = null;
+    if (pts.length >= 3) {
+      try {
+        const curve = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(p.x, 0, p.z)), false, 'catmullrom', 0.5);
+        const n = Math.max(24, Math.round(polyLen(pts) / 8));
+        samples = curve.getSpacedPoints(n);
+        for (let i = 0; i < samples.length; i++) if (depth(samples[i].x, samples[i].z) < 0.8) { samples = null; break; }
+      } catch (e) { samples = null; }
+    }
+    if (!samples) samples = pts.map(p => new THREE.Vector3(p.x, 0, p.z));
+    if (samples.length < 2) samples.push(samples[0].clone());
+    const cum = new Float32Array(samples.length); let len = 0;
+    for (let i = 1; i < samples.length; i++) { len += Math.hypot(samples[i].x - samples[i - 1].x, samples[i].z - samples[i - 1].z); cum[i] = len; }
+    return { pts: samples, cum: cum, len: len, cursor: 0 };
+  }
+  function routePoint(route, s, out) {
+    s = clamp(s, 0, route.len);
+    const pts = route.pts, cum = route.cum; let i = route.cursor;
+    while (i < pts.length - 2 && cum[i + 1] < s) i++;
+    while (i > 0 && cum[i] > s) i--;
+    route.cursor = i;
+    const a = pts[i], b = pts[Math.min(i + 1, pts.length - 1)];
+    const seg = cum[Math.min(i + 1, pts.length - 1)] - cum[i];
+    const k = seg > 1e-6 ? (s - cum[i]) / seg : 0;
+    return out.set(lerp(a.x, b.x, k), 0, lerp(a.z, b.z, k));
+  }
+  function pathToZone(fromPos, zoneId) {
+    if (!zoneId || !fromPos) return null;
+    const fx_ = num(fromPos.x, 0), fz = num(fromPos.z, 0);
+    if (zoneAt(fx_, fz) === zoneId) return [];
+    const targets = []; for (let i = 0; i < BS.recs.length; i++) if (recZone(BS.recs[i]) === zoneId) targets.push(BS.recs[i]);
+    if (!targets.length) return null;
+    const comp = landComponent(fx_, fz);
+    let starts = BS.recs.slice().sort((p, q) => Math.hypot(p.pos.x - fx_, p.pos.z - fz) - Math.hypot(q.pos.x - fx_, q.pos.z - fz));
+    if (comp >= 0) { const same = starts.filter(r => landComponent(r.pos.x, r.pos.z) === comp); if (same.length) starts = same; }
+    for (let s = 0; s < starts.length; s++) {
+      const start = starts[s];
+      const prev = {}; prev[start.id] = null; const queue = [start]; let found = null;
+      for (let qi = 0; qi < queue.length && !found; qi++) {
+        const r = queue[qi];
+        if (targets.indexOf(r) >= 0) { found = r; break; }
+        for (let k = 0; k < r.routes.length; k++) { const nr = recOf(r.routes[k]); if (!nr || prev[nr.id] !== undefined) continue; prev[nr.id] = r; queue.push(nr); }
+      }
+      if (found) { const path = []; let c = found; while (c) { path.push(c.data); c = prev[c.id]; } return path.reverse(); }
+    }
+    return null;
+  }
+
+  // ---- fast travel cinematic
+  function sailTo(dockId, fromDock, opts) {
+    opts = opts || EMPTY;
+    if (Boats.travelling) return false;
+    const to = recOf(dockId);
+    if (!to) { if (isFn(G, 'warn')) G.warn('Boats.sailTo: unknown dock ' + (dockId && dockId.id ? dockId.id : dockId)); return false; }
+    const pl = player(); if (!pl || !pl.pos) return false;
+    let from = fromDock ? recOf(fromDock) : null;
+    if (!from) from = (Boats.sailing && BS.cur && BS.cur.rec) ? BS.cur.rec : nearestRec(pl.pos, null);
+    if (!from) return false;
+    if (from === to) { notify('You are already at ' + to.name + '.', 'info'); return false; }
+    const cost = opts.free ? 0 : travelCost(from, to);
+    if (cost > 0 && !opts.paid) {
+      if (isFn(G.Progress, 'spendGold')) { let ok = false; try { ok = !!G.Progress.spendGold(cost); } catch (e) { report(e, 'spendGold'); } if (!ok) { notify('You cannot afford the fare (' + fmtMoney(cost) + ').', 'warning'); sfx('ui_error', { vol: 0.5 }); return false; } }
+      else if (typeof pl.gold === 'number') { if (pl.gold < cost) { notify('You cannot afford the fare (' + fmtMoney(cost) + ').', 'warning'); return false; } pl.gold -= cost; }
+    }
+    if (pl.mounted && isFn(G.Player, 'dismount')) { try { G.Player.dismount(); } catch (e) { report(e, 'dismount'); } }
+    if (G.Fishing && G.Fishing.state !== 'idle') G.Fishing.cancel(false);
+    if (Boats.sailing) endSail(true, true);
+    if (isFn(G.Player, 'autoStop')) { try { G.Player.autoStop(); } catch (e) { /* ignore */ } }
+    if (isFn(G.UI, 'closeAll')) { try { G.UI.closeAll(); } catch (e) { /* ignore */ } }
+    attachRoot();
+    Boats.travelling = true; Boats.speed = 0;
+    BS.travel = Boats.travel = { phase: 'out', t: 0, from: from, to: to, ent: null, route: null, dur: opts.instant ? 0 : Math.max(2, num(opts.duration, TRAVEL_TIME)), instant: !!opts.instant, cost: cost, cam: null, camYaw0: 0, orbit: 0, bell2: false, fadingIn: false };
+    fade(true, FADE_T);
+    sfx('boat_bell', { vol: 0.8 });
+    notify('Setting sail for ' + to.name + (cost ? ' (' + fmtMoney(cost) + ')' : '') + '.', 'info');
+    emit('sailDepart', { from: from.data, to: to.data, cost: cost });
+    return true;
+  }
+  function instantTravel(dockId, opts) { const o = Object.assign({}, opts || EMPTY, { instant: true }); return sailTo(dockId, o.from || null, o); }
+  function beginVoyage(tv) {
+    const pl = player();
+    const w0 = waterSide(tv.from), w1 = waterSide(tv.to);
+    tv.route = buildRoute(seaPath(w0, w1));
+    routePoint(tv.route, Math.min(4, tv.route.len), _v2); routePoint(tv.route, 0, _v1);
+    const yaw0 = (tv.route.len > 0.5) ? yawTo(_v2.x - _v1.x, _v2.z - _v1.z) : wrapA(w0.dir + PI);
+    const ent = spawnBoat('elfship', w0.x, w0.z, yaw0);
+    tv.ent = ent; BS.cur = { ent: ent, rec: tv.from, kind: 'elfship' }; Boats.boat = ent; if (pl) pl.onBoat = ent;
+    rigAnim('sit', true);
+    placeBoat(ent, 0); seatPlayer(ent);
+    const cam = G.Player && G.Player.cam;
+    if (cam) {
+      tv.cam = { yaw: num(cam.yaw, 0), pitch: num(cam.pitch, 0.28), dist: num(cam.dist, 7), targetDist: num(cam.targetDist, num(cam.dist, 7)) };
+      tv.camYaw0 = yaw0 + 0.85; cam.yaw = tv.camYaw0; cam.pitch = 0.3; cam.dist = 14; cam.targetDist = 14;
+    }
+    BS.wakeT = 0; BS.splashT = 0; BS.creakT = 3;
+    music('sailing');
+    tv.phase = 'sail'; tv.t = 0;
+    fade(false, FADE_T);
+    chat('You set sail from ' + tv.from.name + ' for ' + tv.to.name + '.');
+  }
+  function arrive(tv) {
+    const rec = tv.to, pl = player();
+    const rp = rallyOf(rec);
+    const t = rec.town ? townData(rec.town) : null;
+    const yaw = t && t.pos ? yawTo(t.pos.x - rp.x, t.pos.z - rp.z) : wrapA(pierDir(rec) + PI);
+    const cam = G.Player && G.Player.cam;
+    if (cam && tv.cam) { cam.pitch = tv.cam.pitch; cam.dist = tv.cam.dist; cam.targetDist = tv.cam.targetDist; }
+    endSail(true, true);
+    rigAnim('idle', true);
+    placePlayerOnLand(rp.x, rp.z, yaw);
+    sfx('boat_bell', { vol: 0.8 });
+    notify('You arrive at ' + rec.name + '.', 'quest');
+    chat('The ship puts in at ' + rec.name + '.');
+    restoreZoneMusic();
+    emit('sailArrived', { dock: rec.data });
+    tv.phase = 'done'; tv.t = 0;
+    fade(false, FADE_T);
+  }
+  function finishTravel() { Boats.travelling = false; BS.travel = Boats.travel = null; Boats.speed = 0; }
+  function abortTravel() {
+    const tv = BS.travel;
+    if (tv) { const cam = G.Player && G.Player.cam; if (cam && tv.cam) { cam.pitch = tv.cam.pitch; cam.dist = tv.cam.dist; cam.targetDist = tv.cam.targetDist; } }
+    endSail(true, true);
+    finishTravel();
+    fade(false, 0.3);
+  }
+  function updateTravel(dt) {
+    const tv = BS.travel; if (!tv) { Boats.travelling = false; return; }
+    const pl = player(); if (!pl || !pl.pos) { abortTravel(); return; }
+    tv.t += dt;
+    if (tv.phase === 'out') {
+      if (tv.t >= FADE_T) { if (tv.instant) arrive(tv); else beginVoyage(tv); }
+      return;
+    }
+    if (tv.phase === 'sail') {
+      const ent = tv.ent; if (!ent || !ent.mesh) { arrive(tv); return; }
+      const k = clamp(tv.t / tv.dur, 0, 1), e = easeInOut(k);
+      const s = e * tv.route.len;
+      routePoint(tv.route, s, _v1);
+      routePoint(tv.route, Math.min(tv.route.len, s + 3), _v2); routePoint(tv.route, Math.max(0, s - 3), _v3);
+      const dx = _v2.x - _v3.x, dz = _v2.z - _v3.z;
+      if (dx * dx + dz * dz > 0.01) ent.yaw = adamp(ent.yaw, yawTo(dx, dz), 3, dt);
+      ent.pos.x = _v1.x; ent.pos.z = _v1.z;
+      const speed = (tv.route.len / tv.dur) * (k < 0.5 ? 4 * k : 4 * (1 - k));            // d(easeInOut)/dk
+      ent.speed = speed; Boats.speed = speed; ent.vel.set(-Math.sin(ent.yaw) * speed, 0, -Math.cos(ent.yaw) * speed);
+      placeBoat(ent, dt); seatPlayer(ent);
+      if (G.Spatial && isFn(G.Spatial, 'update')) G.Spatial.update(ent);
+      wakeFX(ent, dt, -Math.sin(ent.yaw), -Math.cos(ent.yaw), HULL_L.elfship);
+      if (ent.boat && isFn(ent.boat, 'animate')) ent.boat.animate(tv.t);
+      const cam = G.Player && G.Player.cam;
+      if (cam) { tv.orbit += dt * 0.13; cam.yaw = tv.camYaw0 + tv.orbit; cam.pitch = 0.3; cam.dist = 14; cam.targetDist = 14; }
+      BS.creakT -= dt; if (BS.creakT <= 0) { BS.creakT = 3 + rand() * 4; sfx('boat_creak', { pos: ent.pos, vol: 0.4 }); }
+      if (!tv.bell2 && k > 0.9) { tv.bell2 = true; sfx('boat_bell', { vol: 0.7 }); }
+      if (!tv.fadingIn && tv.t >= tv.dur - FADE_T) { tv.fadingIn = true; fade(true, FADE_T); }
+      if (k >= 1) { tv.phase = 'in'; tv.t = 0; }
+      return;
+    }
+    if (tv.phase === 'in') { if (tv.t >= 0.12) arrive(tv); return; }
+    if (tv.phase === 'done') { if (tv.t >= FADE_T) finishTravel(); }
+  }
+
+  // ---- fallback dock menu (used when the Travel panel is absent)
+  function openDockMenu(dock) {
+    const rec = recOf(dock); if (!rec) return false;
+    BS.menuDock = rec;
+    const U = G.UI;
+    if (!isFn(U, 'registerPanel') || !isFn(U, 'openPanel')) return board(rec);
+    if (!BS.menuRegistered) { BS.menuRegistered = true; U.registerPanel('dockmenu', { title: 'Harbour', width: 420, pos: 'center', rebuildOnOpen: true, remember: false, build: buildDockMenu }); }
+    if (isFn(U, 'isOpen') && U.isOpen('dockmenu') && isFn(U, 'refresh')) U.refresh('dockmenu'); else U.openPanel('dockmenu', rec.data);
+    const p = isFn(U, 'getPanel') ? U.getPanel('dockmenu') : null; if (p && isFn(p, 'setTitle')) p.setTitle(rec.name);
+    return true;
+  }
+  function buildDockMenu(body) {
+    if (!body) return;
+    body.innerHTML = '';
+    const rec = BS.menuDock; if (!rec) return;
+    const routes = routesFrom(rec.id), pl = player(), gold = pl ? num(pl.gold, 0) : 0;
+    body.appendChild(el('div', { style: 'margin-bottom:8px;color:var(--parch-dim,#b8ad94)', text: 'The boatmaster of ' + rec.name + ' offers passage:' }));
+    routes.forEach(function (r) {
+      const can = gold >= r.cost;
+      body.appendChild(el('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid rgba(111,83,34,.35)' }, [
+        el('div', {}, [el('div', { style: 'font-weight:600', text: r.name }), el('div', { style: 'font-size:12px;color:var(--parch-dim,#b8ad94)', text: Math.round(r.dist) + ' m by sea' })]),
+        el('div', { style: 'display:flex;align-items:center;gap:8px' }, [el('span', { html: fmtMoneyHTML(r.cost) }), el('button', { class: 'btn small' + (can ? ' primary' : ' disabled'), text: 'Sail', onclick: function () { if (isFn(G.UI, 'closePanel')) G.UI.closePanel('dockmenu'); sailTo(r.id, rec); } })]),
+      ]));
+    });
+    if (!routes.length) body.appendChild(el('div', { text: 'No ships sail from here today.' }));
+    body.appendChild(el('div', { style: 'margin-top:10px;display:flex;justify-content:flex-end' }, [el('button', { class: 'btn', text: 'Take a rowboat', onclick: function () { if (isFn(G.UI, 'closePanel')) G.UI.closePanel('dockmenu'); board(rec); } })]));
+  }
+
+  // ---- main update
+  function boatsUpdate(dt) {
+    dt = clamp(num(dt, 0), 0, 0.1);
+    if (!rootAttached) attachRoot(BS.sceneArg);
+    updateFade(dt);
+    if (BS.recs.length) updateMoored(dt);
+    if (BS.retired.length) updateRetired(dt);
+    if (Boats.travelling) updateTravel(dt);
+    else if (Boats.sailing) updateSail(dt);
+  }
+  function stats() {
+    let moored = 0; for (let i = 0; i < BS.recs.length; i++) if (BS.recs[i].moor) moored++;
+    return { docks: BS.recs.length, moored: moored, retired: BS.retired.length, sailing: Boats.sailing, travelling: Boats.travelling, speed: Boats.speed, gridBuilt: !!waterGrid, landGridBuilt: !!landComp };
+  }
+
+  Boats.init = init;
+  Boats.board = board;
+  Boats.disembark = disembark;
+  Boats.sailTo = sailTo;
+  Boats.instantTravel = instantTravel;
+  Boats.update = boatsUpdate;
+  Boats.openDockMenu = openDockMenu;
+  Boats.routesFrom = routesFrom;
+  Boats.nearestDock = function (pos) { const r = nearestRec(pos || (player() && player().pos), null); return r ? r.data : null; };
+  Boats.dockForZone = dockForZone;
+  Boats.pathToZone = pathToZone;
+  Boats.travelCost = travelCost;
+  Boats.dockById = function (id) { const r = recOf(id); return r ? r.data : null; };
+  Boats.waterSide = function (dock) { const r = recOf(dock); if (!r) return null; const w = waterSide(r); return { x: w.x, z: w.z, dir: w.dir }; };
+  Boats.seaPath = seaPath;
+  Boats.landComponent = landComponent;
+  Boats.nearShore = function (pos, r) { const s = nearShore(pos, r); return s ? { x: s.x, z: s.z, dist: s.d } : null; };
+  Boats.waveHeight = waveHeight;
+  Boats.waveTime = waveTime;
+  Boats.fade = function (on, dur) { fade(!!on, dur); };
+  Boats.stats = stats;
+  if (typeof G.on === 'function') G.on('init', subscribe);
+})();
