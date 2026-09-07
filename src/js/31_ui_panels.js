@@ -1177,23 +1177,54 @@
         for (let i = 0; i < pre.length; i++) if (!_qdone(pre[i])) return;
         out.push(d);
       });
+    } else if (tab === 'remaining') {
+      // everything still to do — active, ready, available AND locked — so the player can see the whole road ahead
+      _allQuests().forEach(function (d) { if (_qstatus(d.id) !== 'done') out.push(d); });
     } else {
       _allQuests().forEach(function (d) { if (_qstatus(d.id) === 'done') out.push(d); });
     }
     return out;
   }
+  /** Names of the prerequisite quests of `d` that are not done yet (unknown ids count as done, like G.Quests). */
+  function _jnUnmet(d) {
+    const pre = Array.isArray(d.prereq) ? d.prereq : (d.prereq ? [d.prereq] : []);
+    const out = [];
+    for (let i = 0; i < pre.length; i++) { const q = _questData(pre[i]); if (!q || _qdone(q.id)) continue; out.push(q.name || _title(q.id)); }
+    return out;
+  }
+  /** Remaining-quest counts for the tab header: {left, total, story, storyTot, side, sideTot}. */
+  function _jnRemaining() {
+    let total = 0, done = 0, sTot = 0, sDone = 0;
+    _allQuests().forEach(function (d) { total++; const dn = _qdone(d.id); if (dn) done++; if (d.type === 'story') { sTot++; if (dn) sDone++; } });
+    return { left: total - done, total: total, story: sTot - sDone, storyTot: sTot, side: (total - sTot) - (done - sDone), sideTot: total - sTot };
+  }
+  const JN_STATUS_LABEL = { active: 'Active', complete: 'Ready', available: 'Available', locked: 'Locked', done: 'Done' };
   function _jnRow(d, tracked) {
     const st = _qstatus(d.id);
-    const row = el('div', { class: 'jn-row' + (Jn.selected === d.id ? ' selected' : '') + (tracked ? ' tracked' : '') + (st === 'complete' ? ' ready' : ''), data: { id: d.id } });
+    const remaining = Jn.tab === 'remaining';
+    const row = el('div', { class: 'jn-row' + (remaining ? ' rem' : '') + (Jn.selected === d.id ? ' selected' : '') + (tracked ? ' tracked' : '') + (st === 'complete' ? ' ready' : '') + (st === 'locked' ? ' locked' : ''), data: { id: d.id } });
     const ch = _chapterOf(d);
     row.appendChild(el('span', { class: 'jn-ch', text: ch ? String(ch) + '.' : '•' }));
     const nm = el('span', { class: 'jn-nm', text: d.name || _title(d.id) });
     row.appendChild(nm);
     if (Jn.tab === 'available' && d.giver) row.appendChild(el('span', { class: 'jn-giver', text: _npcName(d.giver) }));
+    if (remaining) row.appendChild(el('span', { class: 'jn-st ' + st, text: JN_STATUS_LABEL[st] || _title(st) }));
     row.appendChild(el('span', { class: 'jn-lv', text: String(_num(d.level, 1)) }));
     if (tracked) row.appendChild(el('span', { class: 'jn-star', text: '★' }));
+    let unmet = [];
+    if (remaining) {
+      // second line: zone · giver · what still locks it
+      unmet = st === 'locked' ? _jnUnmet(d) : [];
+      const meta = _zoneName(d.zone) + (d.giver ? ' · ' + _npcName(d.giver) : '') + (unmet.length ? ' · requires ' + unmet.join(', ') : '');
+      row.appendChild(el('span', { class: 'jn-meta' + (unmet.length ? ' locked' : ''), text: meta }));
+    }
     row.addEventListener('click', function () { Jn.selected = d.id; _sfx('ui_click'); Jn.refresh(); });
-    _tip(row, function () { return '<div class="tt-name">' + esc(d.name || d.id) + '</div><div class="tt-line">' + esc((d.type === 'story' ? 'Story' : 'Side quest') + ' · Level ' + _num(d.level, 1) + ' · ' + _zoneName(d.zone)) + '</div>' + (st === 'complete' ? '<div class="tt-stat">Ready to turn in</div>' : '') + (d.giver ? '<div class="tt-sub">From ' + esc(_npcName(d.giver)) + '</div>' : ''); });
+    _tip(row, function () {
+      const req = st === 'locked' ? (unmet.length ? unmet : _jnUnmet(d)) : [];
+      return '<div class="tt-name">' + esc(d.name || d.id) + '</div><div class="tt-line">' + esc((d.type === 'story' ? 'Story' : 'Side quest') + ' · Level ' + _num(d.level, 1) + ' · ' + _zoneName(d.zone)) + '</div>' +
+        (st === 'complete' ? '<div class="tt-stat">Ready to turn in</div>' : st === 'active' ? '<div class="tt-stat">In progress</div>' : st === 'locked' ? '<div class="tt-stat" style="color:#d08a7a">Locked' + (req.length ? ' — requires ' + esc(req.join(', ')) : '') + '</div>' : '') +
+        (d.giver ? '<div class="tt-sub">From ' + esc(_npcName(d.giver)) + '</div>' : '');
+    });
     return row;
   }
   function _objProgress(d, i) {
@@ -1241,12 +1272,19 @@
       _chip('Level ' + _num(d.level, 1)),
       _chip(_zoneName(d.zone)),
       d.type === 'story' && _bookOf(d) ? _chip(_bookOf(d) + (_chapterOf(d) ? ' · Chapter ' + _chapterOf(d) : '')) : null,
-      st === 'complete' ? _chip('Ready to turn in', 'story') : st === 'done' ? _chip('Completed') : st === 'active' ? _chip('In progress') : null,
+      st === 'complete' ? _chip('Ready to turn in', 'story') : st === 'done' ? _chip('Completed') : st === 'active' ? _chip('In progress') : st === 'locked' ? _chip('Locked', 'locked') : st === 'available' ? _chip('Available', 'avail') : null,
     ]);
     box.appendChild(chips);
     const who = el('div', { class: 'pn-sub' });
     who.innerHTML = (d.giver ? 'Given by <b>' + esc(_npcName(d.giver)) + '</b>' : '') + (d.turnin && d.turnin !== d.giver ? ' · Return to <b>' + esc(_npcName(d.turnin)) + '</b>' : (d.turnin ? ' · Return to the same' : ''));
     box.appendChild(who);
+    if (st === 'locked') {
+      // a locked quest is still readable in full — say what unlocks it
+      const req = _jnUnmet(d);
+      const line = el('div', { class: 'jn-req' });
+      line.innerHTML = '🔒 Locked — ' + (req.length ? 'complete <b>' + req.map(esc).join('</b>, <b>') + '</b> first.' : 'not yet available.');
+      box.appendChild(line);
+    }
     const T = d.text || {};
     const mode = opts.mode || (st === 'complete' ? 'turnin' : st === 'done' ? 'done' : st === 'active' ? 'progress' : 'available');
     let text = T.intro || d.desc || '';
@@ -1290,10 +1328,17 @@
     if (Jn._list) Jn._scroll = Jn._list.scrollTop;
     _clear(body);
     const Q = G.Quests;
-    const left = el('div', { class: 'jn-left' });
+    const left = el('div', { class: 'jn-left' + (Jn.tab === 'remaining' ? ' wide' : '') });
     const tabs = el('div', { class: 'tabs' });
-    [['active', 'Active'], ['available', 'Available'], ['completed', 'Completed']].forEach(function (t) { tabs.appendChild(el('span', { class: 'tab' + (Jn.tab === t[0] ? ' active' : ''), text: t[1], onclick: function () { Jn.setTab(t[0]); } })); });
+    [['active', 'Active'], ['available', 'Available'], ['remaining', 'Remaining'], ['completed', 'Completed']].forEach(function (t) { tabs.appendChild(el('span', { class: 'tab' + (Jn.tab === t[0] ? ' active' : ''), text: t[1], onclick: function () { Jn.setTab(t[0]); } })); });
     left.appendChild(tabs);
+    if (Jn.tab === 'remaining') {
+      const rc = _jnRemaining();
+      const head = el('div', { class: 'jn-remhead' });
+      head.innerHTML = 'Remaining: <b>' + rc.left + '</b> of ' + rc.total + ' <span class="jn-remsub">(Story ' + rc.story + '/' + rc.storyTot + ' · Side ' + rc.side + '/' + rc.sideTot + ')</span>';
+      _tip(head, '<div class="tt-name">The road ahead</div><div class="tt-desc">Every quest you have not completed yet — active, available and still locked. Locked quests show what you must finish first; click any of them to read the full story, objectives and rewards.</div>');
+      left.appendChild(head);
+    }
     const list = el('div', { class: 'jn-list' });
     list.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
     Jn._list = list;
@@ -1301,7 +1346,7 @@
     const tracked = Q && Q.tracked;
     if (Jn.selected && !entries.some(function (d) { return d.id === Jn.selected; })) { if (entries.length && Jn.tab !== 'available') Jn.selected = entries[0].id; else if (entries.length) Jn.selected = entries[0].id; else Jn.selected = null; }
     if (!Jn.selected && entries.length) Jn.selected = entries[0].id;
-    if (!entries.length) list.appendChild(el('div', { class: 'pn-empty', text: Jn.tab === 'active' ? 'No active quests. Look for a golden ! above the folk of Middle-earth.' : Jn.tab === 'available' ? 'No quests are available at your level right now.' : 'You have not completed any quests yet.' }));
+    if (!entries.length) list.appendChild(el('div', { class: 'pn-empty', text: Jn.tab === 'active' ? 'No active quests. Look for a golden ! above the folk of Middle-earth.' : Jn.tab === 'available' ? 'No quests are available at your level right now.' : Jn.tab === 'remaining' ? 'Nothing left to do — every quest in Middle-earth is complete!' : 'You have not completed any quests yet.' }));
     else {
       const story = entries.filter(function (d) { return d.type === 'story'; }).sort(function (a, b) { return a.id < b.id ? -1 : 1; });
       const side = entries.filter(function (d) { return d.type !== 'story'; }).sort(function (a, b) { return _num(a.level) - _num(b.level) || (a.id < b.id ? -1 : 1); });
@@ -1338,11 +1383,11 @@
     body.appendChild(el('div', { class: 'jn-bottom' }, [compEl, _bar(pct / 100, 'green'), aqBtn]));
     if (Jn._scroll) list.scrollTop = Jn._scroll;
   };
-  Jn.setTab = function (t) { Jn.tab = (t === 'available' || t === 'completed') ? t : 'active'; Jn._scroll = 0; _sfx('ui_click'); Jn.refresh(); };
+  Jn.setTab = function (t) { Jn.tab = (t === 'available' || t === 'completed' || t === 'remaining') ? t : 'active'; Jn._scroll = 0; _sfx('ui_click'); Jn.refresh(); };
   Jn.select = function (id) {
     if (!id) return;
     const st = _qstatus(id);
-    Jn.tab = (st === 'active' || st === 'complete') ? 'active' : st === 'done' ? 'completed' : 'available';
+    if (Jn.tab !== 'remaining' || st === 'done') Jn.tab = (st === 'active' || st === 'complete') ? 'active' : st === 'done' ? 'completed' : st === 'locked' ? 'remaining' : 'available';
     Jn.selected = id;
     Jn.refresh();
     if (Jn.isOpen()) { const r = Jn.body && Jn.body.querySelector('.jn-row.selected'); if (r && typeof r.scrollIntoView === 'function') r.scrollIntoView({ block: 'nearest' }); }
