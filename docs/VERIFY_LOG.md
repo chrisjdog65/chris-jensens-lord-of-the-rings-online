@@ -1,0 +1,36 @@
+# Verification log
+
+## Run 1 (2026-09-07T20:35Z) — 12/33 pass
+- PASS R01: built file exists; file is a complete single page (one <html>, has </html>); size > 1 MB (engine + game inlined) (+7 checks)
+- PASS R02: all standard panels registered; each panel opens; each panel closes (+2 checks); zero errors across the whole run
+- FAIL R03: draw calls ≤ 600 at high [max 1005 over 10 samples (quality high)]
+- PASS R04: PostFX pipeline enabled; bloom + FXAA features on; ACES tonemap + sharpen params (+5 checks)
+- FAIL R10: W moves forward ≥ 3 m along camera forward [{"dist":0.1,"dot":1}]; S moves backward ≥ 3 m [{"dist":0.22,"dot":-1}]; A strafes left ≥ 3 m [{"dist":0.3,"rightDot":-1}]; D strafes right ≥ 3 m [{"dist":0.1,"rightDot":0.64}]
+- FAIL R11: ERROR: timeout after 60 s
+- FAIL R12: camera follows at the requested distance in the open [{"dist":4.9,"target":7}]; player is inside the building; camera clamped by walls (dist ≥ 0.5 and < requested 14 m) [{"dist":14,"target":14}]
+- FAIL R13: roll moved the player [1.48 m]; i-frames end after the roll; Q ignored while on cooldown
+- FAIL R14: target morale dropped within 3 s of R (projectile hit) [{"before":{"morale":476,"max":476,"name":"Wild Boar","level":1},"after":null}]
+- PASS R15: found a door entity; E toggles the door open state; interact prompt showed the door (+4 checks)
+- FAIL R16: I opens #panel-inventory; grid renders exactly 200 slots [0]; bag counter shows /200
+- FAIL R17: autoFish catches something (fishCaught event) [null]
+- FAIL R18: H mounts the horse (player.mounted) [null]; mounted run is faster (≥ 1.3× on foot, ≥ 8 m in 1.2 s) [{"onFoot":0.3,"mounted":0.06}]
+- FAIL R19: J opens #panel-journal; journal lists quest entries [0]; shows completion N/150; detail shows objectives + rewards [{"visible":false,"rows":0,"hasCompletion":false,"hasObjectives":false,"hasRewards":false,…]
+- FAIL R20: K opens #panel-abilities; lists all 13 class abilities [{"visible":false,"rows":0,"total":13}]; K closes it
+- FAIL R21: C opens #panel-character; 18 equipment slots rendered (G.C.EQUIP_SLOTS = 18) [{"slots":0,"eq":18}]; 3D preview present [{"preview":false,"canvas":false}]; stats text (Might / Morale / Mastery); gear-set summary + G.Items.setBonuses
+- FAIL R22: completed ≥ 3 quests in 60 s (0 → 0) [{"text":"Slaying Garden Slugs 0/6","questId":"s001","step":"Clear the garden slugs from t…]
+- FAIL R23: M opens #panel-map with a map canvas
+- PASS R24: admin panel opens after typing chris; admin has the required tabs; admin gold API (G.Progress.addGold, used by the Player tab) changes the purse by +5 g (+3 checks)
+- PASS R25: 20 hotbar keys defined (1-0, G T V X Y Z L N O U); 20 hotbar slots, each labelled with its key; every key maps to a KeyboardEvent.code (+3 checks)
+- FAIL R26: Space → player rises (jump) [{"y0":4.99,"peak":null}]; Escape closes the open panel; Enter focuses the chat input; F1 opens the key help
+- PASS R30: 150 quests (100 story / 50 side); all quest ids unique and indexed; every giver / turn-in NPC exists (+5 checks)
+- PASS R31: G.C.LEVEL_CAP === 80; XP table finite and increasing at 80; setLevel(99) clamps at 80 (and restores) (+2 checks)
+- PASS R32: world size 4096 (±2048 m); zones ≥ 15; towns ≥ 25 (+4 checks)
+- FAIL R33: arrived on Tol Fuin (zone = tolfuin) [null]
+- FAIL R34: G.Buildings.isInside(player.pos) is the inn [{"inside":false,"same":false,"playerInside":false,"inInterior":false,"npcs":["Barliman Bu…]
+- FAIL R35: an AI answered "hello" within 10 s (game time ×3) [null]
+- FAIL R36: P closes it
+- PASS R37: New Character opens the creation screen; 10 race cards; 10 class cards (+8 checks)
+- PASS R38: G.Audio.ready after a user gesture; ≥ 60 SFX names; ≥ 15 music themes (+2 checks)
+- FAIL R39: monster killed with hotbar abilities (35.2 s); abilities were used (cooldowns/gcd path) [1 abilityUsed events]; XP gained from the kill [{"xp":0,"gold":0,"loot":0,"kills":0}]; loot / gold received [{"xp":0,"gold":0,"loot":0,"kills":0}]; kill counted in G.state.stats; boss killed the player on its ow
+- FAIL R40: floating combat text spawns an element [{"layer":true,"before":3,"after":3}]
+- PASS R41: G.Save.save() writes localStorage[cj_lotro_save_v1]; G.Save.load() returns the snapshot with the current level; exportJSON round-trips through importJSON (+5 checks)
