@@ -725,6 +725,9 @@
   ];
   const MAT_ICON = { pelt: '🧶', cloth: '🧵', ore: '⛏', herb: '🌿', wood: '🪵' };
   MATS.forEach(m => CONS('mat_' + m[0], m[1], { type: 'material', subtype: m[2], icon: MAT_ICON[m[2]], iconBg: BG.material, value: m[3], maxStack: 100, desc: m[4] }));
+  // Gather-node items referenced by the world registry (05_data_world.js)
+  addItem({ id: 'mat_mushroom', name: 'Wild Mushrooms', type: 'material', subtype: 'herb', icon: '🍄', iconBg: BG.material, value: 6, maxStack: 100, desc: 'Plump wild mushrooms, prized by hobbit cooks and wary travellers alike.' });
+  addItem({ id: 'misc_treasure_cache', name: 'Treasure Cache', type: 'misc', subtype: null, icon: '💰', iconBg: BG.material, value: 250, maxStack: 20, desc: 'A small locked cache of coin and oddments, left by someone who never came back for it.' });
 
   // ------------------------------------------------------------------ trophies (junk), generic quest items, keys, mounts, maps
   const JUNK = [

@@ -95,6 +95,7 @@
 #hud, #panels, #overlays { position: absolute; inset: 0; pointer-events: none; }
 #hud > *, #panels > *, #overlays > * { pointer-events: auto; }
 #hud { z-index: 10; } #panels { z-index: 20; } #overlays { z-index: 30; }
+#hud.dead #notices, #hud.dead #interactPrompt, #hud.dead #castbar { visibility: hidden; }
 #hud .passthru, #notices, #floatLayer, #bigNotice, #zoneBanner, #castbar, #interactPrompt, #compass { pointer-events: none !important; }
 .money-g { color: #ffd54a; } .money-s { color: #d6dae3; } .money-c { color: #d08a4a; }
 .money-g::after, .money-s::after, .money-c::after { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin: 0 3px 0 2px; vertical-align: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
@@ -121,7 +122,7 @@
 #tooltip .tt-warn { color: var(--red); }
 
 /* ---- notices ---- */
-#notices { position: absolute; left: 50%; top: 37%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; width: 640px; max-width: 90vw; }
+#notices { position: absolute; left: 50%; top: 42%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; width: 640px; max-width: 90vw; }
 #notices .notice { position: static; transform: none; font-size: 17px; letter-spacing: .04em; padding: 2px 10px; animation: noticeIn .25s ease-out; display: flex; align-items: center; gap: 8px; text-shadow: 0 2px 6px #000, 0 0 12px rgba(0,0,0,.6); transition: opacity .4s ease, transform .4s ease; }
 #notices .notice .n-ico { font-size: 15px; opacity: .9; }
 #notices .notice.out { opacity: 0; transform: translateY(-8px); }
@@ -130,13 +131,13 @@
 #notices .n-level { color: #fff7d6; text-shadow: 0 2px 6px #000, 0 0 16px rgba(255,220,120,.8); font-size: 20px; }
 #notices .n-warning { color: #ff7a66; } #notices .n-loot { color: #a6e39f; } #notices .n-gold { color: #ffd54a; }
 @keyframes noticeIn { from { opacity: 0; transform: translateY(-14px) scale(.96); } to { opacity: 1; transform: none; } }
-#bigNotice { position: absolute; left: 50%; top: 27%; transform: translate(-50%, -50%); text-align: center; opacity: 0; }
+#bigNotice { position: absolute; left: 50%; top: 34%; transform: translate(-50%, -50%); text-align: center; opacity: 0; }
 #bigNotice.show { animation: bigIn 3s ease-out forwards; }
 #bigNotice .big-title { font-family: var(--font-head); font-weight: 700; font-size: 46px; letter-spacing: .12em; color: #fff3c4; text-shadow: 0 0 18px rgba(255,205,90,.9), 0 0 42px rgba(255,180,60,.55), 0 3px 8px #000; white-space: nowrap; }
 #bigNotice .big-sub { font-family: var(--font-head); font-size: 20px; color: var(--gold-bright); letter-spacing: .08em; margin-top: 6px; text-shadow: 0 2px 6px #000, 0 0 10px rgba(255,200,80,.5); }
 #bigNotice .big-rule { width: 320px; height: 2px; margin: 8px auto 0; background: linear-gradient(90deg, transparent, var(--gold-bright), transparent); }
 @keyframes bigIn { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.8); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); } 20% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -56%) scale(1); } }
-#zoneBanner { position: absolute; left: 50%; top: 19%; transform: translate(-50%, -50%); text-align: center; opacity: 0; }
+#zoneBanner { position: absolute; left: 50%; top: 24%; transform: translate(-50%, -50%); text-align: center; opacity: 0; }
 #zoneBanner.show { animation: zoneIn 4.2s ease-out forwards; }
 #zoneBanner .zb-name { font-family: var(--font-head); font-size: 40px; font-weight: 700; letter-spacing: .18em; color: #f3e6c2; text-shadow: 0 3px 10px #000, 0 0 24px rgba(255,220,140,.45); white-space: nowrap; }
 #zoneBanner .zb-sub { font-family: var(--font-head); font-size: 15px; letter-spacing: .3em; color: var(--gold); text-transform: uppercase; margin-top: 4px; text-shadow: 0 2px 6px #000; }
@@ -1577,8 +1578,8 @@
   const DEATH_AUTO = 8;
   UI.DeathScreen = {
     visible: false,
-    show: function () { if (!ds.el) return; ds.el.hidden = false; UI.DeathScreen.visible = true; ds.t = DEATH_AUTO; ds.lastTxt = ''; UI.tooltip.hide(); if (G.Input && typeof G.Input.exitLock === 'function') G.Input.exitLock(); },
-    hide: function () { if (!ds.el) return; ds.el.hidden = true; UI.DeathScreen.visible = false; ds.t = -1; },
+    show: function () { if (!ds.el) return; ds.el.hidden = false; UI.DeathScreen.visible = true; ds.t = DEATH_AUTO; ds.lastTxt = ''; UI.tooltip.hide(); if (_hudRoot) _hudRoot.classList.add('dead'); if (G.Input && typeof G.Input.exitLock === 'function') G.Input.exitLock(); },
+    hide: function () { if (!ds.el) return; ds.el.hidden = true; UI.DeathScreen.visible = false; ds.t = -1; if (_hudRoot) _hudRoot.classList.remove('dead'); },
   };
   function _retreat() { UI.DeathScreen.hide(); if (_has(G.Player, 'respawn')) G.Player.respawn(); }
   function _buildDeath(overlays) {

@@ -361,7 +361,7 @@
 
   // ---- Chetwood & Midgewater (25th town: the spec's town list names 24) ---------------------------------------------
   town({ id: 'chetwoodcamp', name: "Chetwood Hunters' Camp", zone: 'souththicket', pos: { x: 20, z: 340 }, radius: 55, style: 'camp', hasStable: false, hasDock: false, hasInn: false,
-    rallyPoint: { x: 26, z: 348 }, walls: true, wallStyle: 'palisade', wallRadius: 50, gates: [{ x: -20, z: 300 }, { x: 70, z: 310 }], desc: 'A palisaded camp of Bree-land hunters and a lone Ranger on the Midgewater path, the only friendly fire between Staddle and the Forsaken Inn.' });
+    rallyPoint: { x: 26, z: 348 }, walls: true, wallStyle: 'palisade', wallRadius: 50, gates: [{ x: 40, z: 292 }], desc: 'A palisaded camp of Bree-land hunters and a lone Ranger on the Midgewater path, the only friendly fire between Staddle and the Forsaken Inn.' });
   B('man_house_2', 0, 20, 0, { name: "Hunters' Lodge" });
   B('tent', -24, -4, null);
   B('tent', 26, -6, null);

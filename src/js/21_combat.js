@@ -23,6 +23,8 @@
      tryAutoLoot() → bool   lootBag(bag, ent?) → bool   dropLoot(victim, forPlayer) → bag|null   lootBags (live array)   autoLootEnabled()
      revive(ent, moraleFrac?)   fallDamage(ent, fallSpeed) → dealt   markCombat(ent)   inCombatFor(ent) → bool
      basicAttackDamage(ent) → {min, max, avg, dtype, speed}   weaponSpeed(ent)   dtypeColor(dtype)   isPhysical(dtype)   resolveAbility(idOrObj)
+     suggestMonsterStats(level, {elite, boss, mult}) → {morale, dmg, armour, power, attackSpeed}  (tuned so a same-level 1v1 lasts ≈ 6 s
+       against a hero in uncommon gear and costs it ≈ 35 % morale; ×2.5/×8 morale for elite/boss)   heroDPSEstimate(level)
      lastAbility {ent, id, target, time}   lastHit {src, dst, amount, crit, avoided, dtype}   lastError (string)   stats() (counters)
    G.Progress:
      addXP(n, opts?) → gained   levelUp() → bool   setLevel(L)   addGold(copper, opts?) → gold   spendGold(copper) → bool
@@ -1710,6 +1712,24 @@
     return n;
   }
 
+  // ------------------------------------------------------------------------------------------------ balance curves
+  // Measured with tools/scratch/_balance.js: sustained DPS (full rotation + auto-attack) of a hero wearing uncommon
+  // gear in every slot, median over six classes: L10 ≈ 320, L40 ≈ 1280, L80 ≈ 3020 → 50 + 24L + 0.16L².
+  // Hero max morale in that gear ≈ 100 + 190L, physical mitigation sits at the 60 % cap from L5 on.
+  function heroDPSEstimate(level) { const L = Math.max(1, Math.min(120, num(level, 1))); return 50 + 24 * L + 0.16 * L * L; }
+  function suggestMonsterStats(level, opts) {
+    opts = opts || EMPTY;
+    const L = Math.max(1, Math.min(120, Math.round(num(level, 1))));
+    const heroMorale = 100 + 190 * L;
+    let morale = heroDPSEstimate(L) * 6;                 // a same-level 1v1 lasts ≈ 6 s (4–8 s across classes/gear)
+    let dmg = 0.2625 * heroMorale;                       // 3.3 swings in 6 s at 60 % mitigation ≈ 35 % of the hero's morale
+    let armour = 20 + 8 * L;                             // ≈ 17 % physical mitigation at every level
+    if (opts.boss) { morale *= 8; dmg *= 2; armour *= 1.5; }
+    else if (opts.elite) { morale *= 2.5; dmg *= 1.5; armour *= 1.25; }
+    const mult = num(opts.mult, 1) || 1;
+    return { morale: Math.round(morale * mult), dmg: Math.round(dmg * mult), armour: Math.round(armour), power: 50 + 10 * L, attackSpeed: 1.8 };
+  }
+
   // ------------------------------------------------------------------------------------------------ namespaces
   const Combat = {
     useAbility: useAbility, basicAttack: basicAttack, damage: damage, heal: heal,
@@ -1724,6 +1744,7 @@
     tryAutoLoot: tryAutoLoot, lootBag: lootBag, dropLoot: dropLoot, lootBags: lootBags, autoLootEnabled: autoLootEnabled,
     revive: revive, fallDamage: fallDamage, markCombat: markCombat, inCombatFor: inCombatFor,
     basicAttackDamage: basicAttackDamage, weaponSpeed: weaponSpeed, resolveAbility: resolveAbility,
+    suggestMonsterStats: suggestMonsterStats, heroDPSEstimate: heroDPSEstimate,
     dtypeColor: function (d) { return DTYPE_COLOR[d] || COLOR_DEALT; }, isPhysical: function (d) { return !!PHYSICAL[d]; },
     lastAbility: lastAbility, lastHit: lastHit, lastError: '',
     stats: function () { return counters; },

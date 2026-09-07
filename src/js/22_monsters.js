@@ -292,10 +292,31 @@
     if (G.Game && G.Game.camera) return G.Game.camera;
     return null;
   }
+  // nameplate text must fit the 512 px plate canvas (bold 42 px): measure, then shorten gracefully
+  let _measureCtx;
+  function plateWidth(s) {
+    if (_measureCtx === undefined) { try { _measureCtx = document.createElement('canvas').getContext('2d') || null; } catch (e) { _measureCtx = null; } }
+    if (!_measureCtx) return s.length * 23;
+    _measureCtx.font = 'bold 42px "Trebuchet MS", "Segoe UI", Arial, sans-serif';
+    return _measureCtx.measureText(s).width;
+  }
+  const PLATE_MAX_W = 486;
+  const _plateOut = { text: '', tagDropped: false };
   function plateText(ent) {
-    if (ent.boss) return '♛ ' + ent.name;
-    if (ent.elite) return ent.name + ' (Elite)';
-    return ent.name;
+    const prefix = ent.boss ? '♛ ' : '', suffix = ent.elite ? ' (Elite)' : '';
+    let name = String(ent.name || '');
+    _plateOut.tagDropped = false;
+    let text = prefix + name + suffix;
+    if (plateWidth(text) <= PLATE_MAX_W) { _plateOut.text = text; return _plateOut; }
+    const comma = name.indexOf(',');                      // "Lómëcar, the Serpent of…" → "Lómëcar"
+    if (comma > 0) { name = name.slice(0, comma); text = prefix + name + suffix; if (plateWidth(text) <= PLATE_MAX_W) { _plateOut.text = text; return _plateOut; } }
+    if (suffix) { _plateOut.tagDropped = true; text = prefix + name; if (plateWidth(text) <= PLATE_MAX_W) { _plateOut.text = text; return _plateOut; } }
+    const words = name.split(' ');
+    while (words.length > 1) { words.pop(); text = prefix + words.join(' ') + '…'; if (plateWidth(text) <= PLATE_MAX_W) { _plateOut.text = text; return _plateOut; } }
+    let s = name;
+    while (s.length > 3 && plateWidth(prefix + s + '…') > PLATE_MAX_W) s = s.slice(0, -1);
+    _plateOut.text = prefix + s + '…';
+    return _plateOut;
   }
   function makeNameplate(ent) {
     const Ch = G.Chars;
@@ -307,7 +328,9 @@
     if (G.Data && typeof G.Data.difficultyColor === 'function') { try { color = G.Data.difficultyColor(ent.level, pl) || color; } catch (e) { /* keep default */ } }
     const subColor = ent.boss ? '#ff9c3a' : ent.elite ? '#c48bff' : undefined;
     let sp = null;
-    try { sp = Ch.nameplate(plateText(ent), color, { sub: 'Level ' + ent.level + (ent.boss ? ' Boss' : ''), subColor: subColor }); } catch (e) { sp = null; }
+    const pt = plateText(ent);
+    const sub = 'Level ' + ent.level + (ent.boss ? ' Boss' : (ent.elite && pt.tagDropped ? ' Elite' : ''));
+    try { sp = Ch.nameplate(pt.text, color, { sub: sub, subColor: subColor }); } catch (e) { sp = null; }
     if (!sp) return;
     const rig = ent.rig;
     const sc = rig.scale > 0 ? rig.scale : 1;
@@ -990,6 +1013,8 @@
     if (r !== 0 || ai.timer <= 0 || ai.stuck) {
       ai.stuck = false;
       ai.state = 'idle'; ai.timer = 2 + rnd() * 5; ai.hasWander = false;
+      // group members rest where they stopped: a leash brings them back here (wander stays bounded by the group radius)
+      if (r === 1 && ent.group && !ent.boss && !isWater(ent.pos.x, ent.pos.z)) ent.home.set(ent.pos.x, ent.pos.y, ent.pos.z);
       _want.set(0, 0, 0);
     }
   }

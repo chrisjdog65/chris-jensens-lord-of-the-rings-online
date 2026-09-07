@@ -7,10 +7,16 @@
      G.Veg.update(playerPos, dt)        stream cells, rebuild instance buffers, refresh rings, animate wind
      G.Veg.setDensity(mult)             quality multiplier (0.25..1.5) — regenerates everything
      G.Veg.setWind(strength)            0 = still, 1 = breeze (default), 3 = storm; eases over ~2 s
-     G.Veg.stats()                      { cells, trees, instances, triangles, drawCalls, grass, colliders, byType }
-     G.Veg.treesNear(x, z, r)           → [{x,z,r}] tree trunks within r (reused buffer — copy if you keep it)
-     G.Veg.group                        THREE.Group holding every vegetation mesh
-     G.Veg.wind                         current eased wind strength
+     G.Veg.stats()                      { cells, trees, instances, triangles, drawCalls, grass, colliders, wind, density,
+                                          pending, rebuilding, genMsAvg, genMsMax, byType: {type: n | [near, mid, far]} }
+     G.Veg.treesNear(x, z, r)           → [{x,z,r}] tree trunks (and boulders) within r — reused buffer, copy if you keep it
+     G.Veg.group                        THREE.Group holding every vegetation mesh (meshes named veg_<type>_L<lod> / veg_<ring>)
+     G.Veg.wind / G.Veg.density         current eased wind strength / density multiplier
+     G.Veg.geometryInfo()               triangle counts per type & LOD;  G.Veg.cellAt(x,z) → loaded cell record or null
+     G.Veg.CELL (64), G.Veg.TYPES       cell size and the type table (read-only)
+   Behaviour notes: cells stream within 640 m (far LOD ≥ 220 m keeps 45 % of trees); colliders are registered only for
+   cells within 150 m of the player (tag 'veg:<cx>,<cz>', cleared when the cell leaves that ring or unloads); a
+   teleport/first spawn spends one ~30-40 ms frame filling the local cell + rings, otherwise ≤ ~3 ms/frame.
    Private helpers (rule 2): _mergeGeoms (merge that keeps custom attributes; G.mergeGeometries is used for the
    plain position/normal/uv/color sub-merges), _tube/_blob/_plane2 low-poly geometry builders.
    Assumptions: G.Terrain.height/slope/zoneAt/groundType/onRoad/isWater exist (all guarded); G.Terrain.groundColor

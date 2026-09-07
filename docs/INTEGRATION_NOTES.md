@@ -71,3 +71,9 @@
 - Esc handling: Player clears target/stops autoMove and consumes Escape only when a target existed and no panel is open; HUD's Esc (settings) runs otherwise.
 - Player fields other modules may read: `invulnerable`, `rollReady`, `mountRig`, `speedMult` (admin), `heightScale`, `spec` (creation spec). Events: `targetChanged`, `mounted`, `zoneChanged`, `playerRespawn`, `autoMoveArrived`, `autoMoveStopped`.
 - Extras: `getRight`, `mount(tid)`, `canMount()`, `rollCooldown()`, `interactLabel()`, `interactTarget {ent,label,name}`, `headPos/handPos(out)`, `autoMoving/autoStuck`, `snapCamera()`, `computeStats()`, `checkZone()`, `setCameraDistance(d)`, `useHotbar(i)`, `firstPerson`.
+
+## 05_data_world.js
+- Lookups: `zoneById/townById/npcById/monsterById/dockById/spotById/nodeById/poiById/bossById/spawnById/roadById`; helpers `isWater(x,z)`, `landInfo`, `zoneAt`, `townAt`, `nearestTown`, `typesInZone`, `spawnsInZone`, `npcsInTown`, `questGivers`, `travelRoutesFrom`, `startTowns`. 25th town is `chetwoodcamp`. Docks: 7 incl. `dock_duillond`. Bosses carry `poi`, `aquatic` (sea-serpent stands in the sea). NPCs: `hub:true`, `dock`. Missing item ids `mat_mushroom`, `misc_treasure_cache` were ADDED to 03 by the orchestrator.
+
+## 12_vegetation.js
+- `setWind(strength)` auto-driven by `weatherChanged`; `treesNear(x,z,r)` reused buffer; `stats()`, `cellAt`, `setDensity` regenerates everything (heavy frame — call only from settings). Assumes `groundType` 'grass' for meadows, 'dirt' in towns.
