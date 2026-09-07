@@ -145,3 +145,7 @@
 - `G.Game`: `boot, startNew, startFromSave, toMenu, toCharCreate, restart, zoneMusic(), togglePause, readyPromise, fps, frameMs, autoQuality, scene, renderer, camera, canvas, timings`. `renderer.info.autoReset=false` with a manual reset so drawCalls in `__T.stats()` include shadow + PostFX passes (main pass ≈ 581 in Archet at 'high'; 992 incl. passes).
 - `__T`: `ready, inGame, errors, G, quickStart(opts), stats(), press(code), teleport(x,z), setTime(h), screenshotReady(), waitFrames(n), timings`. Scripted tests must space repeated same-key presses by ≥ 1 frame (use `__T.waitFrames`) under software GL.
 - Boot ≈ 6.6 s on a quiet machine (swiftshader). Auto-quality steps down when fps < 50.
+
+## Polish pass 1 (terrain/buildings/minimap)
+- `G.Terrain.mapCanvas(size, {labels:false})` cached label-free base; minimap draws its own small labels. Town cores: packed earth + pale road paths (`town.groundFill` override; hobbit towns stay grass). Small lakes depth ≤ 4 m with gentle banks; coast slope halved within ±14 m of the waterline. Recipes `banner` (wind-swayed cloth, heraldry by town style) and `anvil` added — smoke warnings gone.
+- Caveat: Hobbiton/Bywater/Ost Guruth town base heights dropped ~1.5–2.5 m due to pond hollows (buildings re-sample terrain so fine).
