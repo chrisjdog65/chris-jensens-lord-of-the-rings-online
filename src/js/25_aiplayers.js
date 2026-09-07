@@ -1130,3 +1130,398 @@
       if (S() < 0.0003 * dt) die(e, null, true);
     }
   }
+
+  // ------------------------------------------------------------------------------------------------ near simulation: rigs
+  function ensureScene() {
+    if (!root) return null;
+    if (scene && root.parent === scene) return scene;
+    const sc = scene || (G.Game && G.Game.scene) || (G.Buildings && G.Buildings.scene) || null;
+    if (sc && sc.isScene) { scene = sc; if (root.parent !== sc) sc.add(root); return sc; }
+    return null;
+  }
+  function cameraOf() { const P = G.Player; return (P && P.camera && P.camera.isCamera) ? P.camera : null; }
+  function lookFor(e) {
+    if (e.look) return e.look;
+    const r = hasFn(G, 'rng') ? G.rng('ai-look:' + e.id) : S;
+    const rd = raceOf(e.race);
+    const skins = (rd && rd.skinTones && rd.skinTones.length) ? rd.skinTones : null, hairs = (rd && rd.hairColors && rd.hairColors.length) ? rd.hairColors : null;
+    e.look = { skin: skins ? skins[Math.floor(r() * skins.length) % skins.length] : undefined, hairColor: hairs ? hairs[Math.floor(r() * hairs.length) % hairs.length] : undefined, hairStyle: Math.floor(r() * 5) };
+    if (e.gender === 'male' && (e.race === 'dwarf' || e.race === 'stoutaxe' || r() < 0.35)) e.look.beard = 1 + Math.floor(r() * 2);
+    return e.look;
+  }
+  function plateSub(e) { return 'Level ' + e.level + ' ' + className(e.cls); }
+  function buildRig(e) {
+    if (e.rig || !G.Chars || !hasFn(G.Chars, 'buildHumanoid') || !root) return false;
+    const look = lookFor(e);
+    const spec = { race: e.race, gender: e.gender, cls: e.cls, name: e.name, level: e.level, title: plateSub(e), nameplate: true, nameColor: NAME_COLOR,
+      skin: look.skin, hairColor: look.hairColor, hairStyle: look.hairStyle, beard: look.beard, equipment: e.equipment, armourType: armourTypeOf(e.cls) };
+    let rig = null;
+    try { rig = G.Chars.buildHumanoid(spec); } catch (err) { report(err, 'buildHumanoid'); rig = null; }
+    if (!rig || !rig.group) return false;
+    e.rig = rig; e.mesh = rig.group;
+    if (rig.height > 0) e.height = rig.height;
+    rig.group.name = 'ai_' + e.id;
+    root.add(rig.group);
+    e.pos.y = e.sailing ? num(C.SEA_LEVEL, 0) : terrainY(e.pos.x, e.pos.z);
+    e.onGround = true;
+    syncRig(e);
+    if (e.dead) { if (hasFn(rig, 'setAnim')) rig.setAnim('death', true); }
+    else if (e.ai.sit && hasFn(rig, 'setAnim')) rig.setAnim(e.ai.dance ? 'emote_dance' : 'sit', true);
+    if (e.mounted) syncMountRig(e);
+    rigList.push(e); rigCount++; counters.rigsBuilt++;
+    ensureScene();
+    return true;
+  }
+  function refreshNameplate(e) {
+    const rig = e.rig; if (!rig || !G.Chars || !hasFn(G.Chars, 'nameplate')) return;
+    try {
+      if (rig.nameplate) { if (hasFn(G.Chars, 'releaseNameplate')) G.Chars.releaseNameplate(rig.nameplate); else if (rig.nameplate.parent) rig.nameplate.parent.remove(rig.nameplate); }
+      const np = G.Chars.nameplate(e.name, NAME_COLOR, { sub: plateSub(e) });
+      if (np) { np.position.y = (rig.height || e.height) + 0.12; rig.group.add(np); rig.nameplate = np; }
+    } catch (err) { report(err, 'nameplate'); }
+  }
+  function disposeRig(e) {
+    const rig = e.rig; if (!rig) return;
+    detachFromMount(e);
+    try { if (hasFn(rig, 'dispose')) rig.dispose(); } catch (err) { report(err, 'rig.dispose'); }
+    if (rig.group && rig.group.parent) rig.group.parent.remove(rig.group);
+    if (e.mountRig) { const h = e.mountRig; try { if (h.group && h.group.parent) h.group.parent.remove(h.group); if (hasFn(h, 'dispose')) h.dispose(); } catch (err) { report(err, 'horse.dispose'); } e.mountRig = null; }
+    e.rig = null; e.mesh = null;
+    const i = rigList.indexOf(e); if (i >= 0) rigList.splice(i, 1);
+    rigCount--; counters.rigsDisposed++;
+  }
+  function ensureHorse(e) {
+    if (e.mountRig) return e.mountRig;
+    if (!G.Chars || !hasFn(G.Chars, 'buildHorse')) return null;
+    let h = null;
+    try { h = G.Chars.buildHorse(HORSE_COLORS[(e.seed >>> 0) % HORSE_COLORS.length]); } catch (err) { h = null; }
+    if (!h || !h.group) return null;
+    h.group.name = 'ai_horse_' + e.id;
+    e.mountRig = h;
+    return h;
+  }
+  function detachFromMount(e) {
+    const rig = e.rig, h = e.mountRig;
+    if (rig && rig.group && rig.group.parent && rig.group.parent !== root) { rig.group.parent.remove(rig.group); if (root) root.add(rig.group); rig.group.position.set(e.pos.x, e.pos.y, e.pos.z); rig.group.rotation.set(0, e.yaw, 0); rig.group.scale.set(1, 1, 1); }
+    if (rig && hasFn(rig, 'setMounted')) rig.setMounted(false);
+    if (h && h.group && h.group.parent) h.group.parent.remove(h.group);
+  }
+  function syncMountRig(e) {
+    const rig = e.rig; if (!rig) return;
+    if (e.mounted) {
+      const h = ensureHorse(e); if (!h) return;
+      const seat = (h.parts && h.parts.saddle) ? h.parts.saddle : h.group;
+      if (rig.group.parent !== seat) { if (rig.group.parent) rig.group.parent.remove(rig.group); seat.add(rig.group); rig.group.position.set(0, 0, 0); rig.group.rotation.set(0, 0, 0); rig.group.scale.set(1, 1, 1); }
+      if (hasFn(rig, 'setMounted')) rig.setMounted(true);
+      if (hasFn(rig, 'setAnim')) rig.setAnim('ride', true);
+      if (root && h.group.parent !== root) root.add(h.group);
+      h.group.position.copy(e.pos); h.group.rotation.y = e.yaw;
+      if (hasFn(h, 'setAnim')) h.setAnim('idle', true);
+    } else {
+      detachFromMount(e);
+      if (hasFn(rig, 'setAnim')) rig.setAnim('idle', true);
+    }
+  }
+  function syncRig(e) {
+    const rig = e.rig; if (!rig) return;
+    if (e.mounted && e.mountRig && rig.group.parent !== root) { const h = e.mountRig; h.group.position.copy(e.pos); h.group.rotation.y = e.yaw; }
+    else { rig.group.position.copy(e.pos); rig.group.rotation.y = e.yaw; }
+  }
+  const _aiFilter = (x) => x.kind === 'aiplayer' && x.online !== false;
+  function scanNear(px, pz) {
+    for (let i = 0; i < nearList.length; i++) nearList[i]._wasNear = nearList[i]._near;
+    nearList.length = 0;
+    const SP = G.Spatial; if (!SP || !hasFn(SP, 'query')) return;
+    let q; try { q = SP.query(px, pz, RENDER_DROP, _aiFilter, _qbuf); } catch (err) { report(err, 'Spatial.query'); return; }
+    for (let i = 0; i < q.length; i++) { const e = q[i]; e._d2 = _dist2sq(px, pz, e.pos.x, e.pos.z); nearList.push(e); }
+    nearList.sort((a, b) => a._d2 - b._d2);
+    const near2 = NEAR_SIM_DIST * NEAR_SIM_DIST;
+    for (let i = 0; i < nearList.length; i++) {
+      const e = nearList[i]; e._rank = i;
+      const near = !e.sailing && (e._d2 < near2 || !!e.rig);
+      if (near && !e._near) { e.pos.y = terrainY(e.pos.x, e.pos.z); e.onGround = true; e.vel.x = 0; e.vel.y = 0; e.vel.z = 0; e.ai.lastX = e.pos.x; e.ai.lastZ = e.pos.z; e.ai.stuckT = 0; }
+      e._near = near;
+    }
+    // entities that fell out of the query are no longer near
+    for (let i = 0; i < all.length; i++) { const e = all[i]; if (e._near && e._rank >= nearList.length) e._near = false; if (nearList.indexOf(e) < 0) { e._near = false; e._rank = 999; e._d2 = Infinity; } }
+  }
+  function rigBudget() {
+    if (!root || !ensureScene()) return;
+    const drop2 = RENDER_DROP * RENDER_DROP, keep2 = RENDER_DIST * RENDER_DIST;
+    for (let i = rigList.length - 1; i >= 0; i--) { const e = rigList[i]; if (e._d2 > drop2 || e._rank >= MAX_RIGS + 4 || e.sailing) disposeRig(e); }
+    let built = 0;
+    for (let i = 0; i < nearList.length && i < MAX_RIGS && built < RIG_BUILDS_PER_FRAME; i++) {
+      const e = nearList[i];
+      if (e.rig || e.sailing || e._d2 > keep2 || rigCount >= MAX_RIGS) continue;
+      if (buildRig(e)) built++;
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------ near simulation: combat
+  function releaseTarget(e) {
+    const a = e.ai; const m = a.fightTarget;
+    if (m && m.engagedBy === e.id) m.engagedBy = null;
+    a.fightTarget = null; a.defend = false; e.target = null; e.inCombat = false;
+  }
+  function sameFellowship(e, id) { if (!id || !e.fellowshipId) return false; const o = byId[id]; return !!(o && o.fellowshipId === e.fellowshipId); }
+  let _scanFor = null;
+  const _targetFilter = function (m) {
+    const e = _scanFor; if (!e || !m || m.dead || m.alive === false || m.despawned || m.leashing || m.invulnerable) return false;
+    if (m.boss && e.level < 60) return false;
+    const lv = num(m.level, 1); const diff = lv - e.level;
+    if (diff > ENGAGE_LEVEL_SLACK || diff < -(ENGAGE_LEVEL_SLACK + 3)) return false;
+    if (m.engagedBy && m.engagedBy !== e.id && !sameFellowship(e, m.engagedBy)) return false;
+    return true;
+  };
+  function findTarget(e) {
+    const M = G.Monsters; _scanFor = e; let m = null;
+    try {
+      if (M && hasFn(M, 'nearestHostile')) m = M.nearestHostile(e.pos, COMBAT_SCAN_RANGE, _targetFilter);
+      else if (G.Combat && hasFn(G.Combat, 'nearestHostile')) { m = G.Combat.nearestHostile(e, COMBAT_SCAN_RANGE); if (m && !_targetFilter(m)) m = null; }
+    } catch (err) { report(err, 'findTarget'); m = null; }
+    _scanFor = null;
+    return m;
+  }
+  function engage(e, m, defend) {
+    const a = e.ai;
+    if (!m || m === a.fightTarget) return;
+    if (a.fightTarget) releaseTarget(e);
+    a.fightTarget = m; e.target = m; a.defend = !!defend; a.noTargetT = 0; a.sit = false; a.dance = false; a.eatUntil = 0; e.inCombat = true;
+    if (!m.engagedBy) m.engagedBy = e.id;
+    setMounted(e, false);
+    if (e.rig && hasFn(e.rig, 'setAnim') && e.rig.state) e.rig.setAnim('idle', true);
+    counters.fights++;
+    // open with a buff/stance now and then
+    const rot = e.rotation; const CB = G.Combat;
+    if (rot && rot.buff.length && CB && hasFn(CB, 'useAbility') && schance(0.5)) { try { if (CB.useAbility(e, spick(rot.buff), e)) counters.abilities++; } catch (err) { report(err, 'buff'); } }
+    // fellowship members nearby join in
+    forEachMember(e, (o) => { if (o._near && alive(o) && !o.ai.fightTarget && _dist2sq(o.pos.x, o.pos.z, m.pos.x, m.pos.z) < 40 * 40) { o.ai.fightTarget = m; o.target = m; o.ai.defend = true; o.inCombat = true; setMounted(o, false); } });
+  }
+  function tryHeal(e, t) {
+    const rot = e.rotation; const CB = G.Combat; if (!rot || !CB || !hasFn(CB, 'useAbility')) return false;
+    if (!rot.heal.length && !rot.selfHeal.length) return false;
+    const maxM = num(e.stats.maxMorale, 1);
+    let target = null;
+    if (e.morale < maxM * 0.55) target = e;
+    if (!target) {
+      let worst = 0.6;
+      forEachMember(e, (o) => { if (alive(o) && o.stats && _dist2sq(e.pos.x, e.pos.z, o.pos.x, o.pos.z) < 30 * 30) { const f = o.morale / Math.max(1, o.stats.maxMorale); if (f < worst) { worst = f; target = o; } } });
+      const p = player();
+      if (!target && p && alive(p) && p.stats && e.persona.friendly >= 0.5 && _dist2sq(e.pos.x, e.pos.z, p.pos.x, p.pos.z) < 25 * 25 && p.morale / Math.max(1, p.stats.maxMorale) < 0.5) target = p;
+    }
+    if (!target) return false;
+    const list = (target === e && rot.selfHeal.length) ? rot.selfHeal : rot.heal.length ? rot.heal : rot.selfHeal;
+    for (let i = 0; i < list.length; i++) {
+      let ok = false; try { ok = CB.useAbility(e, list[i], target); } catch (err) { report(err, 'heal'); }
+      if (ok) { counters.heals++; return true; }
+    }
+    return false;
+  }
+  function tryAttack(e, m) {
+    const rot = e.rotation; const CB = G.Combat; if (!CB) return false;
+    const a = e.ai;
+    if (rot && rot.attack.length && hasFn(CB, 'useAbility')) {
+      const n = rot.attack.length;
+      for (let k = 0; k < n; k++) {
+        const id = rot.attack[(a.rot + k) % n];
+        let ok = false; try { ok = CB.useAbility(e, id, m); } catch (err) { report(err, 'useAbility'); ok = false; }
+        if (ok) { a.rot = (a.rot + k + 1) % n; counters.abilities++; return true; }
+      }
+    }
+    if (hasFn(CB, 'basicAttack')) { let ok = false; try { ok = CB.basicAttack(e, m); } catch (err) { report(err, 'basicAttack'); } if (ok) counters.attacks++; return ok; }
+    return false;
+  }
+  function combatStep(e, dt, t) {
+    const a = e.ai;
+    if (e.dead || !G.Combat) return;
+    if (a.eatUntil > t) { e.morale = Math.min(e.stats.maxMorale, e.morale + e.stats.maxMorale * 0.14 * dt); e.power = Math.min(e.stats.maxPower, e.power + e.stats.maxPower * 0.1 * dt); return; }
+    if (a.eating) { a.eating = false; a.sit = false; if (e.rig && hasFn(e.rig, 'setAnim')) e.rig.setAnim('idle', true); setActivity(e, a.state === 'questing' ? 'Fighting at ' + spawnName(a.spawn) : e.activity); }
+    if (a.retreatUntil > t) return;
+    let m = a.fightTarget;
+    if (m && (!alive(m) || m.despawned || m.leashing || _dist2sq(e.pos.x, e.pos.z, m.pos.x, m.pos.z) > 70 * 70)) { releaseTarget(e); m = null; }
+    if (!m) {
+      const wants = (a.state === 'questing' && a.phase === 'fight') || (a.state === 'idle' && a.defend);
+      if (wants && t >= a.nextScan) { a.nextScan = t + 0.5; m = findTarget(e); if (m) engage(e, m, false); else a.noTargetT += 0.5; }
+      if (!m) return;
+    }
+    if (e.morale < e.stats.maxMorale * RETREAT_PCT && t - a.lastRetreat > 25) {
+      a.lastRetreat = t; a.retreatUntil = t + 2.5; a.threatX = m.pos.x; a.threatZ = m.pos.z; a.eatAfter = true;
+      releaseTarget(e); setActivity(e, 'Retreating from ' + (m.name || 'a foe'));
+      if (e.persona.chatty > 0.5 && nearHero(e.pos.x, e.pos.z, SAY_RANGE) && schance(0.4) && chatEnabled()) schedule(e, pickLine(e, 'say_fight', null), 'say', sr(0.2, 1));
+      return;
+    }
+    if (t < a.nextCast) return;
+    a.nextCast = t + 0.35;
+    if (tryHeal(e, t)) return;
+    const range = RANGED_CLASSES[e.cls] ? 20 : 2.4;
+    const d = Math.sqrt(_dist2sq(e.pos.x, e.pos.z, m.pos.x, m.pos.z)) - num(m.radius, 0.5) - e.radius;
+    if (d > range + 0.3) return;
+    tryAttack(e, m);
+  }
+  function onDamaged(dst, src, amount) {
+    if (!dst || dst.kind !== 'aiplayer' || dst.dead) return;
+    const a = dst.ai;
+    if (!src || src === dst || !alive(src) || src.kind !== 'monster') return;
+    a.sit = false; a.dance = false; a.eatUntil = 0; a.eating = false;
+    if (dst.rig && hasFn(dst.rig, 'setAnim') && dst.rig.state && dst.rig.state !== 'ride') dst.rig.setAnim('idle', true);
+    if (!a.fightTarget) engage(dst, src, true);
+  }
+  function onEntityKilled(ev) {
+    if (!ev || !ev.victim) return;
+    const v = ev.victim, k = ev.killer;
+    if (v.kind === 'aiplayer' && byId[v.id] === v) { die(v, k || null, false); return; }
+    if (v.kind === 'monster') {
+      // whoever was fighting it lets go; the killer (or the AI that had it engaged) gets the credit
+      let credit = (k && k.kind === 'aiplayer' && byId[k.id]) ? k : ((v.engagedBy && byId[v.engagedBy]) || null);
+      for (let i = 0; i < nearList.length; i++) { const e = nearList[i]; if (e.ai.fightTarget === v) { e.ai.killsThisFight++; releaseTarget(e); e.ai.nextScan = now() + sr(0.6, 1.6); } }
+      if (credit && !credit.dead) {
+        credit.kills++; counters.kills++;
+        addXP(credit, killXP(num(v.level, credit.level), credit.level, num(v.xpMult, 1)));
+        forEachMember(credit, (o) => { if (alive(o) && _dist2sq(o.pos.x, o.pos.z, v.pos.x, v.pos.z) < 60 * 60) { o.kills++; addXP(o, killXP(num(v.level, o.level), o.level, num(v.xpMult, 1)) * 0.7); } });
+        if (credit.persona.chatty > 0.6 && nearHero(credit.pos.x, credit.pos.z, SAY_RANGE) && schance(0.12) && chatEnabled()) schedule(credit, pickLine(credit, 'say_fight', null), 'say', sr(0.5, 2));
+      }
+      if (v.engagedBy && byId[v.engagedBy]) v.engagedBy = null;
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------ near simulation: movement & animation
+  function probeBlocked(e, x, z) {
+    const P = G.Physics;
+    if (P && hasFn(P, 'isFree')) { try { if (!P.isFree(x, z, 0.45)) return true; } catch (err) { /* ignore */ } }
+    else if (isWaterAt(x, z)) return true;
+    const V = G.Veg;
+    if (V && hasFn(V, 'treesNear')) { try { const tr = V.treesNear(x, z, 0.9); if (tr.length) return true; } catch (err) { /* ignore */ } }
+    const p = player();
+    if (p && p.pos && _dist2sq(p.pos.x, p.pos.z, x, z) < 1.4 * 1.4) return true;
+    return false;
+  }
+  function steer(e, dx, dz, t, out) {
+    const a = e.ai;
+    if (a.avoidUntil > t) { const c = Math.cos(a.avoidAng), s = Math.sin(a.avoidAng); out.x = dx * c - dz * s; out.z = dx * s + dz * c; return out; }
+    out.x = dx; out.z = dz;
+    if (t < a.probeT) return out;
+    a.probeT = t + 0.15;
+    const px = e.pos.x + dx * 2.2, pz = e.pos.z + dz * 2.2;
+    if (!probeBlocked(e, px, pz)) return out;
+    const angs = [a.avoidSide * 0.95, -a.avoidSide * 0.95, a.avoidSide * 1.9, -a.avoidSide * 1.9];
+    for (let i = 0; i < angs.length; i++) {
+      const c = Math.cos(angs[i]), s = Math.sin(angs[i]); const rx = dx * c - dz * s, rz = dx * s + dz * c;
+      if (!probeBlocked(e, e.pos.x + rx * 2.2, e.pos.z + rz * 2.2)) { a.avoidAng = angs[i]; a.avoidUntil = t + 0.7; out.x = rx; out.z = rz; return out; }
+    }
+    a.avoidSide = -a.avoidSide;
+    return out;
+  }
+  function nudge(e, dx, dz) {
+    const P = G.Physics; let nx = e.pos.x + dx * 4, nz = e.pos.z + dz * 4;
+    if (P && hasFn(P, 'nearestFree')) { try { const f = P.nearestFree(nx, nz, 0.4); if (f) { nx = f.x; nz = f.z; } } catch (err) { /* ignore */ } }
+    placeAt(e, nx, nz, e.yaw);
+    e.pos.y = terrainY(nx, nz);
+    e.ai.nudges++;
+  }
+  function nearMove(e, dt, t) {
+    const a = e.ai;
+    let tx = 0, tz = 0, speed = 0, want = false;
+    const p = player();
+    if (e.dead) { want = false; }
+    else if (a.retreatUntil > t) {
+      const dx = e.pos.x - num(a.threatX, e.pos.x), dz = e.pos.z - num(a.threatZ, e.pos.z); const d = Math.sqrt(dx * dx + dz * dz) || 1;
+      tx = e.pos.x + dx / d * 12; tz = e.pos.z + dz / d * 12; speed = RUN_SPEED; want = true;
+      if (a.retreatUntil - t < dt * 1.5 && a.eatAfter) { a.eatAfter = false; a.eatUntil = t + EAT_TIME; a.eating = true; a.sit = true; a.dance = false; setActivity(e, 'Catching breath after a fight'); if (e.rig && hasFn(e.rig, 'setAnim')) e.rig.setAnim('sit', true); }
+    }
+    else if (a.eatUntil > t || (a.sit && !a.fightTarget) || a.emoteUntil > t) { want = false; }
+    else if (a.fightTarget) {
+      const m = a.fightTarget; const range = RANGED_CLASSES[e.cls] ? 18 : 2.2;
+      const d = Math.sqrt(_dist2sq(e.pos.x, e.pos.z, m.pos.x, m.pos.z)) - num(m.radius, 0.5) - e.radius;
+      if (d > range) { tx = m.pos.x; tz = m.pos.z; speed = RUN_SPEED; want = true; }
+    }
+    else if (a.follow) {
+      const d = Math.sqrt(_dist2sq(e.pos.x, e.pos.z, a.followX, a.followZ));
+      if (d > 2) { tx = a.followX; tz = a.followZ; speed = (e.mounted ? MOUNT_SPEED : RUN_SPEED) * (d > 12 ? 1.25 : 1); want = true; } else a.follow = false;
+    }
+    else if (a.path && a.pathIdx < a.path.length) {
+      const wp = a.path[a.pathIdx];
+      if (!wp.boat) {
+        const d = Math.sqrt(_dist2sq(e.pos.x, e.pos.z, wp.x, wp.z));
+        if (d <= a.arriveDist) { a.pathIdx++; if (a.pathIdx >= a.path.length) { a.path = null; updateMount(e); } }
+        else { tx = wp.x; tz = wp.z; speed = speedOf(e); want = true; }
+      }
+    }
+    // steering
+    let dx = 0, dz = 0;
+    if (want) {
+      dx = tx - e.pos.x; dz = tz - e.pos.z; const d = Math.sqrt(dx * dx + dz * dz) || 1; dx /= d; dz /= d;
+      if (d < 3 && speed > RUN_SPEED) speed = RUN_SPEED;
+      steer(e, dx, dz, t, _spot); dx = _spot.x; dz = _spot.z;
+      _v.set(dx * speed, 0, dz * speed);
+    } else _v.set(0, 0, 0);
+    const P = G.Physics;
+    const ox = e.pos.x, oz = e.pos.z;
+    if (P && hasFn(P, 'moveEntity')) { try { P.moveEntity(e, _v, dt); } catch (err) { report(err, 'moveEntity'); } }
+    else { e.pos.x += _v.x * dt; e.pos.z += _v.z * dt; e.vel.x = _v.x; e.vel.z = _v.z; e.pos.y = terrainY(e.pos.x, e.pos.z); if (G.Spatial && hasFn(G.Spatial, 'update')) G.Spatial.update(e); }
+    if (e.mounted && e.swimming) setMounted(e, false);
+    // facing
+    if (want && speed > 0) e.yaw = alerp(e.yaw, _yawTo(dx, dz), Math.min(1, dt * 8));
+    else if (a.fightTarget) e.yaw = alerp(e.yaw, _yawTo(a.fightTarget.pos.x - e.pos.x, a.fightTarget.pos.z - e.pos.z), Math.min(1, dt * 6));
+    else if (a.emoteUntil > t && p && p.pos) e.yaw = alerp(e.yaw, _yawTo(p.pos.x - e.pos.x, p.pos.z - e.pos.z), Math.min(1, dt * 6));
+    // stuck handling
+    if (want && speed > 0) {
+      const moved = Math.sqrt(_dist2sq(ox, oz, e.pos.x, e.pos.z));
+      if (moved < speed * dt * 0.35) a.stuckT += dt; else a.stuckT = Math.max(0, a.stuckT - dt * 2);
+      if (a.stuckT > 2.5 && a.stuckT < 2.5 + dt * 1.01) { if (e.onGround) e.vel.y = JUMP_VEL; a.avoidSide = -a.avoidSide; a.avoidAng = a.avoidSide * 1.2; a.avoidUntil = t + 0.8; }
+      else if (a.stuckT > 6) { a.stuckT = 0; a.nudges++; if (a.nudges >= 3) { a.nudges = 0; if (a.path && a.pathIdx < a.path.length && !nearHero(a.path[a.pathIdx].x, a.path[a.pathIdx].z, 30)) { const wp = a.path[a.pathIdx]; placeAt(e, wp.x, wp.z, e.yaw); } else if (a.fightTarget) releaseTarget(e); else if (a.path) { a.pathIdx++; if (a.pathIdx >= a.path.length) a.path = null; } else a.follow = false; } else nudge(e, dx, dz); }
+    } else a.stuckT = 0;
+  }
+  function emoteStep(e, dt, t) {
+    const a = e.ai; const p = player();
+    if (!p || !p.pos || e.dead || a.fightTarget || e.mounted || !e.rig || !hasFn(e.rig, 'setAnim')) return;
+    if (a.emoteUntil > t) return;
+    const d2 = e._d2;
+    if (d2 < WAVE_RANGE * WAVE_RANGE && e.persona.friendly >= 0.5 && t - e.lastWave > 300 && !a.sit) {
+      e.lastWave = t; a.emoteUntil = t + 2.1; e.rig.setAnim('emote_wave', true); counters.emotes++;
+      if (schance(0.4) && chatEnabled()) schedule(e, pickLine(e, 'say_wave', null), 'say', sr(0.3, 1.2));
+      return;
+    }
+    if (d2 < 36 && num(p.level, 1) >= e.level + 20 && t - e.lastBow > 600 && !a.sit) {
+      e.lastBow = t; a.emoteUntil = t + 2.1; e.rig.setAnim('emote_bow', true); counters.emotes++;
+      if (schance(0.5) && chatEnabled()) schedule(e, pickLine(e, 'say_bow', null), 'say', sr(0.5, 1.5));
+    }
+  }
+  function animStep(e, dt, t) {
+    const rig = e.rig; if (!rig || !hasFn(rig, 'setAnim')) return;
+    const a = e.ai;
+    if (e.dead) return;
+    if (a.state === 'fishing' && a.phase === 'fish' && !a.fightTarget) {
+      if (a.fishSeq !== 'wait' && a.fishSeq !== 'cast' && a.fishSeq !== 'reel') { rig.setAnim('fish_cast', true); a.fishSeq = 'cast'; a.fishCastT = t + 1.2; }
+      else if (a.fishSeq === 'cast' && t >= a.fishCastT) { rig.setAnim('fish_wait'); a.fishSeq = 'wait'; }
+      else if (a.fishSeq === 'wait' && rig.anim === 'fish_reel') { a.fishSeq = 'reel'; a.fishCastT = t + 1.2; }
+      else if (a.fishSeq === 'reel' && t >= a.fishCastT) { rig.setAnim('fish_cast', true); a.fishSeq = 'cast'; a.fishCastT = t + 1.2; }
+      return;
+    }
+    if (a.fishSeq) { a.fishSeq = null; rig.setAnim('idle', true); }
+    const sitting = a.sit && !a.fightTarget && a.retreatUntil <= t && (a.eatUntil > t || (a.state === 'town' && a.phase === 'idle'));
+    if (sitting) {
+      if (a.dance === undefined || a.dance === null) a.dance = a.spotKind === 'campfire' && schance(0.2);
+      const wantAnim = a.dance && a.eatUntil <= t ? 'emote_dance' : 'sit';
+      if (rig.state !== wantAnim && !rig.oneShot) rig.setAnim(wantAnim, true);
+    } else if (rig.state === 'sit' || rig.state === 'emote_dance') { rig.setAnim('idle', true); a.dance = null; }
+  }
+  function nearStep(e, dt, t) {
+    counters.nearTicks++;
+    if (e.sailing) return;
+    const a = e.ai;
+    if (!e.dead) {
+      combatStep(e, dt, t);
+      if (a.retreatUntil <= t && a.eatUntil <= t && !a.fightTarget && a.defend) a.defend = false;
+      emoteStep(e, dt, t);
+    }
+    nearMove(e, dt, t);
+    animStep(e, dt, t);
+    const rig = e.rig;
+    if (rig) {
+      syncRig(e);
+      if (e.mounted && e.mountRig) { const h = e.mountRig; if (hasFn(h, 'play')) { try { h.play(dt, e); } catch (err) { report(err, 'horse.play'); } } }
+      if (hasFn(rig, 'play')) { try { rig.play(dt, e); } catch (err) { report(err, 'rig.play'); } }
+      const np = rig.nameplate;
+      if (np) { const vis = e._d2 < NAMEPLATE_DIST * NAMEPLATE_DIST; np.visible = vis; const cam = vis ? cameraOf() : null; if (cam && G.Chars && hasFn(G.Chars, 'updateNameplate')) { try { G.Chars.updateNameplate(np, cam); } catch (err) { /* ignore */ } } }
+    }
+  }

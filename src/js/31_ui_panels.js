@@ -540,7 +540,7 @@
   UI.closeContextMenu = _menuClose;
 
   // ================================================================================================ fade overlay
-  let _fadeEl = null, _fadeTimer = 0;
+  let _fadeEl = null, _fadeTimer = 0, _fadeHold = false;
   function _fadeEnsure() {
     if (_fadeEl) return _fadeEl;
     const host = document.getElementById('overlays') || document.getElementById('ui') || document.body;
@@ -553,6 +553,7 @@
     const f = _fadeEnsure();
     if (_fadeTimer) { clearTimeout(_fadeTimer); _fadeTimer = 0; }
     if (typeof on === 'number') {
+      if (_fadeHold) return;                  // a held fade (swift travel) owns the screen until it releases it
       const total = Math.max(0.2, on);
       f.style.transitionDuration = (total * 0.35).toFixed(2) + 's';
       f.classList.add('on');
@@ -565,6 +566,7 @@
       return;
     }
     f.style.transitionDuration = (typeof dur === 'number' ? Math.max(0.05, dur) : 0.35).toFixed(2) + 's';
+    _fadeHold = !!on;
     if (on) { f.classList.add('on'); if (typeof onBlack === 'function') { _fadeTimer = setTimeout(function () { _fadeTimer = 0; try { onBlack(); } catch (err) { _report(err, 'fade callback'); } }, f.style.transitionDuration.replace('s', '') * 1000); } }
     else f.classList.remove('on');
   }
@@ -1865,3 +1867,555 @@
   Pl.update = function (dt) { if (!Pl.isOpen()) return; PL.t += dt; if (PL.t < 1) return; PL.t = 0; _plFill(); _plDetail(false); };
   Pl.onOpen = function (arg) { PL.t = 0; if (typeof arg === 'string') Pl.select(arg); };
   definePanel('players', Pl, { title: 'Players of Middle-earth', key: 'KeyP', width: 920, height: Math.min(600, Math.max(420, _vh() - 80)), pos: 'center' });
+
+  // ================================================================================================ DIALOGUE
+  const DG = { npc: null, text: '', options: [], view: 'main', quest: null, mode: '', chosen: -1, closeTimer: 0, answered: false };
+  const Dg = {};
+  const ROLE_ICON = { questgiver: '❖', trainer: '📜', stablemaster: '🐎', boatmaster: '⛵', innkeeper: '🔥', guard: '🛡', bard: '🎵', flavor: '💬' };
+  function _npcRoles(npc) { return (npc && Array.isArray(npc.roles)) ? npc.roles : []; }
+  function _npcGlyph(npc) {
+    const roles = _npcRoles(npc);
+    for (let i = 0; i < roles.length; i++) { const r = roles[i]; if (r.indexOf('vendor') === 0) return '⚖'; if (ROLE_ICON[r] && r !== 'flavor') return ROLE_ICON[r]; }
+    return npc && npc.race === 'elf' ? '🧝' : npc && (npc.race === 'dwarf' || npc.race === 'stoutaxe') ? '⛏' : '🧙';
+  }
+  function _refreshOptions() { if (DG.npc && _has(G.NPCs, 'dialogueOptions')) { try { DG.options = G.NPCs.dialogueOptions(DG.npc) || []; } catch (err) { _report(err, 'dialogueOptions'); } } }
+  function _dgChoose(opt) {
+    if (!opt || !DG.npc) return;
+    _sfx('ui_click');
+    if (opt.kind === 'quest' || opt.kind === 'turnin' || opt.kind === 'progress') { Dg.showQuest(opt.quest || _questData(opt.questId), opt.kind === 'turnin' ? 'turnin' : opt.kind === 'progress' ? 'progress' : 'available', opt); return; }
+    let res = null;
+    try { res = _has(G.NPCs, 'choose') ? G.NPCs.choose(DG.npc, opt) : (typeof opt.action === 'function' ? opt.action(DG.npc) : null); } catch (err) { _report(err, 'dialogue option'); }
+    if (typeof res === 'string') { DG.text = res; Dg.render(); return; }
+    if (res && typeof res === 'object' && !Array.isArray(res)) {
+      if (res.text) DG.text = String(res.text);
+      Dg.render();
+      if (res.close) { if (DG.closeTimer) clearTimeout(DG.closeTimer); DG.closeTimer = setTimeout(function () { DG.closeTimer = 0; Dg.close(); }, 1700); }
+      return;
+    }
+    if (opt.kind === 'trade' || opt.kind === 'travel' || opt.kind === 'sail' || opt.kind === 'train') { if (res !== false) { DG.handoff = true; Dg.close(); } return; }
+    if (opt.text) DG.text = String(opt.text);
+    Dg.render();
+  }
+  function _dgOption(opt) {
+    const isQ = opt.kind === 'quest' || opt.kind === 'turnin' || opt.kind === 'progress';
+    const row = el('div', { class: 'dg-opt' + (isQ ? ' quest' : '') });
+    if (isQ) row.appendChild(el('span', { class: 'dg-ico q' + (opt.kind === 'progress' ? ' grey' : ''), text: opt.kind === 'quest' ? '!' : '?' }));
+    else row.appendChild(el('span', { class: 'dg-ico', text: opt.icon || '›' }));
+    row.appendChild(el('span', { class: 'dg-lbl', text: opt.label || _title(opt.kind || 'option') }));
+    const q = opt.quest || (opt.questId ? _questData(opt.questId) : null);
+    if (isQ && q) row.appendChild(el('span', { class: 'dg-meta', text: (q.type === 'story' ? 'Story · ' : 'Side · ') + 'Level ' + _num(q.level, 1) + (opt.kind === 'turnin' ? ' · ready' : opt.kind === 'progress' ? ' · in progress' : '') }));
+    else if (opt.kind === 'travel' && Array.isArray(opt.routes)) row.appendChild(el('span', { class: 'dg-meta', text: opt.routes.length + ' destinations' }));
+    row.addEventListener('click', function () { _dgChoose(opt); });
+    if (isQ && q) _tip(row, function () { return '<div class="tt-name">' + esc(q.name) + '</div><div class="tt-line">' + esc(_zoneName(q.zone)) + ' · Level ' + _num(q.level, 1) + '</div>' + (q.rewards && q.rewards.xp ? '<div class="tt-stat">' + _fmt(q.rewards.xp) + ' XP' + (q.rewards.gold ? ' · ' + esc(_moneyText(q.rewards.gold)) : '') + '</div>' : ''); });
+    return row;
+  }
+  function _dgAccept(q) {
+    if (!q) return;
+    let ok = true;
+    if (_has(G.Quests, 'accept')) { try { ok = G.Quests.accept(q.id) !== false; } catch (err) { _report(err, 'Quests.accept'); ok = false; } }
+    if (ok) { _sfx('quest_accept'); DG.text = (q.text && q.text.accept) || 'Good luck, and come back safely.'; }
+    DG.view = 'main'; DG.quest = null;
+    _refreshOptions();
+    Dg.render();
+  }
+  function _dgTurnIn(q) {
+    if (!q) return;
+    const needChoice = q.rewards && Array.isArray(q.rewards.choose) && q.rewards.choose.length;
+    if (needChoice && DG.chosen < 0) { _notify('Choose your reward first.', 'warning'); _sfx('ui_error'); return; }
+    let ok = true;
+    if (_has(G.Quests, 'turnIn')) { try { ok = G.Quests.turnIn(q.id, needChoice ? DG.chosen : undefined) !== false; } catch (err) { _report(err, 'Quests.turnIn'); ok = false; } }
+    if (ok) { let g = ''; if (_has(G.NPCs, 'greeting')) { try { g = G.NPCs.greeting(DG.npc); } catch (_) { g = ''; } } DG.text = g || 'Well done, friend. Middle-earth is a little safer for it.'; }
+    DG.view = 'main'; DG.quest = null; DG.chosen = -1;
+    _refreshOptions();
+    Dg.render();
+  }
+  Dg.render = function () {
+    const body = Dg.body; if (!body) return;
+    _clear(body);
+    const npc = DG.npc;
+    if (!npc) { body.appendChild(el('div', { class: 'pn-empty', text: 'There is nobody to talk to.' })); return; }
+    const roles = _npcRoles(npc).filter(function (r) { return r !== 'flavor'; }).map(function (r) { return r.indexOf('vendor:') === 0 ? _title(r.slice(7)) + ' merchant' : r === 'questgiver' ? 'Quest-giver' : _title(r.replace('master', '-master')); });
+    body.appendChild(el('div', { class: 'dg-head' }, [
+      el('div', { class: 'dg-portrait', text: _npcGlyph(npc) }),
+      el('div', { class: 'pn-grow' }, [el('div', { class: 'dg-name', text: npc.name || 'Stranger' }), el('div', { class: 'dg-title', text: (npc.title ? npc.title + ' · ' : '') + ((_race(npc.race) || {}).name || _title(npc.race || '')) + (npc.level ? ' · Level ' + npc.level : '') }), roles.length ? el('div', { class: 'jn-chips', style: 'margin:3px 0 0' }, roles.map(function (r) { return _chip(r); })) : null]),
+    ]));
+    if (DG.view === 'quest' && DG.quest) {
+      const q = DG.quest, mode = DG.mode;
+      const qv = el('div', { class: 'dg-quest' });
+      qv.appendChild(_questDetail(q, { mode: mode, fullIntro: true, chosen: DG.chosen, onChoose: mode === 'turnin' ? function (i) { DG.chosen = i; } : null }));
+      qv.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+      body.appendChild(qv);
+      const foot = el('div', { class: 'dg-foot' });
+      foot.appendChild(_btn('Back', function () { Dg.back(); }));
+      if (mode === 'available') { foot.appendChild(_btn('Decline', function () { Dg.back(); })); foot.appendChild(_btn('Accept quest', function () { _dgAccept(q); }, 'primary')); }
+      else if (mode === 'turnin') foot.appendChild(_btn('Complete quest', function () { _dgTurnIn(q); }, 'primary'));
+      else if (_has(G.Quests, 'setTracked')) foot.appendChild(_btn(G.Quests.tracked === q.id ? 'Tracked' : 'Track', function () { G.Quests.setTracked(q.id); if (UI.tracker && _has(UI.tracker, 'refresh')) UI.tracker.refresh(); Dg.render(); }));
+      body.appendChild(foot);
+      return;
+    }
+    body.appendChild(el('div', { class: 'dg-text', text: DG.text || '…' }));
+    const opts = el('div', { class: 'dg-options' });
+    opts.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    const order = { quest: 0, turnin: 0, progress: 1, trade: 2, train: 3, travel: 4, sail: 5, rest: 6, talk: 7 };
+    DG.options.slice().sort(function (a, b) { return _num(order[a.kind], 9) - _num(order[b.kind], 9); }).forEach(function (o) { if (o) opts.appendChild(_dgOption(o)); });
+    if (!DG.options.length) opts.appendChild(el('div', { class: 'pn-sub', style: 'padding:4px 6px', text: npc.name + ' has nothing more to say.' }));
+    body.appendChild(opts);
+    body.appendChild(el('div', { class: 'dg-foot' }, [_btn('Goodbye', function () { _sfx('ui_click'); Dg.close(); })]));
+  };
+  Dg.open = function (npc, greeting, options) {
+    if (!npc) return false;
+    if (DG.closeTimer) { clearTimeout(DG.closeTimer); DG.closeTimer = 0; }
+    DG.npc = npc; DG.text = _str(greeting) || 'Well met.'; DG.options = Array.isArray(options) ? options : []; DG.view = 'main'; DG.quest = null; DG.chosen = -1; DG.handoff = false;
+    if (!DG.options.length) _refreshOptions();
+    if (Dg.isOpen()) Dg.render(); else _open('dialogue');
+    return true;
+  };
+  Dg.showQuest = function (quest, mode, opt) {
+    const q = _questData(quest); if (!q) return false;
+    DG.quest = q; DG.mode = mode === 'turnin' || mode === 'progress' ? mode : 'available'; DG.view = 'quest'; DG.chosen = -1;
+    if (opt && opt.text && DG.mode === 'progress') DG.text = opt.text;
+    if (!DG.npc) { const giver = _npcRec(DG.mode === 'turnin' ? (q.turnin || q.giver) : q.giver); DG.npc = giver ? { name: giver.name, title: giver.title, race: giver.race, roles: giver.roles, npcId: giver.id } : { name: 'Quest', roles: [] }; }
+    if (Dg.isOpen()) Dg.render(); else _open('dialogue');
+    return true;
+  };
+  Dg.back = function () { DG.view = 'main'; DG.quest = null; DG.chosen = -1; _sfx('ui_click'); Dg.render(); };
+  Dg.setText = function (t) { DG.text = _str(t); Dg.render(); };
+  Object.defineProperty(Dg, 'npc', { get: function () { return DG.npc; } });
+  Dg.onClose = function () {
+    if (DG.closeTimer) { clearTimeout(DG.closeTimer); DG.closeTimer = 0; }
+    const npc = DG.npc; DG.npc = null; DG.view = 'main'; DG.quest = null;
+    if (npc && _has(G.NPCs, 'endTalk')) { try { G.NPCs.endTalk(npc); } catch (err) { _report(err, 'endTalk'); } }
+  };
+  definePanel('dialogue', Dg, { title: 'Conversation', width: 580, pos: 'center', modal: true, remember: false });
+
+  // ================================================================================================ VENDOR
+  const VD = { npc: null, stock: [], query: '', _list: null, _scroll: 0, _grid: null, _gscroll: 0, _far: 0 };
+  const Vd = {};
+  function _vendorKindLabel(npc) {
+    let k = null; if (_has(G.NPCs, 'vendorKind')) { try { k = G.NPCs.vendorKind(npc); } catch (_) { k = null; } }
+    if (!k) { const roles = _npcRoles(npc); for (let i = 0; i < roles.length; i++) if (roles[i].indexOf('vendor:') === 0) k = roles[i].slice(7); }
+    return k === 'armour' ? 'Armour merchant' : k === 'weapons' ? 'Weaponsmith' : k === 'food' ? 'Provisioner' : k === 'fishing' ? 'Fishing supplies' : 'General goods';
+  }
+  function _vdBuyRow(inst, p) {
+    const v = _view(inst); if (!v) return null;
+    const price = _num(inst.price, _has(G.Items, 'buyValue') ? G.Items.buyValue(inst) : v.value);
+    const cant = _num(p && p.gold) < price;
+    const req = p && typeof p.level === 'number' && v.level > p.level;
+    let ce = { ok: true }; if (v.slot && _has(G.Items, 'canEquip')) { try { ce = G.Items.canEquip(p, inst); } catch (_) { ce = { ok: true }; } }
+    const row = el('div', { class: 'vd-row' + (cant ? ' cant' : '') });
+    row.innerHTML = _iconHTML(inst, 30);
+    const tl = _has(G.Items, 'typeLabel') ? G.Items.typeLabel(v) : _title(v.type);
+    row.appendChild(el('div', { class: 'pn-grow' }, [el('div', { class: 'vd-nm rarity-' + (v.rarity || 'common'), text: v.name }), el('div', { class: 'vd-sub', html: esc(tl) + (v.slot ? ' · ' + esc(_slotLabel(v.slot)) : '') + (v.level > 1 ? ' · <span class="' + (req ? 'req' : '') + '">Level ' + v.level + '</span>' : '') + (v.slot && !ce.ok && !req ? ' · <span class="req">' + esc(ce.reason || 'not for your class') + '</span>' : '') })]));
+    const pr = el('div', { class: 'vd-price' }); pr.innerHTML = _money(price); row.appendChild(pr);
+    _tip(row, function () { return _itemTip(inst, p) + '<div class="tt-line" style="margin-top:4px">Price: ' + esc(_moneyText(price)) + '</div><div class="tt-sub">Click to buy · Shift-click buys 5' + ((v.maxStack || 1) > 1 ? '' : ' (one at a time)') + '</div>'; });
+    row.addEventListener('click', function (ev) {
+      if (!VD.npc) return;
+      const n = ev.shiftKey ? 5 : 1;
+      if (_has(G.NPCs, 'buy')) { if (G.NPCs.buy(VD.npc, inst.tid, n)) Vd.mark(); }
+      else _notify('Nobody is selling right now.', 'warning');
+    });
+    return row;
+  }
+  function _vdSellSlot(i, inst, p) {
+    const s = el('div', { class: 'slot' + (inst ? ' border-' + _rarityOf(inst) : ' empty'), data: { i: i } });
+    if (!inst) return s;
+    const val = _has(G.Items, 'sellValue') ? G.Items.sellValue(inst) : 0;
+    s.innerHTML = _iconHTML(inst, 34);
+    const cnt = _num(inst.count, 1); if (cnt > 1) s.appendChild(el('span', { class: 'count', text: String(cnt) }));
+    if (val <= 0) s.classList.add('nosell');
+    let junk = false; if (_has(G.Items, 'isJunk')) { try { junk = G.Items.isJunk(inst, p); } catch (_) { junk = false; } }
+    _tip(s, function () { return _itemTip(inst, p) + '<div class="tt-line" style="margin-top:4px">' + (val > 0 ? 'Sells for ' + esc(_moneyText(val)) + (junk ? ' · <span class="tt-key">junk</span>' : '') : '<span class="tt-warn">Cannot be sold</span>') + '</div>' + (val > 0 ? '<div class="tt-sub">Click to sell</div>' : ''); });
+    s.addEventListener('click', function () { if (!VD.npc) return; if (val <= 0) { _notify('That cannot be sold.', 'warning'); _sfx('ui_error'); return; } if (_has(G.NPCs, 'sell')) { G.NPCs.sell(VD.npc, i); Vd.mark(); } });
+    s.addEventListener('contextmenu', function (ev) { ev.preventDefault(); ev.stopPropagation(); _tipHide(); _invMenu(i, ev.clientX, ev.clientY); });
+    return s;
+  }
+  Vd.render = function () {
+    const body = Vd.body; if (!body) return;
+    if (VD._list) VD._scroll = VD._list.scrollTop;
+    if (VD._grid) VD._gscroll = VD._grid.scrollTop;
+    _clear(body);
+    const p = _player(), npc = VD.npc;
+    if (!npc) { body.appendChild(el('div', { class: 'pn-empty', text: 'No merchant is trading with you.' })); return; }
+    const top = el('div', { class: 'vd-top' });
+    top.appendChild(el('span', { class: 'vd-npc', text: npc.name || 'Merchant' }));
+    top.appendChild(el('span', { class: 'vd-kind', text: _vendorKindLabel(npc) + (npc.town ? ' · ' + ((_town(npc.town) || {}).name || _title(npc.town)) : '') }));
+    top.appendChild(el('span', { class: 'pn-grow' }));
+    const gold = el('span'); gold.innerHTML = '<span class="pn-muted">Your purse </span>' + _money(_num(p && p.gold)); top.appendChild(gold);
+    body.appendChild(top);
+    // ---- buy column
+    const buy = el('div', { class: 'vd-buy' });
+    const search = el('input', { type: 'text', placeholder: 'Search wares…', value: VD.query, spellcheck: false });
+    search.addEventListener('input', function () { VD.query = search.value; _vdFillList(); });
+    search.addEventListener('keydown', function (ev) { ev.stopPropagation(); });
+    buy.appendChild(el('div', { class: 'vd-search' }, [el('span', { class: 'section-title', style: 'margin:0;border:none;padding:0', text: 'Wares' }), search]));
+    const list = el('div', { class: 'vd-list' });
+    list.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    VD._list = list;
+    const _vdFillList = function () {
+      _clear(list);
+      const q = VD.query.trim().toLowerCase();
+      const stock = (Array.isArray(VD.stock) ? VD.stock : []).slice().sort(function (a, b) { const va = _view(a) || {}, vb = _view(b) || {}; return _num(va.level) - _num(vb.level) || String(va.name || '').localeCompare(String(vb.name || '')); });
+      let n = 0;
+      stock.forEach(function (inst) { const v = _view(inst); if (!v) return; if (q && (v.name + ' ' + (v.type || '') + ' ' + (v.subtype || '')).toLowerCase().indexOf(q) < 0) return; const r = _vdBuyRow(inst, p); if (r) { list.appendChild(r); n++; } });
+      if (!n) list.appendChild(el('div', { class: 'pn-empty', text: stock.length ? 'Nothing matches.' : npc.name + ' has nothing for sale today.' }));
+    };
+    _vdFillList();
+    buy.appendChild(list);
+    buy.appendChild(el('div', { class: 'vd-sellfoot' }, [el('span', { class: 'pn-muted', text: 'Click to buy · Shift-click ×5' }), el('span', { class: 'pn-muted', text: (Array.isArray(VD.stock) ? VD.stock.length : 0) + ' wares' })]));
+    // ---- sell column
+    const sell = el('div', { class: 'vd-sell' });
+    const inv = (p && Array.isArray(p.inventory)) ? p.inventory : [];
+    let junkCount = 0, junkVal = 0, used = 0;
+    inv.forEach(function (inst) { if (!inst) return; used++; let j = false; try { j = _has(G.Items, 'isJunk') && G.Items.isJunk(inst, p); } catch (_) { j = false; } if (j) { junkCount++; junkVal += _has(G.Items, 'sellValue') ? G.Items.sellValue(inst) : 0; } });
+    sell.appendChild(el('div', { class: 'vd-search' }, [el('span', { class: 'section-title', style: 'margin:0;border:none;padding:0', text: 'Your bags' }), el('span', { class: 'pn-grow' }), el('span', { class: 'pn-muted small', text: used + '/' + (C.INVENTORY_SLOTS || 200) + ' · click an item to sell it' })]));
+    const gwrap = el('div', { class: 'vd-gridwrap vd-dropzone' });
+    const grid = el('div', { class: 'vd-grid' });
+    for (let i = 0; i < (C.INVENTORY_SLOTS || 200); i++) grid.appendChild(_vdSellSlot(i, inv[i] || null, p));
+    gwrap.appendChild(grid);
+    gwrap.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    gwrap.addEventListener('dragover', function (ev) { if (DND.kind === 'inv' || _dtHas(ev, 'text/inv-slot')) { ev.preventDefault(); gwrap.classList.add('dragover'); } });
+    gwrap.addEventListener('dragleave', function () { gwrap.classList.remove('dragover'); });
+    gwrap.addEventListener('drop', function (ev) { ev.preventDefault(); gwrap.classList.remove('dragover'); const from = _dndInv(ev); if (from >= 0 && VD.npc && _has(G.NPCs, 'sell')) { G.NPCs.sell(VD.npc, from); Vd.mark(); } _dndReset(); });
+    VD._grid = gwrap;
+    sell.appendChild(gwrap);
+    const junkBtn = _btn('Sell all junk' + (junkCount ? ' (' + junkCount + ')' : ''), function () { if (!VD.npc) return; if (_has(G.NPCs, 'sellJunk')) { G.NPCs.sellJunk(VD.npc); Vd.mark(); } }, 'small' + (junkCount ? ' primary' : ' disabled'));
+    _tip(junkBtn, '<div class="tt-name">Sell all junk</div><div class="tt-line">Trophies, vendor trash and grey gear far below your level.</div>' + (junkCount ? '<div class="tt-stat">' + junkCount + ' items · ' + esc(_moneyText(junkVal)) + '</div>' : '<div class="tt-sub">Nothing in your bags counts as junk.</div>'));
+    sell.appendChild(el('div', { class: 'vd-sellfoot' }, [junkBtn, el('span', { class: 'pn-muted', text: 'Drag items here to sell them' })]));
+    let bb = []; if (_has(G.NPCs, 'buyback')) { try { bb = G.NPCs.buyback(npc) || []; } catch (_) { bb = []; } }
+    if (bb.length) {
+      const box = el('div', { class: 'vd-buyback' });
+      box.appendChild(el('div', { class: 'section-title', text: 'Buy back' }));
+      bb.slice().reverse().forEach(function (inst, k) {
+        const idx = bb.length - 1 - k;
+        const price = (npc._buyback && npc._buyback[idx] && npc._buyback[idx].price) || (_has(G.Items, 'sellValue') ? G.Items.sellValue(inst) : 0);
+        const row = el('div', { class: 'vd-bbrow' });
+        row.innerHTML = _iconHTML(inst, 22) + '<span class="nm rarity-' + _rarityOf(inst) + '">' + esc(_itemName(inst)) + ((inst.count || 1) > 1 ? ' ×' + inst.count : '') + '</span><span>' + _money(price) + '</span>';
+        _tip(row, function () { return _itemTip(inst, p) + '<div class="tt-sub">Click to buy it back for ' + esc(_moneyText(price)) + '</div>'; });
+        row.addEventListener('click', function () { if (_has(G.NPCs, 'rebuy')) { G.NPCs.rebuy(npc, idx); Vd.mark(); } });
+        box.appendChild(row);
+      });
+      sell.appendChild(box);
+    }
+    body.appendChild(el('div', { class: 'vd-cols' }, [buy, sell]));
+    body.appendChild(el('div', { class: 'vd-foot' }, [el('span', { class: 'pn-muted', text: 'Walk away to end the trade' }), el('span', { class: 'pn-muted', text: 'Right-click a bag item for more options' })]));
+    if (VD._scroll) list.scrollTop = VD._scroll;
+    if (VD._gscroll) gwrap.scrollTop = VD._gscroll;
+  };
+  Vd.open = function (npc, stock) {
+    if (!npc) return false;
+    VD.npc = npc;
+    if (Array.isArray(stock)) VD.stock = stock;
+    else { VD.stock = []; if (_has(G.NPCs, 'stockFor')) { try { VD.stock = G.NPCs.stockFor(npc) || []; } catch (_) { VD.stock = []; } } }
+    VD._far = 0; VD._scroll = 0; VD._gscroll = 0;
+    if (Vd.isOpen()) Vd.render(); else _open('vendor');
+    return true;
+  };
+  Object.defineProperty(Vd, 'npc', { get: function () { return VD.npc; } });
+  Object.defineProperty(Vd, 'stock', { get: function () { return VD.stock; } });
+  Vd.update = function (dt) {
+    if (!Vd.isOpen() || !VD.npc) return;
+    const p = _player();
+    if (!p || !p.pos || !VD.npc.pos || typeof VD.npc.pos.x !== 'number') return;
+    const d = G.dist2 ? G.dist2(p.pos.x, p.pos.z, VD.npc.pos.x, VD.npc.pos.z) : 0;
+    if (d > 8) { VD._far += dt; if (VD._far > 0.3) { Vd.close(); _notify('You walk away from ' + (VD.npc.name || 'the merchant') + '.', 'info'); } } else VD._far = 0;
+  };
+  Vd.onClose = function () { const npc = VD.npc; VD.npc = null; if (npc && _has(G.NPCs, 'endTalk')) { try { G.NPCs.endTalk(npc); } catch (_) { /* ignore */ } } };
+  definePanel('vendor', Vd, { title: 'Trade', width: 900, height: Math.min(600, Math.max(420, _vh() - 80)), pos: 'center' });
+
+  // ================================================================================================ TRAVEL
+  const TR = { mode: 'stable', npc: null, dock: null, routes: [], busy: false };
+  const Tr = {};
+  function _stableRoutes(townId) {
+    const w = _world(); if (!w || !townId) return [];
+    if (_has(w, 'travelRoutesFrom')) { try { return w.travelRoutesFrom(townId) || []; } catch (_) { /* fall through */ } }
+    return Array.isArray(w.travelRoutes) ? w.travelRoutes.filter(function (r) { return r && r.from === townId; }) : [];
+  }
+  function _spendGold(n) {
+    const p = _player(); if (!p) return false;
+    if (_num(p.gold) < n) return false;
+    if (_has(G.Progress, 'spendGold')) return !!G.Progress.spendGold(n);
+    p.gold = _num(p.gold) - n; G.emit('goldChanged', p.gold); return true;
+  }
+  function _ride(route, town) {
+    const p = _player(); if (!p || TR.busy) return;
+    const cost = _num(route.cost);
+    if (_num(p.gold) < cost) { _notify('You cannot afford the fare.', 'warning'); _sfx('ui_error'); return; }
+    const dest = town.rallyPoint || town.pos; if (!dest) return;
+    if (!_spendGold(cost)) { _notify('You cannot afford the fare.', 'warning'); _sfx('ui_error'); return; }
+    TR.busy = true;
+    Tr.close(); _close('dialogue');
+    _sfx('horse_mount');
+    _fade(true, 0.5, function () {
+      try {
+        if (_has(G.Player, 'teleport')) G.Player.teleport(dest.x, dest.z);
+        else if (p.pos) { p.pos.x = dest.x; p.pos.z = dest.z; }
+      } catch (err) { _report(err, 'travel teleport'); }
+      _sfx('horse_gallop');
+      setTimeout(function () { _fade(false, 0.9); TR.busy = false; _notify('You ride swiftly to ' + town.name + '.', 'info'); }, 420);
+    });
+  }
+  function _trRow(icon, name, sub, costHTML, onClick, locked) {
+    const row = el('div', { class: 'tr-row' + (locked ? ' locked' : '') });
+    row.appendChild(el('div', { class: 'tr-ico', text: icon }));
+    const mid = el('div', { class: 'pn-grow' }, [el('div', { class: 'tr-nm', text: name })]);
+    const s = el('div', { class: 'tr-sub' }); s.innerHTML = sub; mid.appendChild(s);
+    row.appendChild(mid);
+    const c = el('div', { class: 'tr-cost' }); c.innerHTML = costHTML; row.appendChild(c);
+    if (!locked) row.addEventListener('click', onClick);
+    return row;
+  }
+  Tr.render = function () {
+    const body = Tr.body; if (!body) return;
+    _clear(body);
+    const p = _player();
+    const gold = _num(p && p.gold);
+    if (TR.mode === 'stable') {
+      const npc = TR.npc;
+      const here = npc && _town(npc.town);
+      body.appendChild(el('div', { class: 'tr-intro', text: (npc && npc.name ? npc.name + ': ' : '') + '"Where would you like to ride' + (p && p.name ? ', ' + p.name : '') + '? My ponies are swift and the roads are watched."' }));
+      const list = el('div', { class: 'tr-list' });
+      const routes = TR.routes.slice().sort(function (a, b) { return _num(a.cost) - _num(b.cost); });
+      if (!routes.length) list.appendChild(el('div', { class: 'pn-empty', text: 'No routes lead away from here.' }));
+      routes.forEach(function (r) {
+        const town = _town(r.to); if (!town) return;
+        const z = _zone(town.zone);
+        const lvl = z && Array.isArray(z.level) ? z.level : null;
+        const danger = lvl && p && lvl[0] > _num(p.level, 1) + 3;
+        let locked = false, lockText = '';
+        if (r.requires && !_qdone(r.requires)) { locked = true; const qd = _questData(r.requires); lockText = 'Requires: ' + esc((qd && qd.name) || r.requires); }
+        const dist = _num(r.dist) || (here && here.pos ? Math.round(G.dist2 ? G.dist2(here.pos.x, here.pos.z, town.pos.x, town.pos.z) : 0) : 0);
+        const sub = esc(_zoneName(town.zone)) + (lvl ? ' · <span class="' + (danger ? 'warn' : '') + '">Levels ' + lvl[0] + '–' + lvl[1] + (danger ? ' ⚠' : '') + '</span>' : '') + (dist ? ' · ' + (dist >= 1000 ? (dist / 1000).toFixed(1) + ' km' : dist + ' m') : '') + (lockText ? ' · <span class="warn">' + lockText + '</span>' : '');
+        const cant = gold < _num(r.cost);
+        const row = _trRow('🐎', town.name, sub, _num(r.cost) > 0 ? _money(r.cost) : '<span class="free">Free</span>', function () {
+          _sfx('ui_click');
+          _confirm('Ride to ' + town.name + ' for ' + _moneyText(r.cost) + '?', function () { _ride(r, town); }, { title: 'Swift travel', yes: 'Ride' });
+        }, locked);
+        if (cant) row.classList.add('cant');
+        _tip(row, '<div class="tt-name">' + esc(town.name) + '</div><div class="tt-line">' + esc(_zoneName(town.zone)) + (z && z.desc ? '</div><div class="tt-desc">' + esc(z.desc) : '') + '</div>' + (danger ? '<div class="tt-req">The creatures there are far above your level.</div>' : ''));
+        list.appendChild(row);
+      });
+      body.appendChild(list);
+    } else {
+      const dock = TR.dock;
+      body.appendChild(el('div', { class: 'tr-intro', text: (TR.npc && TR.npc.name ? TR.npc.name + ': ' : '') + '"The tide is right' + (p && p.name ? ', ' + p.name : '') + '. Where shall we sail from ' + ((dock && dock.name) || 'the quay') + '?"' }));
+      const list = el('div', { class: 'tr-list' });
+      const routes = TR.routes;
+      if (!routes.length) list.appendChild(el('div', { class: 'pn-empty', text: 'No ships sail from this quay.' }));
+      routes.forEach(function (r) {
+        const id = typeof r === 'string' ? r : (r.id || (r.dock && r.dock.id));
+        const d = (r && r.dock) || _dock(id);
+        const name = (r && r.name) || (d && d.name) || _title(id || 'a distant shore');
+        const town = d && _town(d.town);
+        const z = town && _zone(town.zone);
+        const lvl = z && Array.isArray(z.level) ? z.level : null;
+        const danger = lvl && p && lvl[0] > _num(p.level, 1) + 3;
+        const cost = _num(r && r.cost);
+        const dist = _num(r && r.dist);
+        const sub = esc(town ? town.name + ' · ' + _zoneName(town.zone) : '') + (lvl ? ' · <span class="' + (danger ? 'warn' : '') + '">Levels ' + lvl[0] + '–' + lvl[1] + (danger ? ' ⚠' : '') + '</span>' : '') + (dist ? ' · ' + (dist >= 1000 ? (dist / 1000).toFixed(1) + ' km' : dist + ' m') : '');
+        const row = _trRow('⛵', name, sub, cost > 0 ? _money(cost) : '<span class="free">Free passage</span>', function () {
+          _sfx('ui_click');
+          const go = function () {
+            if (!_has(G.Boats, 'sailTo')) { _notify('No ship is ready to sail.', 'warning'); return; }
+            Tr.close(); _close('dialogue');
+            try { G.Boats.sailTo(id, dock); } catch (err) { _report(err, 'Boats.sailTo'); }
+          };
+          if (cost > 0) _confirm('Sail to ' + name + ' for ' + _moneyText(cost) + '?', go, { title: 'Set sail', yes: 'Sail' }); else go();
+        });
+        if (cost > 0 && gold < cost) row.classList.add('cant');
+        _tip(row, '<div class="tt-name">' + esc(name) + '</div>' + (z && z.desc ? '<div class="tt-desc">' + esc(z.desc) + '</div>' : '') + (danger ? '<div class="tt-req">The creatures there are far above your level.</div>' : ''));
+        list.appendChild(row);
+      });
+      list.appendChild(_trRow('🚣', 'Take a rowboat', 'Row wherever you please — W/S to row, A/D to steer, E near the shore to land.', '<span class="free">Free</span>', function () {
+        _sfx('ui_click');
+        if (!_has(G.Boats, 'board')) { _notify('There is no boat free right now.', 'warning'); return; }
+        Tr.close(); _close('dialogue');
+        try { G.Boats.board(dock); } catch (err) { _report(err, 'Boats.board'); }
+      }));
+      body.appendChild(list);
+    }
+    const foot = el('div', { class: 'tr-foot' });
+    const g = el('span'); g.innerHTML = '<span class="pn-muted">Your purse </span>' + _money(gold); foot.appendChild(g);
+    foot.appendChild(_btn('Close', function () { Tr.close(); }, 'small'));
+    body.appendChild(foot);
+  };
+  Tr.openStable = function (npc) {
+    if (!npc) return false;
+    TR.mode = 'stable'; TR.npc = npc; TR.dock = null;
+    TR.routes = _stableRoutes(npc.town);
+    if (Tr.panel && Tr.panel.setTitle) Tr.panel.setTitle('Swift Travel — ' + (((_town(npc.town) || {}).name) || 'Stable'));
+    if (Tr.isOpen()) Tr.render(); else _open('travel');
+    return true;
+  };
+  Tr.openDock = function (dock, npc) {
+    if (typeof dock === 'string') dock = _dock(dock);
+    if (!dock) return false;
+    TR.mode = 'dock'; TR.dock = dock; TR.npc = npc || null;
+    let routes = null;
+    if (_has(G.Boats, 'routesFrom')) { try { routes = G.Boats.routesFrom(dock.id); } catch (err) { _report(err, 'Boats.routesFrom'); routes = null; } }
+    if (!Array.isArray(routes)) routes = Array.isArray(dock.routes) ? dock.routes.slice() : [];
+    TR.routes = routes;
+    if (Tr.panel && Tr.panel.setTitle) Tr.panel.setTitle('Set Sail — ' + (dock.name || 'Dock'));
+    if (Tr.isOpen()) Tr.render(); else _open('travel');
+    return true;
+  };
+  Tr.fade = function (on, dur, cb) { _fade(on, dur, cb); };
+  Tr.onClose = function () { const npc = TR.npc; TR.npc = null; if (npc && _has(G.NPCs, 'endTalk')) { try { G.NPCs.endTalk(npc); } catch (_) { /* ignore */ } } };
+  definePanel('travel', Tr, { title: 'Travel', width: 500, pos: 'center', remember: false });
+
+  // ================================================================================================ SETTINGS (Esc)
+  const St = {};
+  const ST_DEFAULTS = { music: 0.6, sfx: 0.8, mouseSens: 1.0, invertY: false, showFps: false, cameraDist: 7, shadows: true, quality: 'auto', vegDensity: 1.0 };
+  function _settings() {
+    if (!G.state) return Object.assign({}, ST_DEFAULTS);
+    const s = G.state.settings = G.state.settings || {};
+    for (const k in ST_DEFAULTS) if (s[k] === undefined) s[k] = ST_DEFAULTS[k];
+    return s;
+  }
+  St.get = function () { return _settings(); };
+  St.apply = function () {
+    const s = _settings();
+    try { if (_has(G.Audio, 'setVolumes')) G.Audio.setVolumes(s.music, s.sfx); } catch (err) { _report(err, 'settings audio'); }
+    try { if (G.Player && G.Player.cam && typeof s.cameraDist === 'number') { if ('targetDist' in G.Player.cam) G.Player.cam.targetDist = s.cameraDist; else G.Player.cam.dist = s.cameraDist; } } catch (err) { _report(err, 'settings camera'); }
+    try { if (_has(G.Veg, 'setDensity')) G.Veg.setDensity(_num(s.vegDensity, 1)); } catch (err) { _report(err, 'settings veg'); }
+    try {
+      if (_has(G.Sky, 'setShadowQuality')) { const q = (G.state && G.state.quality) || 'high'; G.Sky.setShadowQuality(s.shadows ? (q === 'ultra' ? 4096 : q === 'high' ? 2048 : q === 'medium' ? 1024 : 512) : 0); }
+      if (G.Game && G.Game.renderer && G.Game.renderer.shadowMap) G.Game.renderer.shadowMap.enabled = !!s.shadows;
+    } catch (err) { _report(err, 'settings shadows'); }
+    return s;
+  };
+  function _stSlider(label, key, min, max, step, fmtFn, onChange, tip) {
+    const s = _settings();
+    const input = el('input', { type: 'range', min: min, max: max, step: step, value: _num(s[key], ST_DEFAULTS[key]) });
+    const val = el('span', { class: 'st-val', text: fmtFn(_num(s[key], ST_DEFAULTS[key])) });
+    input.addEventListener('input', function () { const v = parseFloat(input.value); s[key] = v; val.textContent = fmtFn(v); if (onChange) onChange(v); });
+    input.addEventListener('change', function () { _sfx('ui_click'); });
+    input.addEventListener('keydown', function (ev) { ev.stopPropagation(); });
+    const lab = el('label', { text: label });
+    if (tip) _tip(lab, tip);
+    return el('div', { class: 'st-row' }, [lab, input, val]);
+  }
+  function _stCheck(label, key, onChange, tip) {
+    const s = _settings();
+    const input = el('input', { type: 'checkbox', checked: !!s[key] });
+    input.addEventListener('change', function () { s[key] = !!input.checked; _sfx('ui_click'); if (onChange) onChange(s[key]); });
+    const lab = el('label', { text: label });
+    if (tip) _tip(lab, tip);
+    return el('div', { class: 'st-row chk' }, [lab, el('label', { class: 'st-check' }, [input, el('span', { class: 'pn-muted', text: s[key] ? 'On' : 'Off' })])]);
+  }
+  St.render = function () {
+    const body = St.body; if (!body) return;
+    _clear(body);
+    const s = _settings();
+    const box = el('div', { class: 'st-body' });
+    box.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    box.appendChild(el('div', { class: 'section-title', text: 'Sound' }));
+    box.appendChild(_stSlider('Music volume', 'music', 0, 1, 0.05, function (v) { return Math.round(v * 100) + '%'; }, function () { if (_has(G.Audio, 'setVolumes')) G.Audio.setVolumes(s.music, s.sfx); }));
+    box.appendChild(_stSlider('Effects volume', 'sfx', 0, 1, 0.05, function (v) { return Math.round(v * 100) + '%'; }, function () { if (_has(G.Audio, 'setVolumes')) G.Audio.setVolumes(s.music, s.sfx); }));
+    box.appendChild(el('div', { class: 'section-title', text: 'Controls & camera' }));
+    box.appendChild(_stSlider('Mouse sensitivity', 'mouseSens', 0.2, 3, 0.1, function (v) { return v.toFixed(1) + '×'; }, null, '<div class="tt-name">Mouse sensitivity</div><div class="tt-line">How far the camera turns per inch of mouse travel.</div>'));
+    box.appendChild(_stCheck('Invert mouse Y', 'invertY', null, '<div class="tt-name">Invert Y</div><div class="tt-line">Push forward to look down, like a flight stick.</div>'));
+    box.appendChild(_stSlider('Camera distance', 'cameraDist', 1.5, 28, 0.5, function (v) { return v.toFixed(1) + ' m'; }, function (v) { if (G.Player && G.Player.cam) { if ('targetDist' in G.Player.cam) G.Player.cam.targetDist = v; else G.Player.cam.dist = v; } }, '<div class="tt-name">Camera distance</div><div class="tt-line">The mouse wheel changes this in-game too. Very close = first person.</div>'));
+    box.appendChild(el('div', { class: 'section-title', text: 'Graphics' }));
+    const sel = el('select');
+    [['auto', 'Auto (adapts to your frame rate)'], ['ultra', 'Ultra'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']].forEach(function (o) { sel.appendChild(el('option', { value: o[0], text: o[1], selected: (s.quality || 'auto') === o[0] })); });
+    sel.value = s.quality || 'auto';
+    sel.addEventListener('change', function () { s.quality = sel.value; _sfx('ui_click'); let applied = sel.value; if (_has(G.PostFX, 'setQuality')) { try { applied = G.PostFX.setQuality(sel.value) || sel.value; } catch (err) { _report(err, 'setQuality'); } } else if (G.state) G.state.quality = sel.value === 'auto' ? G.state.quality : sel.value; qv.textContent = applied === sel.value ? '' : '→ ' + _title(applied); St.apply(); });
+    sel.addEventListener('keydown', function (ev) { ev.stopPropagation(); });
+    const qv = el('span', { class: 'st-val', text: (s.quality === 'auto' && G.state && G.state.quality) ? '→ ' + _title(G.state.quality) : '' });
+    const ql = el('label', { text: 'Graphics quality' }); _tip(ql, '<div class="tt-name">Graphics quality</div><div class="tt-line">Bloom, anti-aliasing, shadow resolution, vegetation and render scale.</div><div class="tt-sub">Auto steps down when the game runs below 50 fps and back up when it is smooth.</div>');
+    box.appendChild(el('div', { class: 'st-row' }, [ql, sel, qv]));
+    box.appendChild(_stCheck('Shadows', 'shadows', function () { St.apply(); }));
+    box.appendChild(_stSlider('Vegetation density', 'vegDensity', 0.25, 1.5, 0.05, function (v) { return Math.round(v * 100) + '%'; }, function (v) { if (_has(G.Veg, 'setDensity')) G.Veg.setDensity(v); }));
+    box.appendChild(_stCheck('Show frame rate', 'showFps'));
+    box.appendChild(el('div', { class: 'section-title', text: 'Game' }));
+    const btns = el('div', { class: 'st-buttons' });
+    btns.appendChild(_btn('Key bindings (F1)', function () { _open('keyhelp'); }));
+    btns.appendChild(_btn('Save now', function () { if (_has(G.Save, 'save')) { const r = G.Save.save(); if (r !== false && r !== null) _notify('Game saved.', 'system'); } else _notify('Saving is not available.', 'warning'); }, 'primary'));
+    btns.appendChild(_btn('Return to main menu', function () { _confirm('Return to the main menu? Your progress is saved first.', function () { if (_has(G.Save, 'save')) { try { G.Save.save({ silent: true, reason: 'menu' }); } catch (_) { /* ignore */ } } if (_has(G.Game, 'toMenu')) { _close('settings'); G.Game.toMenu(); } else _notify('The main menu is not available.', 'warning'); }, { title: 'Main menu', yes: 'Leave' }); }));
+    btns.appendChild(_btn('New character', function () { _confirm('Start a new character? Your current hero stays saved until you overwrite the save from the character creator.', function () { if (_has(G.Game, 'toCharCreate')) { _close('settings'); G.Game.toCharCreate(); } else _notify('Character creation is not available.', 'warning'); }, { title: 'New character', yes: 'Continue' }); }, 'danger'));
+    box.appendChild(btns);
+    box.appendChild(el('div', { class: 'st-credits', html: '<b>Chris Jensen\'s Lord of the Rings Online</b> — a single-file tribute to Middle-earth.<br>Built with Three.js r160 · procedural world, music and characters · v' + esc(G.VERSION || '1.0.0') + '<br>Esc closes this window · your settings are kept with your save.' }));
+    body.appendChild(box);
+  };
+  definePanel('settings', St, { title: 'Settings', width: 540, height: Math.min(600, Math.max(400, _vh() - 80)), pos: 'center' });
+
+  // ================================================================================================ CHOOSE (quest reward)
+  const CO = { items: [], onPick: null, sel: -1, opts: {}, answered: false };
+  const Cho = {};
+  Cho.render = function () {
+    const body = Cho.body; if (!body) return;
+    _clear(body);
+    const p = _player();
+    body.appendChild(el('div', { class: 'cho-text', text: CO.opts.text || 'Choose one of these rewards. Choose wisely — the others will not be offered again.' }));
+    const grid = el('div', { class: 'cho-grid' });
+    grid.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    if (!CO.items.length) grid.appendChild(el('div', { class: 'pn-empty', text: 'There is nothing to choose from.' }));
+    CO.items.forEach(function (inst, i) {
+      const v = _view(inst) || {};
+      const card = el('div', { class: 'cho-card' + (CO.sel === i ? ' on' : '') });
+      card.innerHTML = _iconHTML(inst, 56);
+      card.appendChild(el('div', { class: 'cho-nm rarity-' + (v.rarity || 'common'), text: (v.name || _itemName(inst)) + ((inst.count || 1) > 1 ? ' ×' + inst.count : '') }));
+      card.appendChild(el('div', { class: 'cho-sub', text: (_has(G.Items, 'typeLabel') ? G.Items.typeLabel(v) : _title(v.type || '')) + (v.slot ? ' · ' + _slotLabel(v.slot) : '') + (v.level > 1 ? ' · L' + v.level : '') }));
+      _tip(card, function () { return _itemTip(inst, p); }, { keepOnClick: true });
+      card.addEventListener('click', function () { CO.sel = i; _sfx('ui_click'); Array.prototype.forEach.call(grid.children, function (n, k) { n.classList.toggle('on', k === i); }); takeBtn.classList.remove('disabled'); });
+      card.addEventListener('dblclick', function () { CO.sel = i; Cho.take(); });
+      grid.appendChild(card);
+    });
+    body.appendChild(grid);
+    const takeBtn = _btn(CO.opts.take || 'Take reward', function () { Cho.take(); }, 'primary' + (CO.sel < 0 ? ' disabled' : ''));
+    const foot = el('div', { class: 'dg-foot' });
+    if (CO.opts.cancel !== false) foot.appendChild(_btn(CO.opts.cancel || 'Decide later', function () { Cho.close(); }));
+    foot.appendChild(takeBtn);
+    body.appendChild(foot);
+  };
+  Cho.take = function () {
+    if (CO.sel < 0) { _notify('Choose a reward first.', 'warning'); _sfx('ui_error'); return; }
+    CO.answered = true;
+    const cb = CO.onPick, i = CO.sel, inst = CO.items[i];
+    Cho.close();
+    if (typeof cb === 'function') { try { cb(i, inst); } catch (err) { _report(err, 'choose callback'); } }
+  };
+  Cho.open = function (items, onPick, opts) {
+    CO.items = (Array.isArray(items) ? items : []).map(function (x) { return typeof x === 'string' ? { tid: x, count: 1 } : x; }).filter(Boolean);
+    CO.onPick = onPick; CO.sel = -1; CO.opts = opts || {}; CO.answered = false;
+    if (Cho.panel && Cho.panel.setTitle) Cho.panel.setTitle(CO.opts.title || 'Choose your reward');
+    if (Cho.isOpen()) Cho.render(); else _open('choose');
+    return true;
+  };
+  Cho.onClose = function () { if (!CO.answered) { CO.answered = true; const cb = CO.onPick; CO.onPick = null; if (typeof cb === 'function') { try { cb(-1, null); } catch (err) { _report(err, 'choose cancel'); } } } };
+  definePanel('choose', Cho, { title: 'Choose your reward', width: 560, pos: 'center', modal: true, remember: false });
+
+  // ================================================================================================ registration & wiring
+  UI.Inventory = Inv; UI.Character = Ch; UI.Abilities = Ab; UI.Journal = Jn; UI.Map = Mp; UI.Players = Pl;
+  UI.Dialogue = Dg; UI.Vendor = Vd; UI.Travel = Tr; UI.Settings = St; UI.Choose = Cho;
+  if (_has(UI, 'addCSS')) UI.addCSS(CSS); else { const st = document.createElement('style'); st.textContent = CSS; (document.head || document.documentElement).appendChild(st); }
+  if (!_registerAll()) G.on('init', _registerAll);
+  else G.on('init', _registerAll);          // re-run at init in case the HUD re-created its roots
+
+  function _markAll() { for (let i = 0; i < _apis.length; i++) _apis[i].mark(); }
+  G.on('inventoryChanged', function () { Inv.mark(); Vd.mark(); });
+  G.on('equipChanged', function () { PV.needRebuild = true; Ch.mark(); Inv.mark(); Vd.mark(); });
+  G.on('goldChanged', function () { Inv.mark(); Vd.mark(); Ab.mark(); Tr.mark(); });
+  G.on('abilityTrained', function () { Ab.mark(); });
+  G.on('hotbarChanged', function () { Ab.mark(); });
+  G.on('playerLevelUp', function () { Ch.mark(); Ab.mark(); Jn.mark(); Vd.mark(); });
+  G.on('titleEarned', function () { Ch.mark(); });
+  G.on('effectsChanged', function () { Ch.mark(); });
+  ['questAccepted', 'questProgress', 'questCompleted'].forEach(function (evt) { G.on(evt, function () { Jn.mark(); MP.dirty = true; }); });
+  G.on('qualityChanged', function () { St.mark(); });
+  G.on('zoneChanged', function () { MP.dirty = true; });
+  G.on('load', function () { PV.needRebuild = true; MP.img = null; _markAll(); St.apply(); });
+  G.on('gameStart', function () { PV.needRebuild = true; MP.img = null; _markAll(); });
+  G.on('panelClosed', function (id) { if (id === 'vendor' || id === 'dialogue' || id === 'travel') _dndReset(); });
+  G.on('update', function (dt) {
+    dt = clamp(_num(dt), 0, 0.1);
+    if (_dirty.size) _flush();
+    try {
+      _pvRender(dt);
+      Mp.update(dt);
+      Pl.update(dt);
+      Vd.update(dt);
+    } catch (err) { if (!G.__panelsErr) { G.__panelsErr = true; _report(err, 'panels update'); } }
+  });
+  G.log('31_ui_panels ready');
+})();

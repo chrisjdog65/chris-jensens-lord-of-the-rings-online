@@ -518,7 +518,6 @@
       objectives: [
         killboss('boss_halgar', 'Slay Halgar the Blackwold in his camp'),
         use('gn_souththicket_5', 1, 'Break open the Blackwold plunder'),
-        deliver('q_brigand_map', 'npc_bree_strider', 'Bring Halgar\'s map to Strider in Bree'),
       ],
       rewards: { choose: gear('militia', 'shoulder'), items: ['pot_heal_draught', 'pot_power_draught', 'n_neck_wight'] },
       intro: "Halgar's camp is in the deep wood south of the marsh, palisaded and full of everything he stole from Bree-land. He's a big man with a bigger axe and he's killed better hunters than me. But you've done what none of us could, and Saeradan says the letters show he's only waiting. So don't let him wait. Go in, kill him, and break open his plunder; whatever the Pale Hand gave him is ours now. Saeradan thinks he carries a map of the road north. If he does, Strider in Bree must have it before the day is out.",
@@ -685,7 +684,7 @@
         kill('orc_lonelands', 6, 'Strike at the orc-camp under Weathertop'),
         kill('weather_hills_spider', 5, 'Kill the spiders on the western slopes of Weathertop'),
       ],
-      rewards: { items: ['pot_heal_elixir', 'pot_power_elixir', 'food_ranger_stew'] },
+      rewards: { items: ['pot_heal_elixir', 'pot_power_elixir', 'food_honey_cake'] },
       intro: "Take this to Candaith. He is a Ranger of Strider's company and he has watched Weathertop for two years from the Eglain's stronghold at Ost Guruth, east along the Road; the letter tells him what we have learned about the pale banner. On your way, strike at the orc-camp under the western side of Weathertop, for the orcs there are Angmar's, not the Lone-lands' usual rabble, and they are digging. The slopes above the camp are thick with spiders that the orcs have let grow; clear them if you can.",
       accept: "To Ost Guruth and Candaith.",
       progress: "Strike at the orc-camp under the western slopes of Weathertop and clear the spiders above it, then follow the Road east to Ost Guruth and give Osric's letter to Candaith.",
