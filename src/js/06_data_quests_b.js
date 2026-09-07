@@ -86,17 +86,17 @@
     quest(51, B5, {
       name: 'The Lakeside Way', zone: 'evendim', giver: 'npc_esteldin_halbarad', turnin: 'npc_tinnudir_captain',
       objectives: [
-        explore(-40, -1000, 22, 'Reach the Causeway of Tinnudir on Lake Evendim'),
+        explore(-20, -720, 22, 'Reach Rushingdale Shore on the east bank of Nenuial'),
         kill('evendim_crawler', 6, 'Slay Lake-crawlers on the east shore of Nenuial'),
         talk('npc_tinnudir_guard', 'Report to Dorlas, the sentry at the gate of Tinnudir'),
       ],
       rewards: { choose: setPick('rivendell', 'chest'), items: ['pot_heal_elixir'] },
-      intro: "Bûrzghâsh is dead and Fornost is quiet, but the Pale Hand was not among the fallen. My scouts followed his riders north-west along the old causeway to Lake Evendim — to Annúminas, the drowned capital of the kings, where the crown of Arnor was last worn. Tarondor holds the isle of Tinnudir with a handful of Rangers and he will need a sword like yours. Ride to Trestlebridge and take the causeway road north; the lake-crawlers have made the east shore a death-trap for our couriers, so clear them as you go. When you reach the gate of Tinnudir, give my name to Dorlas.",
+      intro: "Bûrzghâsh is dead and Fornost is quiet, but the Pale Hand — Hwaldan, as we know him now — was not among the fallen. My scouts followed his riders north-west along the old causeway to Lake Evendim — to Annúminas, the drowned capital of the kings, where the crown of Arnor was last worn. Tarondor holds the isle of Tinnudir with a handful of Rangers and he will need a sword like yours. Ride to Trestlebridge and take the road north to Rushingdale Shore, where the lake first comes into view; the lake-crawlers have made that east shore a death-trap for our couriers, so clear them as you go. Then follow the causeway out to the isle, and give my name to Dorlas at the gate of Tinnudir.",
       accept: 'I will ride for Evendim at once.',
-      progress: 'The causeway runs north from Trestlebridge across the lake. Tarondor waits in the Keep of Tinnudir.',
+      progress: 'The road north from Trestlebridge reaches the lake at Rushingdale Shore, then runs out along the causeway to Tinnudir. Tarondor waits in the Keep.',
       complete: "Halbarad sends you? Then the North Downs are safe and I may sleep an hour tonight. Welcome to Tinnudir, friend — the lake is wide, the ruins are wider, and the robbers who dig in them have found a paymaster with very deep pockets. This mail was sent up from Imladris for whoever Halbarad chose; it seems he chose well.",
-      summary: 'Ride the causeway to Tinnudir, clearing the lake-crawlers of the east shore, and report to Tarondor.',
-      hint: 'Take the road north from Trestlebridge; it becomes the causeway to the isle of Tinnudir.',
+      summary: 'Ride north to Rushingdale Shore, clear the lake-crawlers of the east shore, and cross the causeway to Tarondor at Tinnudir.',
+      hint: 'Take the road north from Trestlebridge to the east shore of the lake; it becomes the causeway to the isle of Tinnudir.',
     }),
     quest(52, B5, {
       name: 'Robbers in the Ruins', zone: 'evendim', giver: 'npc_tinnudir_captain', turnin: 'npc_tinnudir_captain',
@@ -173,7 +173,7 @@
     quest(57, B5, {
       name: 'The Last Bridge', zone: 'trollshaws', giver: 'npc_tinnudir_captain', turnin: 'npc_thorenhad_captain',
       objectives: [
-        explore(1029, -50, 20, 'Reach the Last Bridge over the Hoarwell'),
+        explore(1045, -50, 20, 'Cross the Last Bridge over the Hoarwell'),
         kill('hillman_brigand', 6, "Slay Rhudaur Hillmen at the hillman camp"),
       ],
       rewards: { choose: setPick('rivendell', 'head'), items: ['pot_heal_greater'] },
@@ -785,7 +785,7 @@
       intro: "I have seen the altar in the fire every night since we landed: a slab of black stone on the western hill, the Pale Hand before it with the shards laid out in the shape of a crown, and cultists in a ring about him feeding the rite with their own blood. Each of them wears a phylactery on a chain — a little iron box with a piece of Draugmar's grave-cloth inside — and through those boxes the Gaunt-lord sees. Go to the altar, kill the cultists, and bring me three of the boxes. Blind him, and I can hide the camp from him until the gate is open.",
       accept: 'I will blind the Gaunt-lord.',
       progress: 'The Gaunt-altar stands on the western hill of Himling, beyond the Uruk lines.',
-      complete: "You found him, then. The Pale Hand — dead before his own altar, his face like a mask of salt, his shards taken up into the rite and his life with them. Draugmar has no more use for a servant once the servant has served; that is the way of the Gaunt-lords. But the rite is not finished, for he does not have the shards we hold, and he is bound half-in and half-out of the world beneath the fortress. That is where you will meet him — but the gate of Himring is still shut, and the seals that open it are lost in the barrows.",
+      complete: "You found him, then. Hwaldan, the Pale Hand — dead before his own altar, his face like a mask of salt, his shards taken up into the rite and his life with them. Draugmar has no more use for a servant once the servant has served; that is the way of the Gaunt-lords. But the rite is not finished, for he does not have the shards we hold, and he is bound half-in and half-out of the world beneath the fortress. That is where you will meet him — but the gate of Himring is still shut, and the seals that open it are lost in the barrows.",
       summary: 'Slay the Gaunt-cultists at the Gaunt-altar and take their phylacteries to blind the Gaunt-lord.',
       hint: 'The Gaunt-altar is on the western hill of Himling, past the Uruk lines.',
     }),

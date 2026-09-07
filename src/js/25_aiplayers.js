@@ -66,8 +66,8 @@
   const RETREAT_PCT = 0.25;
   const EAT_TIME = 6;
   const RESPAWN_TIME = 10;
-  const FIGHT_TIME = [20, 60];
-  const TOWN_TIME = [30, 120];
+  const FIGHT_TIME = [30, 75];
+  const TOWN_TIME = [20, 75];
   const FISH_TIME = [60, 180];
   const NIGHT_START = 22, NIGHT_END = 5;
   const PI = Math.PI, TAU = Math.PI * 2;
@@ -416,7 +416,7 @@
     let gates = null;
     if (town.walls || town.id === 'bree') {
       gates = [];
-      const R = num(town.wallRadius, num(town.radius, 60) * 0.85);
+      const R = num(town.wallRadius, num(town.radius, 60) * 1.05 + 6);
       if (Array.isArray(town.gates) && town.gates.length) {
         for (let i = 0; i < town.gates.length; i++) { const g = town.gates[i]; const ang = typeof g === 'number' ? g : Math.atan2(num(g.x) - town.pos.x, num(g.z) - town.pos.z); gates.push({ x: town.pos.x + Math.sin(ang) * R, z: town.pos.z + Math.cos(ang) * R }); }
       } else {
@@ -438,7 +438,7 @@
   function insertGates(path, x, z, townId) {
     const town = townData(townId); const gates = gatesOf(town);
     if (!gates || !path || !path.length) return path;
-    const R = num(town.wallRadius, num(town.radius, 60) * 0.85);
+    const R = num(town.wallRadius, num(town.radius, 60) * 1.05 + 6);
     const out = []; let px = x, pz = z;
     for (let i = 0; i < path.length; i++) {
       const p = path[i];
@@ -481,11 +481,14 @@
   function pickSpawn(zoneId, L) {
     const sp = spawnsInZone(zoneId); if (!sp.length) return null;
     let best = null, n = 0;
-    for (let i = 0; i < sp.length; i++) {
-      const s = sp[i]; const mt = monsterType(s.type); if (!mt || !s.center) continue;
-      const lv = mt.level || [1, 80]; const lo = Array.isArray(lv) ? lv[0] : lv, hi = Array.isArray(lv) ? lv[1] : lv;
-      if (hi < L - 7 || lo > L + 4) continue;
-      n++; if (schance(1 / n)) best = s;                    // reservoir pick among suitable groups
+    for (let pass = 0; pass < 2 && !best; pass++) {
+      const slack = pass === 0 ? 3 : 7;                     // level-matched groups first, then anything not grey
+      for (let i = 0; i < sp.length; i++) {
+        const s = sp[i]; const mt = monsterType(s.type); if (!mt || !s.center) continue;
+        const lv = mt.level || [1, 80]; const lo = Array.isArray(lv) ? lv[0] : lv, hi = Array.isArray(lv) ? lv[1] : lv;
+        if (hi < L - slack || lo > L + 4) continue;
+        n++; if (schance(1 / n)) best = s;                  // reservoir pick among suitable groups
+      }
     }
     return best || spick(sp);
   }
@@ -635,7 +638,7 @@
   function needFor(L) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'needFor')) ? num(X.needFor(L), 500) : 500; }
   function killXP(mobL, L, mult) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'killXP')) ? num(X.killXP(mobL, L, mult), 5) : 5; }
   function questXP(L, type) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'questXP')) ? num(X.questXP(L, type), 100) : 100; }
-  function xpPace(L) { return 1 / (1 + L / 40); }     // 1.0 at L1 → 0.5 at L40 → 0.33 at L80 (levels slow down)
+  function xpPace(L) { return 1.3 / (1 + L / 40); }   // 1.27 at L1 → 0.65 at L40 → 0.43 at L80 (levels slow down)
 
   // ------------------------------------------------------------------------------------------------ population
   function uniqueName(race, gender, rng, used) {
@@ -895,7 +898,7 @@
       if (_dist2sq(e.pos.x, e.pos.z, sp.x, sp.z) > 2) goStraight(e, sp.x, sp.z, 1.8); else { a.path = null; a.phase = 'idle'; }
       a.inInn = sp.kind === 'inn';
     } else { a.path = null; a.phase = 'idle'; }
-    a.timer = opts.timer != null ? opts.timer : sr(TOWN_TIME[0], TOWN_TIME[1]) * (night ? 2.5 : 1) * (e.persona.playstyle === 'social' ? 1.5 : 1);
+    a.timer = opts.timer != null ? opts.timer : sr(TOWN_TIME[0], TOWN_TIME[1]) * (night ? 2.5 : 1) * (e.persona.playstyle === 'social' ? 1.5 : 1) * (opts.turnin ? 0.6 : 1);
     setActivity(e, a.inInn ? fillActivity(e, INN_ACTIVITIES) : a.spotKind === 'campfire' ? fillActivity(e, CAMP_ACTIVITIES) : opts.turnin ? 'Turning in quests in ' + townName(e.townId) : fillActivity(e, TOWN_ACTIVITIES));
     setMounted(e, false);
   }
@@ -1035,7 +1038,7 @@
       case 'questing': {
         if (a.phase === 'walk') {
           if (advancePath(e, dt)) {
-            a.phase = 'fight'; a.timer = sr(FIGHT_TIME[0], FIGHT_TIME[1]) * (a.grind ? 1.6 : 1) * (1 + e.level / 100); a.killT = sr(3, 7); a.fightUntil = t + a.timer; a.wander = 0; a.noTargetT = 0;
+            a.phase = 'fight'; a.timer = sr(FIGHT_TIME[0], FIGHT_TIME[1]) * (a.grind ? 1.6 : 1) * (1 + e.level / 100); a.killT = sr(2, 5); a.fightUntil = t + a.timer; a.wander = 0; a.noTargetT = 0;
             setMounted(e, false);
             const mt = a.spawn ? monsterType(a.spawn.type) : null;
             setActivity(e, (a.grind ? 'Grinding ' : 'Fighting ') + (mt ? mt.name + 's' : 'monsters') + ' at ' + spawnName(a.spawn));
@@ -1046,7 +1049,7 @@
           const real = e._near && (a.fightTarget || a.noTargetT < 8);   // real combat happening (or still looking) nearby
           if (!real) {
             a.killT -= dt;
-            if (a.killT <= 0) { a.killT = sr(5, 9) * (1 + e.level / 60); abstractKill(e, mobL); }
+            if (a.killT <= 0) { a.killT = sr(3.5, 6.5) * (1 + e.level / 80); abstractKill(e, mobL); }
             const risk = 0.0008 * (1 + Math.max(0, mobL - e.level) * 0.5) * (fellowshipOf(e) ? 0.5 : 1) * dt;
             if (S() < risk) { die(e, null, true); break; }
             // shuffle around the camp so distant dots move plausibly
@@ -1782,3 +1785,248 @@
       if (near && e.rig && hasFn(e.rig, 'setAnim') && !e.ai.fightTarget) { e.ai.emoteUntil = t + 2; e.rig.setAnim('emote_cheer', true); }
     }
   }
+
+  // ------------------------------------------------------------------------------------------------ update
+  function update(dt) {
+    if (!inited || !all.length) return;
+    dt = num(dt, 0); if (dt <= 0) return; if (dt > 0.25) dt = 0.25;
+    frame++;
+    const t = now();
+    // far LOD: round-robin so every AI ticks about every FAR_TICK seconds
+    const n = Math.min(all.length, Math.max(1, Math.ceil(all.length * dt / FAR_TICK)));
+    for (let i = 0; i < n; i++) {
+      const e = all[cursor]; cursor = (cursor + 1) % all.length;
+      const edt = clamp(t - e._lastTick, 0, 2.5);
+      if (edt < 0.05) continue;
+      e._lastTick = t;
+      try { farTick(e, edt, t); } catch (err) { report(err, 'farTick'); }
+    }
+    // near LOD
+    const p = player();
+    if (p && p.pos) {
+      scanT -= dt;
+      if (scanT <= 0) { scanT = 0.5; scanNear(p.pos.x, p.pos.z); rigBudget(); }
+      for (let i = 0; i < nearList.length; i++) {
+        const e = nearList[i]; if (!e._near) continue;
+        e._d2 = _dist2sq(p.pos.x, p.pos.z, e.pos.x, e.pos.z);
+        try { nearStep(e, dt, t); } catch (err) { report(err, 'nearStep'); }
+      }
+    }
+    // chat
+    processPending(t);
+    if (chatEnabled() && t >= nextWorldChat) {
+      nextWorldChat = t + CHAT_INTERVAL / chatRate() * sr(0.45, 1.6);
+      try { worldChatOnce(t); } catch (err) { report(err, 'chat'); }
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------ init & events
+  let hooked = false;
+  function hookEvents() {
+    if (hooked || !hasFn(G, 'on')) return;
+    hooked = true;
+    G.on('chat', onChat);
+    G.on('playerLevelUp', onPlayerLevelUp);
+    G.on('entityKilled', onEntityKilled);
+    G.on('gameStart', function () { ensureScene(); nextWorldChat = now() + sr(8, 20); });
+  }
+  function init(sc) {
+    if (sc && sc.isScene) scene = sc;
+    if (inited) { ensureScene(); return AI; }
+    const W = world();
+    if (!W || !G.Data || !Array.isArray(G.Data.races) || !Array.isArray(G.Data.classes)) { warn('G.Data.world / races / classes missing — no simulated players'); inited = true; hookEvents(); return AI; }
+    try { buildGraph(W); } catch (err) { report(err, 'buildGraph'); }
+    try { buildPopulation(W); } catch (err) { report(err, 'buildPopulation'); }
+    hookEvents();
+    inited = true;
+    nextWorldChat = now() + sr(6, 20);
+    ensureScene();
+    if (hasFn(G, 'log')) G.log('[AIPlayers] ' + all.length + ' simulated players, ' + fellowships.length + ' fellowships, ' + graph.list.length + ' graph nodes / ' + graph.edges.length + ' edges');
+    return AI;
+  }
+
+  // ------------------------------------------------------------------------------------------------ public API
+  function stateLabel(e) {
+    const a = e.ai;
+    if (e.dead || a.state === 'dead') return 'dead';
+    if (e.sailing) return 'sailing';
+    if (a.fightTarget) return 'fighting';
+    if (a.state === 'questing') return a.phase === 'fight' ? 'fighting' : a.grind ? 'grinding' : 'questing';
+    return a.state;
+  }
+  function record(e) {
+    return { id: e.id, name: e.name, fullName: e.fullName, race: e.race, cls: e.cls, gender: e.gender, level: e.level, zone: e.zone, zoneName: zoneName(e.zone), town: e.townId,
+      state: stateLabel(e), activity: e.activity, pos: { x: Math.round(e.pos.x), z: Math.round(e.pos.z) }, fellowshipId: e.fellowshipId, mounted: !!e.mounted, online: e.online !== false };
+  }
+  function list() { const out = new Array(all.length); for (let i = 0; i < all.length; i++) out[i] = record(all[i]); return out; }
+  function get(id) { if (!id) return null; if (typeof id === 'object') return byId[id.id] || null; return byId[id] || byNameLower[String(id).toLowerCase()] || null; }
+  function byName(name) {
+    if (!name) return null;
+    const key = String(name).trim().toLowerCase(); if (!key) return null;
+    if (byNameLower[key]) return byNameLower[key];
+    for (let i = 0; i < all.length; i++) { const n = all[i].name.toLowerCase(); if (n.indexOf(key) === 0 || all[i].fullName.toLowerCase() === key) return all[i]; }
+    return null;
+  }
+  function inspect(id) {
+    const e = get(id); if (!e) return null;
+    const r = record(e);
+    const f = fellowshipOf(e);
+    const eq = {}; for (let i = 0; i < EQUIP_SLOTS.length; i++) eq[EQUIP_SLOTS[i]] = (e.equipment && e.equipment[EQUIP_SLOTS[i]]) || null;
+    const stats = {}; for (const k in e.stats) stats[k] = e.stats[k];
+    const next = e.level >= LEVEL_CAP ? e.xp : xpForLevel(e.level + 1);
+    const base = xpForLevel(e.level);
+    r.stats = stats; r.equipment = eq; r.xp = Math.round(e.xp); r.xpNext = Math.round(next); r.xpPct = next > base ? clamp((e.xp - base) / (next - base) * 100, 0, 100) : 100;
+    r.kills = e.kills; r.questsDone = e.questsDone; r.deaths = e.deaths; r.fish = e.fish; r.playTime = Math.round(e.playTime);
+    r.fellowship = f ? f.members.map((m) => (byId[m] ? byId[m].name : m)).filter((n) => n !== e.name) : [];
+    r.fellowshipName = f ? f.name : ''; r.fellowshipRole = e.fellowshipRole || '';
+    r.title = e.title || ''; r.persona = { chatty: e.persona.chatty, friendly: e.persona.friendly, style: e.persona.style, playstyle: e.persona.playstyle };
+    r.morale = Math.round(e.morale); r.power = Math.round(e.power); r.alive = alive(e); r.abilities = e.abilities ? Array.from(e.abilities) : [];
+    r.entity = e;
+    return r;
+  }
+  function teleportTo(id) {
+    const e = get(id); const P = G.Player; const p = player();
+    if (!e || !P || !hasFn(P, 'teleport')) return false;
+    const pt = landPointNear(e.pos.x, e.pos.z, 3);
+    const yaw = _yawTo(e.pos.x - pt.x, e.pos.z - pt.z);
+    let ok = false;
+    try { ok = !!P.teleport(pt.x, pt.z, yaw); } catch (err) { report(err, 'Player.teleport'); ok = false; }
+    if (ok && p && G.state) { const z = zoneAtPos(pt.x, pt.z); if (z && z !== G.state.zone) { G.state.zone = z; emit('zoneChanged', z); } }
+    return ok;
+  }
+  function summon(id, pos) {
+    const e = get(id); if (!e) return false;
+    const p = player();
+    const at = pos && typeof pos.x === 'number' ? pos : (p && p.pos) || null;
+    if (!at) return false;
+    const a = e.ai;
+    if (e.pos && nearHero(e.pos.x, e.pos.z, 80)) fx('teleport', e.pos, { out: true, scale: 0.7 });
+    releaseTarget(e);
+    e.sailing = false; setMounted(e, false);
+    if (e.dead) respawn(e);
+    let nx = at.x + sr(-3, 3), nz = at.z + sr(-3, 3);
+    const P = G.Physics; if (P && hasFn(P, 'nearestFree')) { try { const f = P.nearestFree(nx, nz, 0.4); if (f) { nx = f.x; nz = f.z; } } catch (err) { /* ignore */ } }
+    placeAt(e, nx, nz, _yawTo(at.x - nx, at.z - nz));
+    e.pos.y = terrainY(nx, nz);
+    const z = zoneAtPos(nx, nz); const zd = z ? zoneData(z) : null;
+    if (zd && zd.level && e.level >= num(zd.level[0], 1) - 3 && e.level <= num(zd.level[1], 80) + 5) { e.zone = z; const W = world(); if (W && hasFn(W, 'nearestTown')) { try { const tn = W.nearestTown(nx, nz); if (tn) e.townId = tn.id; } catch (err) { /* ignore */ } } }
+    else { a.travelTo = e.townId; }
+    a.state = 'idle'; a.phase = ''; a.timer = sr(15, 40); a.path = null; a.sit = false; a.follow = false;
+    setActivity(e, 'Summoned by ' + ((p && p.name) || 'the admin'));
+    fx('teleport', e.pos, { scale: 0.8 });
+    if (e.fellowshipRole === 'member') e.fellowshipRole = 'solo';
+    return true;
+  }
+  function spawnNear(pos) {
+    const p = player(); const at = (pos && typeof pos.x === 'number') ? pos : (p && p.pos) || null;
+    if (!at || !all.length) return null;
+    let e = null;
+    for (let k = 0; k < 12; k++) { const c = spick(all); if (c && !c._near && !c.dead) { e = c; break; } }
+    if (!e) e = spick(all);
+    return summon(e.id, at) ? e : null;
+  }
+  function setChatRate(mult) {
+    const v = Math.max(0, num(mult, 1));
+    if (G.state) { if (!G.state.settings) G.state.settings = {}; G.state.settings.aiChat = v; }
+    if (v > 0) nextWorldChat = Math.min(nextWorldChat, now() + CHAT_INTERVAL / v);
+    return v;
+  }
+  function levelAll(n) {
+    n = Math.round(num(n, 1)); if (!n) return 0;
+    let changed = 0;
+    for (let i = 0; i < all.length; i++) {
+      const e = all[i];
+      if (n > 0) { for (let k = 0; k < n && e.level < LEVEL_CAP; k++) { e.xp = xpForLevel(e.level + 1); levelUp(e, true); changed++; } }
+      else { const L = clamp(e.level + n, 1, LEVEL_CAP); if (L !== e.level) { e.level = L; e.xp = xpForLevel(L); e.abilities = abilitiesForLevel(e.cls, L); buildRotation(e); refreshGear(e); fullHeal(e); e.title = titleFor(e); if (e.rig) refreshNameplate(e); changed++; } }
+      promoteZone(e);
+    }
+    return changed;
+  }
+  function serialize() {
+    const out = new Array(all.length);
+    for (let i = 0; i < all.length; i++) {
+      const e = all[i];
+      out[i] = { id: e.id, level: e.level, xp: Math.round(e.xp), zone: e.zone, town: e.townId, x: Math.round(e.pos.x), z: Math.round(e.pos.z), state: stateLabel(e),
+        kills: e.kills, deaths: e.deaths, questsDone: e.questsDone, fish: e.fish, playTime: Math.round(e.playTime) };
+    }
+    return out;
+  }
+  function restore(data) {
+    if (!inited) init();
+    if (!Array.isArray(data)) return 0;
+    let n = 0;
+    for (let i = 0; i < data.length; i++) {
+      const rec = data[i]; if (!rec || !rec.id) continue;
+      const e = byId[rec.id]; if (!e) continue;
+      if (e.rig) disposeRig(e);
+      releaseTarget(e);
+      const L = clamp(Math.round(num(rec.level, e.level)), 1, LEVEL_CAP);
+      const changed = L !== e.level;
+      e.level = L;
+      e.xp = Math.max(xpForLevel(L), num(rec.xp, xpForLevel(L)));
+      if (L < LEVEL_CAP && e.xp >= xpForLevel(L + 1)) e.xp = xpForLevel(L + 1) - 1;
+      if (changed) { e.abilities = abilitiesForLevel(e.cls, L); buildRotation(e); refreshGear(e); e.title = titleFor(e); }
+      fullHeal(e);
+      if (rec.zone && zoneData(rec.zone)) e.zone = rec.zone;
+      if (rec.town && townData(rec.town)) e.townId = rec.town;
+      else if (!townData(e.townId) || townData(e.townId).zone !== e.zone) { const tn = pickTown(e.zone, S); if (tn) e.townId = tn.id; }
+      e.kills = Math.round(num(rec.kills, e.kills)); e.deaths = Math.round(num(rec.deaths, e.deaths)); e.questsDone = Math.round(num(rec.questsDone, e.questsDone)); e.fish = Math.round(num(rec.fish, e.fish)); e.playTime = num(rec.playTime, e.playTime);
+      e.alive = true; e.dead = false; e.sailing = false; e.mounted = false;
+      e.ai = newAiState();
+      const x = num(rec.x, e.pos.x), z = num(rec.z, e.pos.z);
+      placeAt(e, isWaterAt(x, z) ? rallyOf(townData(e.townId)).x : x, isWaterAt(x, z) ? rallyOf(townData(e.townId)).z : z, e.yaw);
+      e.ai.state = 'idle'; e.ai.timer = sr(2, 25);
+      setActivity(e, 'Idling in ' + zoneName(e.zone));
+      n++;
+    }
+    // fellowship members may have been saved apart from their leader; they catch up on their own
+    return n;
+  }
+  function stats() {
+    const byState = {}; let rigs = 0, near = 0, mounted = 0, sailing = 0, dead = 0, lvSum = 0, maxL = 0;
+    for (let i = 0; i < all.length; i++) { const e = all[i]; const s = stateLabel(e); byState[s] = (byState[s] || 0) + 1; if (e.rig) rigs++; if (e._near) near++; if (e.mounted) mounted++; if (e.sailing) sailing++; if (e.dead) dead++; lvSum += e.level; if (e.level > maxL) maxL = e.level; }
+    return Object.assign({ count: all.length, fellowships: fellowships.length, byState: byState, rigs: rigs, near: near, mounted: mounted, sailing: sailing, dead: dead, avgLevel: all.length ? Math.round(lvSum / all.length * 10) / 10 : 0, maxLevel: maxL, pendingChat: pending.length, graphNodes: graph.list.length, graphEdges: graph.edges.length }, counters);
+  }
+  function nearPlayer(r) {
+    const p = player(); const out = [];
+    if (!p || !p.pos || !G.Spatial || !hasFn(G.Spatial, 'query')) return out;
+    const q = G.Spatial.query(p.pos.x, p.pos.z, num(r, 30), _aiFilter, _qbuf);
+    for (let i = 0; i < q.length; i++) out.push(q[i]);
+    out.sort((a, b) => _dist2sq(p.pos.x, p.pos.z, a.pos.x, a.pos.z) - _dist2sq(p.pos.x, p.pos.z, b.pos.x, b.pos.z));
+    return out;
+  }
+  function say(id, text, channel) {
+    const e = get(id); if (!e || !text) return false;
+    return sendLine(e, fill(String(text), e, null), channel || 'say');
+  }
+  function setScene(sc) { if (sc && sc.isScene) { scene = sc; ensureScene(); } }
+
+  // ------------------------------------------------------------------------------------------------ export
+  AI.init = init;
+  AI.update = update;
+  AI.list = list;
+  AI.get = get;
+  AI.byName = byName;
+  AI.inspect = inspect;
+  AI.teleportTo = teleportTo;
+  AI.summon = summon;
+  AI.spawnNear = spawnNear;
+  AI.setChatRate = setChatRate;
+  AI.levelAll = levelAll;
+  AI.serialize = serialize;
+  AI.restore = restore;
+  AI.stats = stats;
+  AI.nearPlayer = nearPlayer;
+  AI.whisper = whisper;
+  AI.say = say;
+  AI.onDamaged = onDamaged;
+  AI.setScene = setScene;
+  AI.all = all;
+  AI.fellowships = fellowships;
+  AI.chatLog = chatLog;
+  AI.FELLOWSHIP_NAMES = FELLOWSHIP_NAMES;
+  AI.BANK = BANK;
+  Object.defineProperty(AI, 'count', { get: function () { return all.length; }, enumerable: true });
+  Object.defineProperty(AI, 'root', { get: function () { return root; }, enumerable: true });
+  Object.defineProperty(AI, 'inited', { get: function () { return inited; }, enumerable: true });
+})();

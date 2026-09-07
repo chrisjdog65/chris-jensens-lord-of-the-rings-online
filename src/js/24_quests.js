@@ -100,6 +100,21 @@
   function zoneName(id) { const W = world(); const z = W && W.zoneById && W.zoneById[id]; return (z && z.name) || titleCase(id || ''); }
   function townOfNpc(id) { const d = npcData(id); const W = world(); const t = d && d.town && W && W.townById ? W.townById[d.town] : null; return t ? t.name : (d ? zoneName(d.zone) : ''); }
   function plural(n, word) { return (typeof G.plural === 'function') ? G.plural(n, word) : (n === 1 ? word : word + 's'); }
+  /** Plural of a creature name — only the last word changes: "Greenway Wolf" → "Greenway Wolves", "Hillman" → "Hillmen",
+   *  "Grey Lynx" → "Grey Lynxes", "Bree-land Boar" → "Bree-land Boars". */
+  function pluralName(n, name) {
+    name = String(name || '');
+    if (n === 1 || !name) return name;
+    const m = /^([\s\S]*?)([A-Za-z]+)$/.exec(name); if (!m) return name + 's';
+    const head = m[1], w = m[2], lw = w.toLowerCase();
+    let out;
+    if (lw.length > 3 && /man$/.test(lw)) out = w.slice(0, -3) + (w.slice(-3) === 'man' ? 'men' : 'MEN');
+    else if (/[^f]fe?$/.test(lw)) out = w.replace(/fe?$/, 'ves');
+    else if (/[^aeiou]y$/.test(lw)) out = w.slice(0, -1) + 'ies';
+    else if (/(s|x|z|ch|sh)$/.test(lw)) out = w + 'es';
+    else out = w + 's';
+    return head + out;
+  }
 
   // ================================================================================================ registerQuests
   function indexOfId(list, id) { for (let i = 0; i < list.length; i++) if (list[i] && list[i].id === id) return i; return -1; }
@@ -161,7 +176,7 @@
   }
   function defaultLabel(o) {
     switch (o.type) {
-      case 'kill': return 'Slay ' + (o.count > 1 ? plural(o.count, monsterName(o.target)) : monsterName(o.target));
+      case 'kill': return 'Slay ' + pluralName(o.count, monsterName(o.target));
       case 'collect': return 'Collect ' + itemName(o.item);
       case 'talk': return 'Talk to ' + npcName(o.npc);
       case 'explore': return 'Explore ' + (o.name || 'the area');
@@ -576,22 +591,33 @@
     emit('mountLearned', tid);
     return true;
   }
+  /** Equip the full Armour of the Lost Kingdom. Pieces already worn are kept, pieces already in the bags are equipped
+   *  from there (no duplicates), missing ones are created; anything that cannot be worn yet stays in the bags.
+   *  Returns the number of Lost Kingdom pieces worn afterwards (18 = complete). */
   function grantLostKingdom(silent) {
     const p = player(); if (!p) return 0;
     let set = null;
     if (hasFn(G.Items, 'lostKingdomSet')) { try { set = G.Items.lostKingdomSet(p.cls); } catch (e) { report(e, 'Quests.lostKingdomSet'); } }
     if (!Array.isArray(set)) return 0;
-    let n = 0; const spill = [];
+    if (hasFn(G.Items, 'canEquip') && !(p.level >= (G.C.LEVEL_CAP || 80))) warn('[Quests] Lost Kingdom set granted below the level cap — pieces wait in the bags until level ' + (G.C.LEVEL_CAP || 80));
+    const spill = [];
+    const slots = G.C.EQUIP_SLOTS || [];
     for (let i = 0; i < set.length; i++) {
       const inst = set[i]; if (!inst) continue;
+      const slot = slots[i] || (itemTemplate(inst.tid) && itemTemplate(inst.tid).slot);
+      let worn = false;
+      for (const s in p.equipment) { const e = p.equipment[s]; if (e && e.tid === inst.tid) { worn = true; break; } }
+      if (worn) continue;
       let ok = false;
-      if (hasFn(G.Items, 'equipDirect')) { try { ok = !!G.Items.equipDirect(p, inst); } catch (e) { ok = false; } }
-      if (!ok) { let added = false; try { added = hasFn(G.Items, 'addToInventory') && G.Items.addToInventory(p, inst, true); } catch (e) { added = false; } if (!added) spill.push(inst); }
-      else n++;
+      const idx = hasFn(G.Items, 'findInInventory') ? G.Items.findInInventory(p, inst.tid) : -1;
+      if (idx >= 0 && hasFn(G.Items, 'equip')) { try { ok = !!G.Items.equip(p, idx, slot); } catch (e) { ok = false; } if (ok) continue; }
+      if (idx < 0 && hasFn(G.Items, 'equipDirect')) { try { ok = !!G.Items.equipDirect(p, inst, slot); } catch (e) { ok = false; } }
+      if (!ok && idx < 0) { let added = false; try { added = hasFn(G.Items, 'addToInventory') && G.Items.addToInventory(p, inst, true); } catch (e) { added = false; } if (!added) spill.push(inst); }
     }
     if (spill.length) dropAtFeet(spill);
     if (hasFn(G.Data.stats, 'compute')) { try { G.Data.stats.compute(p); } catch (e) { /* ignore */ } }
-    if (!silent) { notifyBig('Armour of the Lost Kingdom', 'The greatest gear in Middle-earth is yours'); chat('You are clad in the full Armour of the Lost Kingdom.', 'system'); sfx('achievement'); }
+    let n = 0; for (const s in p.equipment) { const e = p.equipment[s]; if (e && (/^(s_lostkingdom_|lk_)/.test(e.tid))) n++; }
+    if (!silent) { notifyBig('Armour of the Lost Kingdom', n >= 18 ? 'The greatest gear in Middle-earth is yours' : 'The set awaits you in your bags'); chat(n >= 18 ? 'You are clad in the full Armour of the Lost Kingdom.' : 'The Armour of the Lost Kingdom has been placed in your bags.', 'system'); sfx('achievement'); }
     emit('equipChanged', p);
     return n;
   }
@@ -968,16 +994,18 @@
   G.Quests = Q;
 
   // ================================================================================================ G.AutoQuest
-  const AQ = { active: false, paused: false, speed: 3, log: [], stats: { ticks: 0, teleports: 0, nudges: 0, forced: 0, fights: 0, kills: 0, errors: 0, spawns: 0 } };
+  // (own function scope: the bot's helpers must never shadow the quest machine's — e.g. both have an update())
+  (function () {
+  const AQ = { active: false, paused: false, speed: 3, log: [], stats: { ticks: 0, teleports: 0, nudges: 0, forced: 0, fights: 0, kills: 0, deaths: 0, errors: 0, spawns: 0 } };
   const LOG_MAX = 50;
   const S = {
     planKind: '', questId: null, objIndex: -1, planKey: '', planT: 0, planDirty: true,
     attemptStart: 0, lastProg: -1, text: '', step: '', lastTextKey: '',
     sub: null, target: null, fightStart: 0, fightKey: '', nextAbilityT: 0, potionT: -1e9, foodT: -1e9, houseT: 0,
-    deadSince: -1, respawnedAt: -1e9, errStreak: 0, flashT: -1e9, tpNotifyT: -1e9, stuckNotified: false, lastKillsSeen: 0,
+    deadSince: -1, respawnedAt: -1e9, errStreak: 0, flashT: -1e9, tpNotifyT: -1e9, stuckNotified: false, lastKillsSeen: 0, deathsOn: Object.create(null),
     buffCast: Object.create(null), rangedCls: null, rangedFor: null, busyT: 0, statusObj: { questId: null, questName: '', step: '', text: '', pct: 0, done: 0, total: 0, kind: '', objIndex: -1 },
   };
-  const T = { x: NaN, z: NaN, arrive: 1.5, start: 0, bestDist: Infinity, lastProg: 0, nudgeUntil: 0, nudgeX: 0, nudgeZ: 0, nudgeT: -1e9, hops: null, hopI: 0, sailing: false, sailT: 0, key: '' };
+  const T = { x: NaN, z: NaN, arrive: 1.5, start: 0, bestDist: Infinity, lastProg: 0, nudgeUntil: 0, nudgeX: 0, nudgeZ: 0, nudgeT: -1e9, hops: null, hopI: 0, sailing: false, sailT: 0, sailLabel: '', key: '' };
   const _hostBuf = [];
 
   function logLine(text) {
@@ -1000,7 +1028,7 @@
   function resetState() {
     S.planKind = ''; S.questId = null; S.objIndex = -1; S.planKey = ''; S.planT = 0; S.planDirty = true;
     S.attemptStart = now(); S.lastProg = -1; S.text = ''; S.step = ''; S.lastTextKey = '';
-    S.sub = null; S.target = null; S.fightStart = 0; S.fightKey = ''; S.nextAbilityT = 0; S.houseT = 0; S.deadSince = -1; S.errStreak = 0; S.busyT = 0;
+    S.sub = null; S.target = null; S.fightStart = 0; S.fightKey = ''; S.nextAbilityT = 0; S.houseT = 0; S.deadSince = -1; S.errStreak = 0; S.busyT = 0; S.deathsOn = Object.create(null); S.respawnedAt = -1e9;
     T.x = T.z = NaN; T.hops = null; T.hopI = 0; T.sailing = false; T.key = ''; T.nudgeUntil = 0;
   }
   function start() {
@@ -1111,6 +1139,7 @@
         else if (hasFn(B, 'sailTo')) ok = B.sailTo(next.id, dock, { free: true }) !== false;
         else if (hasFn(B, 'instantTravel')) ok = B.instantTravel(next.id, { free: true }) !== false;
       } catch (e) { report(e, 'AutoQuest.sail'); ok = false; }
+      T.sailLabel = 'Sailing to ' + (next.name || (next.town ? titleCase(next.town) : next.id));
       logLine((sp >= 3 ? 'boat → ' : 'sailing → ') + (next.name || next.id) + (ok ? '' : ' (failed — teleporting)'));
       if (!ok) { const hops = T.hops, hi = T.hopI; teleportNear(next.pos ? next.pos.x : x, next.pos ? next.pos.z : z, 'boat unavailable'); T.hops = hops; T.hopI = hi + 1; if (T.hopI >= T.hops.length - 1) T.hops = null; T.start = now(); T.lastProg = now(); return 'moving'; }
       T.sailing = true;
@@ -1253,8 +1282,8 @@
     return best;
   }
   function fight(t, dt, isObjective) {
-    const p = player(); if (!p || !alive(t)) { S.target = null; return 'done'; }
-    if (t.leashing || t.invulnerable) { S.target = null; return 'lost'; }
+    const p = player(); if (!p || !alive(t)) { if (S.target === t) S.target = null; return 'done'; }
+    if (t.leashing || t.invulnerable) { if (S.target === t) S.target = null; return 'lost'; }
     const sp = speed();
     const key = t.id;
     if (S.fightKey !== key) { S.fightKey = key; S.fightStart = now(); AQ.stats.fights++; logLine('fighting ' + (t.name || t.typeId) + ' (L' + num(t.level, 1) + ')'); }
@@ -1270,8 +1299,11 @@
     if ((casting && (t.boss || t.elite)) || (m < 0.2 && tm > 0.4)) { if (hasFn(G.Player, 'dodgeRoll') && !p.casting) { try { if (G.Player.dodgeRoll()) logLine('dodge roll'); } catch (e) { /* ignore */ } } }
     if (m < 0.35 && now() - S.potionT > 3) { S.potionT = now(); usePotion('heal'); }
     // fight pacing safety: blazing speed / hopeless fights are finished by the engine
+    // (the fight clock and the per-foe defeat count survive our own deaths, so a foe far above our level can never
+    //  trap the bot in a die → retreat → die loop)
     const limit = sp >= 10 ? 8 : 60 / sp;
-    if (now() - S.fightStart > limit && hasFn(G.Combat, 'kill')) {
+    const deathLimit = sp >= 10 ? 1 : sp >= 3 ? 2 : 3;
+    if ((now() - S.fightStart > limit || num(S.deathsOn[t.id], 0) >= deathLimit) && hasFn(G.Combat, 'kill')) {
       warn('[AutoQuest] fight against ' + (t.name || t.typeId) + ' exceeded ' + limit.toFixed(0) + ' s — finishing it');
       logLine('fight timeout → finishing ' + (t.name || t.typeId));
       try { G.Combat.kill(t, p); } catch (e) { report(e, 'AutoQuest.kill'); }
@@ -1293,16 +1325,21 @@
     else if (ranged && d <= 30 && hasFn(G.Player, 'rangedAttack') && p.equipment && p.equipment.ranged) { try { G.Player.rangedAttack(); } catch (e) { /* ignore */ } }
     return 'fighting';
   }
+  /** A monster that is fighting us. Sticky: the foe we are already fighting is kept while it lives and stays near, so a
+   *  pack never makes the bot flip targets every tick; a fresher attacker only takes over when ours is far away. */
   function findThreat(p) {
     const M = G.Monsters; if (!M || !hasFn(M, 'hostilesNear') || !p.pos) return null;
+    const cur = S.target;
+    const curD = (cur && alive(cur) && !cur.leashing && !cur.invulnerable) ? dist2(p.pos.x, p.pos.z, cur.pos.x, cur.pos.z) : Infinity;
+    const curFighting = curD < 30 && (cur.target === p || inCombat(p));
     let best = null, bd = Infinity;
     let l = M.hostilesNear(p.pos, 12);
     for (let i = 0; i < l.length; i++) { const m = l[i]; if (m.target !== p || !alive(m) || m.leashing) continue; const d = dist2(p.pos.x, p.pos.z, m.pos.x, m.pos.z); if (d < bd) { bd = d; best = m; } }
-    if (best) return best;
-    if (inCombat(p) && morale01(p) < 1) {
+    if (!best && inCombat(p) && morale01(p) < 1) {
       l = M.hostilesNear(p.pos, 30);
       for (let i = 0; i < l.length; i++) { const m = l[i]; if (m.target !== p || !alive(m) || m.leashing) continue; const d = dist2(p.pos.x, p.pos.z, m.pos.x, m.pos.z); if (d < bd) { bd = d; best = m; } }
     }
+    if (curFighting && (!best || best === cur || curD <= 12 || bd > curD - 6)) return cur.target === p || best ? cur : null;
     return best;
   }
   function findTarget(p, typeId, bossId, radius) {
@@ -1327,18 +1364,28 @@
     try { D.open(ent, text || '', []); } catch (e) { return; }
     if (G.timers && hasFn(G.timers, 'after')) G.timers.after(0.6, function () { try { if (hasFn(G.UI, 'isOpen') && G.UI.isOpen('dialogue') && hasFn(G.UI, 'closePanel')) G.UI.closePanel('dialogue'); else if (hasFn(D, 'close')) D.close(); } catch (e) { /* ignore */ } });
   }
+  function huntText(o, t, typeId, bossId, prog, cnt) {
+    const nm = (t && t.name) || (bossId ? bossName(bossId) : monsterName(typeId));
+    if (o.type === 'killboss') return 'Defeating ' + nm;
+    if (o.type === 'collect') return 'Collecting ' + itemName(o.item) + ' ' + prog + '/' + cnt + ' from ' + pluralName(2, monsterName(typeId));
+    return 'Slaying ' + pluralName(cnt, monsterName(typeId)) + ' ' + prog + '/' + cnt;
+  }
   function stepHunt(o, q, typeId, bossId, needed, label) {
     const p = player(); const u = sub(); const sp = speed();
     let t = S.target;
     if (t && (!alive(t) || (t.typeId !== typeId && !(bossId && ((t.bossRec && t.bossRec.id === bossId) || t.bossId === bossId))) || t.leashing)) t = S.target = null;
     if (!t) t = S.target = findTarget(p, typeId, bossId, 60);
-    if (t) { setText('hunt:' + q.id + ':' + o.type + ':' + progressOf(q.id, S.objIndex), describeObjective(q, S.objIndex) + ' — fighting ' + (t.name || monsterName(typeId)), (o.type === 'killboss' ? 'Defeating ' : 'Slaying ') + (t.name || monsterName(typeId))); fight(t, 0, true); return; }
+    if (t) {
+      const cnt = objCount(o), prog = o.type === 'collect' ? Math.min(cnt, countItem(o.item)) : progressOf(q.id, S.objIndex);
+      setText('hunt:' + q.id + ':' + o.type + ':' + prog, huntText(o, t, typeId, bossId, prog, cnt), describeObjective(q, S.objIndex));
+      fight(t, 0, true); return;
+    }
     // nobody around: go to where they live
     let pos = null;
     if (bossId) { const b = bossPosOf(bossId); if (b) pos = b; }
     if (!pos) pos = spawnPosOf(typeId, p.pos);
     if (!pos) { pos = { x: p.pos.x, z: p.pos.z }; u.waitT = 1e9; }
-    setText('hunt:' + q.id + ':' + typeId + ':travel:' + progressOf(q.id, S.objIndex), describeObjective(q, S.objIndex) + ' — travelling to the ' + (bossId ? bossName(bossId) : monsterName(typeId)) + ' grounds', 'Travelling to ' + zoneName(zoneAt(pos.x, pos.z)));
+    setText('hunt:' + q.id + ':' + typeId + ':travel:' + progressOf(q.id, S.objIndex), 'Travelling to the ' + (bossId ? bossName(bossId) : monsterName(typeId)) + ' grounds in ' + zoneName(zoneAt(pos.x, pos.z)), describeObjective(q, S.objIndex));
     const r = goTo(pos.x, pos.z, 8, { key: 'hunt' });
     const near = pdist(pos.x, pos.z) < 30;
     if (r === 'arrived' || near) {
@@ -1359,7 +1406,7 @@
     const what = o.type === 'collect' ? itemName(o.item) : nodeName(o.node || key);
     if (!node) {
       const pos = nodePosOf(key, p.pos);
-      setText('gather:' + q.id + ':none:' + Math.floor(u.missT), describeObjective(q, S.objIndex) + ' — looking for ' + what, 'Searching for ' + what);
+      setText('gather:' + q.id + ':none:' + Math.floor(u.missT), 'Searching for ' + what, describeObjective(q, S.objIndex));
       if (pos) { const r = goTo(pos.x, pos.z, 6, { key: 'gather' }); if (r === 'arrived' || pdist(pos.x, pos.z) < 80) u.missT += num(G.time && G.time.dt, 0.016); }
       else u.missT += num(G.time && G.time.dt, 0.016) * 5;
       if (u.missT > Math.max(2, 6 / sp) && !u.warned) { u.warned = true; notify('Auto-quest: nothing to gather here yet — waiting for it to grow back', 'warning'); }
@@ -1368,8 +1415,9 @@
     }
     u.missT = 0;
     const ch = G.NPCs && G.NPCs.channel;
-    if (ch && ch.node === node) { setText('gather:' + q.id + ':chan', describeObjective(q, S.objIndex) + ' — gathering', 'Gathering ' + what); if (G.Player.autoMoving) autoStop(); return; }
-    setText('gather:' + q.id + ':go:' + progressOf(q.id, S.objIndex), describeObjective(q, S.objIndex) + ' — travelling to ' + what, 'Gathering ' + what + ' ' + progressOf(q.id, S.objIndex) + '/' + objCount(o));
+    const have = o.type === 'collect' ? Math.min(objCount(o), countItem(o.item)) : progressOf(q.id, S.objIndex);
+    if (ch && ch.node === node) { setText('gather:' + q.id + ':chan:' + have, 'Gathering ' + what + ' ' + have + '/' + objCount(o), describeObjective(q, S.objIndex)); if (G.Player.autoMoving) autoStop(); return; }
+    setText('gather:' + q.id + ':go:' + have, 'Travelling to ' + what + ' (' + have + '/' + objCount(o) + ')', describeObjective(q, S.objIndex));
     const r = goTo(node.pos.x, node.pos.z, 2.4, { key: 'node:' + node.id });
     if (r !== 'arrived') return;
     if (p.mounted) { dismount(); return; }
@@ -1387,7 +1435,7 @@
     const p = player(); const u = sub();
     const n = posOfNpc(npcId);
     if (!n) { forceObjective(q.id, S.objIndex, 'NPC ' + npcId + ' does not exist', 1); return; }
-    setText('talk:' + q.id + ':' + npcId + ':' + (u.inside ? 'in' : 'out'), describeObjective(q, S.objIndex) + ' — travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''));
+    setText('talk:' + q.id + ':' + npcId + ':' + (u.inside ? 'in' : 'out'), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), describeObjective(q, S.objIndex));
     let r;
     if (n.interior && n.door && !u.inside) {
       r = goTo(n.door.pos.x, n.door.pos.z, 2.2, { key: 'door:' + npcId });
@@ -1409,7 +1457,7 @@
   }
   function stepExplore(o, q) {
     const r = num(o.radius, 12);
-    setText('explore:' + q.id + ':' + S.objIndex, describeObjective(q, S.objIndex) + ' — travelling', 'Exploring: ' + (o.label || 'the area'));
+    setText('explore:' + q.id + ':' + S.objIndex, 'Exploring: ' + (o.label || 'the area') + ' in ' + zoneName(zoneAt(o.pos.x, o.pos.z)), describeObjective(q, S.objIndex));
     const res = goTo(o.pos.x, o.pos.z, Math.max(1.5, r * 0.6), { key: 'explore' });
     if (res === 'arrived' || pdist(o.pos.x, o.pos.z) <= r) { onExplore(player().pos); if (!objDone(q, state[q.id], S.objIndex)) forceObjective(q.id, S.objIndex, 'explore radius reached', 1); }
   }
@@ -1438,7 +1486,7 @@
     const name = spot && spot.spot ? spot.spot.name : 'the water';
     if (!spot) { forceObjective(q.id, S.objIndex, 'no fishing spot exists', 1); return; }
     if (!u.shore) { u.shore = _shorePoint(spot, p.pos); if (!u.shore) { u.shore = { x: spot.x, z: spot.z, fx: spot.x, fz: spot.z, fallback: true }; logLine('no shore point found near ' + name + ' — using the spot itself'); } }
-    setText('fish:' + q.id + ':' + progressOf(q.id, S.objIndex) + ':' + (G.Fishing ? G.Fishing.state : 'x'), describeObjective(q, S.objIndex) + ' — fishing at ' + name, 'Fishing at ' + name + ' ' + progressOf(q.id, S.objIndex) + '/' + objCount(o));
+    setText('fish:' + q.id + ':' + progressOf(q.id, S.objIndex), 'Fishing at ' + name + ' ' + progressOf(q.id, S.objIndex) + '/' + objCount(o), describeObjective(q, S.objIndex));
     const F = G.Fishing;
     if (F && F.state && F.state !== 'idle') { if (G.Player.autoMoving) autoStop(); return; }
     const r = goTo(u.shore.x, u.shore.z, 1.2, { key: 'shore' });
@@ -1514,7 +1562,7 @@
     const npcId = q.turnin || q.giver;
     const n = posOfNpc(npcId); const u = sub(); const p = player();
     if (!n) { warn('[AutoQuest] turn-in NPC ' + npcId + ' missing — turning in remotely'); turnIn(q.id, bestChoice(q.id), { auto: true }); S.planDirty = true; return; }
-    setText('turnin:' + q.id + (u.inside ? ':in' : ''), 'Turning in "' + q.name + '" — travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''));
+    setText('turnin:' + q.id + (u.inside ? ':in' : ''), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), 'Turning in "' + q.name + '"');
     let r;
     if (n.interior && n.door && !u.inside) { r = goTo(n.door.pos.x, n.door.pos.z, 2.2, { key: 'door:' + npcId }); if (r !== 'arrived') return; if (!n.door.open && n.door.interact && typeof n.door.interact.fn === 'function') { try { n.door.interact.fn(n.door, p); } catch (e) { /* ignore */ } } u.inside = true; return; }
     const tx = n.inner ? n.inner.x : n.x, tz = n.inner ? n.inner.z : n.z;
@@ -1531,7 +1579,7 @@
   function stepAcquire(q) {
     const n = posOfNpc(q.giver); const u = sub(); const p = player();
     if (!n) { warn('[AutoQuest] quest giver ' + q.giver + ' missing — accepting remotely'); accept(q.id); S.planDirty = true; return; }
-    setText('acquire:' + q.id + (u.inside ? ':in' : ''), 'Seeking work — travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''));
+    setText('acquire:' + q.id + (u.inside ? ':in' : ''), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), 'Accepting "' + q.name + '"');
     let r;
     if (n.interior && n.door && !u.inside) { r = goTo(n.door.pos.x, n.door.pos.z, 2.2, { key: 'door:' + q.giver }); if (r !== 'arrived') return; if (!n.door.open && n.door.interact && typeof n.door.interact.fn === 'function') { try { n.door.interact.fn(n.door, p); } catch (e) { /* ignore */ } } u.inside = true; return; }
     const tx = n.inner ? n.inner.x : n.x, tz = n.inner ? n.inner.z : n.z;
@@ -1548,9 +1596,17 @@
   }
   function finish() {
     const c = completion();
+    const p = player();
+    const cap = G.C.LEVEL_CAP || 80;
+    if (p && num(p.level, 1) < cap && hasFn(G.Progress, 'setLevel')) {
+      // the story ends at the cap by design (§4.3); if the XP budget fell short the Free Peoples make up the difference
+      warn('[AutoQuest] all quests done at level ' + p.level + ' — raising to the cap so the Lost Kingdom set can be worn');
+      logLine('level ' + p.level + ' at 100 % — raised to ' + cap);
+      try { G.Progress.setLevel(cap); } catch (e) { report(e, 'AutoQuest.setLevel'); }
+    }
     const n = grantLostKingdom(true);
     notifyBig('100% — All ' + c.total + ' quests complete!', 'Chris Jensen\'s Lord of the Rings Online');
-    chat('Every quest in Middle-earth is complete — 100%. ' + (n ? 'You wear the full Armour of the Lost Kingdom.' : ''), 'system');
+    chat('Every quest in Middle-earth is complete — 100%. ' + (n >= 18 ? 'You wear the full Armour of the Lost Kingdom.' : 'The Armour of the Lost Kingdom is in your bags.'), 'system');
     if (hasFn(G.Audio, 'music')) { try { G.Audio.music('victory'); } catch (e) { /* ignore */ } }
     sfx('achievement');
     logLine('ALL ' + c.total + ' QUESTS COMPLETE — Lost Kingdom set equipped (' + n + ' pieces)');
@@ -1570,21 +1626,35 @@
     if (!alive(p)) {
       if (S.deadSince < 0) { S.deadSince = now(); logLine('defeated — waiting to retreat'); S.target = null; T.x = T.z = NaN; }
       setText('dead', 'Defeated — retreating to the rally point…', 'Defeated');
-      if (now() - S.deadSince > Math.max(1.5, 8 / sp) && hasFn(G.Player, 'respawn')) { try { G.Player.respawn(); } catch (e) { report(e, 'AutoQuest.respawn'); } S.deadSince = -1; S.respawnedAt = now(); S.attemptStart = now(); }
+      if (now() - S.deadSince > Math.max(1.5, 8 / sp) && hasFn(G.Player, 'respawn')) { try { G.Player.respawn(); } catch (e) { report(e, 'AutoQuest.respawn'); } S.deadSince = -1; S.respawnedAt = now(); }
       return;
     }
     S.deadSince = -1;
-    if (G.Boats && (G.Boats.sailing || G.Boats.travelling)) { setText('sailing', 'Sailing…', 'Sailing'); return; }
+    if (G.Boats && (G.Boats.sailing || G.Boats.travelling)) { setText('sailing:' + (T.sailLabel || ''), T.sailLabel || 'Sailing…', 'Sailing'); return; }
     if (G.Fishing && G.Fishing.state && G.Fishing.state !== 'idle' && !(S.planKind === 'objective' && S.questId && byId[S.questId] && byId[S.questId].objectives[S.objIndex] && byId[S.questId].objectives[S.objIndex].type === 'fish')) { if (hasFn(G.Fishing, 'cancel')) { try { G.Fishing.cancel(false); } catch (e) { /* ignore */ } } G.Fishing.autoActive = false; }
     // housekeeping
     S.houseT += dt;
     if (S.houseT >= 3) { S.houseT = 0; housekeeping(); }
     // combat reflex
     const threat = findThreat(p);
-    if (threat) { fight(threat, dt, false); setText('threat:' + threat.id, 'Fighting ' + (threat.name || 'a foe') + (S.questId && byId[S.questId] ? ' (' + byId[S.questId].name + ')' : ''), 'Fighting ' + (threat.name || 'a foe')); return; }
+    if (threat) {
+      S.target = threat;
+      const qh = S.planKind === 'objective' && S.questId ? byId[S.questId] : null;
+      const oh = qh ? qh.objectives[S.objIndex] : null;
+      const huntsIt = oh && ((oh.type === 'kill' && oh.target === threat.typeId) || (oh.type === 'collect' && oh.from === threat.typeId) || (oh.type === 'killboss' && (threat.boss || threat.bossRec)));
+      if (huntsIt) { const cnt = objCount(oh), prog = oh.type === 'collect' ? Math.min(cnt, countItem(oh.item)) : progressOf(qh.id, S.objIndex); setText('hunt:' + qh.id + ':' + oh.type + ':' + prog, huntText(oh, threat, threat.typeId, oh.boss || null, prog, cnt), describeObjective(qh, S.objIndex)); }
+      else setText('threat:' + threat.id, 'Fighting ' + (threat.name || 'a foe'), qh ? describeObjective(qh, S.objIndex) : 'Fighting');
+      fight(threat, dt, !!huntsIt);
+      return;
+    }
     if (S.fightKey && (!S.target || !alive(S.target))) S.fightKey = '';
-    // recover after a defeat before wading into the next fight
-    if (morale01(p) < 0.4 && !inCombat(p) && now() - S.respawnedAt < 20 / sp) { autoStop(); setText('recover', 'Recovering…', 'Recovering'); return; }
+    // recover after a defeat before wading into the next fight (potion first, then let morale come back; nothing is
+    // attacking us here or the reflex above would have fired — the stale in-combat flag must not skip this)
+    if (morale01(p) < 0.6 && now() - S.respawnedAt < 40 / sp) {
+      autoStop(); setText('recover', 'Recovering…', 'Recovering');
+      if (now() - S.potionT > 2) { S.potionT = now(); usePotion('heal'); }
+      return;
+    }
     // plan
     S.planT += dt;
     if (S.planDirty || S.planT > 1) { S.planT = 0; S.planDirty = false; applyPlan(makePlan()); }
@@ -1605,7 +1675,7 @@
           case 'collect':
             if (o.from) stepHunt(o, q, o.from, null, objCount(o) - countItem(o.item));
             else if (o.node || (hasFn(G.NPCs, 'nodesFor') && G.NPCs.nodesFor(o.item).length) || nodePosOf(o.item, p.pos)) stepGather(o, q, o.node || o.item, objCount(o) - countItem(o.item));
-            else { const u = sub(); u.missT += dt; setText('collect:' + q.id + ':nosrc', describeObjective(q, S.objIndex) + ' — no source for ' + itemName(o.item), 'Searching for ' + itemName(o.item)); if (u.missT > Math.max(2, 6 / sp)) forceObjective(q.id, S.objIndex, 'no source for ' + itemName(o.item)); }
+            else { const u = sub(); u.missT += dt; setText('collect:' + q.id + ':nosrc', 'Searching for ' + itemName(o.item), describeObjective(q, S.objIndex)); if (u.missT > Math.max(2, 6 / sp)) forceObjective(q.id, S.objIndex, 'no source for ' + itemName(o.item)); }
             break;
           case 'use': stepGather(o, q, o.node || o.item, objCount(o) - num(st.progress[S.objIndex], 0)); break;
           case 'talk': stepTalk(o, q, o.npc, 'talking to'); break;
@@ -1648,7 +1718,12 @@
   if (typeof G.on === 'function') {
     G.on('questCompleted', onQuestEvent); G.on('questAccepted', onQuestEvent); G.on('questAbandoned', onQuestEvent);
     G.on('questProgress', function (id) { if (S.questId && id === S.questId) { const st = state[id]; if (st && st.status !== 'active') S.planDirty = true; } });
-    G.on('playerDeath', function () { S.target = null; T.x = T.z = NaN; S.fightKey = ''; });
+    G.on('playerDeath', function () {
+      if (S.target && S.target.id) { S.deathsOn[S.target.id] = num(S.deathsOn[S.target.id], 0) + 1; if (AQ.active) logLine('defeated by ' + (S.target.name || S.target.typeId) + ' (' + S.deathsOn[S.target.id] + '×)'); }
+      S.target = null; T.x = T.z = NaN;              // the fight clock (S.fightKey / fightStart) deliberately survives
+      if (AQ.active) AQ.stats.deaths++;
+    });
+    G.on('entityKilled', function (ev) { if (!AQ.active || !ev || !ev.victim || ev.victim.kind !== 'monster') return; const k = ev.killer, p = player(); if (k && p && (k === p || k.kind === 'player')) AQ.stats.kills++; });
     G.on('gameStart', function () { if (AQ.active) stop('new game'); });
   }
 
@@ -1656,6 +1731,7 @@
   AQ.goTo = goTo; AQ.teleportNear = teleportNear;
   Object.defineProperty(AQ, 'plan', { get: function () { return { kind: S.planKind, questId: S.questId, objIndex: S.objIndex, text: S.text, step: S.step, attemptAge: now() - S.attemptStart }; }, enumerable: true });
   G.AutoQuest = AQ;
+  })();
 
   log('[Quests] module ready');
 })();

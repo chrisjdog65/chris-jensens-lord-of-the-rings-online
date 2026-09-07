@@ -534,7 +534,7 @@
     return m;
   }
   document.addEventListener('mousedown', function (ev) { if (_menuEl && !(ev.target && ev.target.closest && ev.target.closest('.ctx-menu'))) _menuClose(); }, true);
-  document.addEventListener('keydown', function (ev) { if (_menuEl && ev.key === 'Escape') _menuClose(); }, true);
+  document.addEventListener('keydown', function (ev) { if (_menuEl && ev.key === 'Escape') { _menuClose(); ev.stopPropagation(); if (G.Input && _has(G.Input, 'consume')) G.Input.consume('Escape'); } }, true);
   window.addEventListener('blur', _menuClose);
   UI.contextMenu = _menu;
   UI.closeContextMenu = _menuClose;
