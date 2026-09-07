@@ -760,6 +760,20 @@
     const c = G.Input && G.Input.canvas;
     if (c && typeof c.focus === 'function') { try { c.focus({ preventScroll: true }); } catch (_) { /* ignore */ } }
   }
+  /** Enter in the chat box: send the line (if any) and hand focus back to the game. */
+  function _chatSubmit() {
+    const input = chat.input;
+    if (!input) return;
+    const v = input.value;
+    input.value = '';
+    if (v.trim()) { chat.history.push(v); if (chat.history.length > 50) chat.history.shift(); chat.histIdx = chat.history.length; UI.chatCommand(v); }
+    _chatBlur();
+  }
+  /** Escape in the chat box: discard the draft and hand focus back to the game. */
+  function _chatCancel() {
+    if (chat.input) chat.input.value = '';
+    _chatBlur();
+  }
   function _chatSetTab(id) {
     chat.tab = id;
     for (const k in chat.tabEls) chat.tabEls[k].classList.toggle('active', k === id);
@@ -866,13 +880,8 @@
     const chLabel = el('span', { class: 'chat-ch', text: 'Say' });
     const input = el('input', { type: 'text', maxlength: 240, placeholder: 'Press Enter to chat…  /help for commands', autocomplete: 'off', spellcheck: false });
     input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        const v = input.value;
-        input.value = '';
-        if (v.trim()) { chat.history.push(v); if (chat.history.length > 50) chat.history.shift(); chat.histIdx = chat.history.length; UI.chatCommand(v); }
-        _chatBlur();
-      } else if (e.key === 'Escape') { e.preventDefault(); input.value = ''; _chatBlur(); }
+      if (e.key === 'Enter') { e.preventDefault(); _chatSubmit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); _chatCancel(); }
       else if (e.key === 'ArrowUp') { if (chat.history.length) { chat.histIdx = Math.max(0, chat.histIdx - 1); input.value = chat.history[chat.histIdx] || ''; e.preventDefault(); } }
       else if (e.key === 'ArrowDown') { if (chat.history.length) { chat.histIdx = Math.min(chat.history.length, chat.histIdx + 1); input.value = chat.history[chat.histIdx] || ''; e.preventDefault(); } }
       else if (e.key === 'Tab') { e.preventDefault(); }
@@ -1955,24 +1964,48 @@
   }
 
   // ------------------------------------------------------------------------------------------------ keys
+  // Key edges are replayed in ARRIVAL ORDER, never one-per-frame with an early return: at a low frame rate (or on
+  // headless software GL) several taps land between two frames — G.Input queues them — and every one must take effect
+  // exactly as it would have at 60 fps (I,I opens and closes; Escape, Enter, F1 in one frame all count). Keys typed
+  // into a text field never reach G.Input; an edge that arrived after Enter gave the chat focus (same slow frame) is
+  // fed to the chat instead: Escape cancels, Enter sends, anything else would have been typed text and is dropped.
+  const _keyBuf = [];
+  const _KEY_FALLBACK = ['Escape', 'Enter', 'NumpadEnter', 'F1', 'Slash', 'KeyB'];
+  function _pressedCodes(I) {
+    if (typeof I.pressedCodes === 'function') return I.pressedCodes(_keyBuf);
+    _keyBuf.length = 0;
+    _KEY_FALLBACK.forEach(function (c) { if (I.pressed(c)) _keyBuf.push(c); });
+    for (const id in panels) { const k = panels[id].def.key; if (k && I.pressed(k) && _keyBuf.indexOf(k) < 0) _keyBuf.push(k); }
+    return _keyBuf;
+  }
   function _handleKeys() {
     const I = G.Input;
-    if (!I || I.typing || typeof I.pressed !== 'function') return;
+    if (!I || typeof I.pressed !== 'function' || (typeof I.anyPressed === 'function' && !I.anyPressed())) return;
+    const codes = _pressedCodes(I);
     const playing = G.state.phase === 'playing';
-    if (I.pressed('Escape')) {
-      I.consume('Escape');
-      if (!_closeTop() && playing && panels.settings && !UI.DeathScreen.visible) UI.togglePanel('settings');
-      return;
-    }
-    if (!playing) return;
-    const modal = UI.anyModal();
-    if (!modal && (I.pressed('Enter') || I.pressed('NumpadEnter'))) { I.consume('Enter'); I.consume('NumpadEnter'); UI.chatInput(); return; }
-    if (I.pressed('F1') || (I.pressed('Slash') && (I.down('ShiftLeft') || I.down('ShiftRight')))) { I.consume('F1'); UI.togglePanel('keyhelp'); return; }
-    if (I.pressed('KeyB')) { I.consume('KeyB'); _toggleAutoQuest(); return; }
-    if (modal) return;
-    for (const id in panels) {
-      const k = panels[id].def.key;
-      if (k && I.pressed(k)) { I.consume(k); UI.togglePanel(id); }   // no early return: two panel keys in one slow frame must both count
+    for (let i = 0; i < codes.length; i++) {
+      const code = codes[i];
+      if (!I.pressed(code)) continue;                     // consumed by an earlier action this frame (or another module)
+      if (I.typing) {                                     // a text field has focus: this edge landed after the focus change
+        I.consume(code);
+        if (chat.input && document.activeElement === chat.input) {
+          if (code === 'Escape') _chatCancel();
+          else if (code === 'Enter' || code === 'NumpadEnter') _chatSubmit();
+        }
+        continue;
+      }
+      if (code === 'Escape') {
+        I.consume(code);
+        if (!_closeTop() && playing && panels.settings && !UI.DeathScreen.visible) UI.togglePanel('settings');
+        continue;
+      }
+      if (!playing) continue;
+      const modal = UI.anyModal();
+      if (code === 'Enter' || code === 'NumpadEnter') { if (!modal) { I.consume(code); UI.chatInput(); } continue; }
+      if (code === 'F1' || (code === 'Slash' && (I.down('ShiftLeft') || I.down('ShiftRight')))) { I.consume(code); UI.togglePanel('keyhelp'); continue; }
+      if (code === 'KeyB') { I.consume(code); _toggleAutoQuest(); continue; }
+      if (modal) continue;
+      for (const id in panels) { if (panels[id].def.key === code) { I.consume(code); UI.togglePanel(id); break; } }
     }
   }
 

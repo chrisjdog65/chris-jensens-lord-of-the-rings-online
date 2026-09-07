@@ -34,3 +34,62 @@
 - FAIL R39: monster killed with hotbar abilities (35.2 s); abilities were used (cooldowns/gcd path) [1 abilityUsed events]; XP gained from the kill [{"xp":0,"gold":0,"loot":0,"kills":0}]; loot / gold received [{"xp":0,"gold":0,"loot":0,"kills":0}]; kill counted in G.state.stats; boss killed the player on its ow
 - FAIL R40: floating combat text spawns an element [{"layer":true,"before":3,"after":3}]
 - PASS R41: G.Save.save() writes localStorage[cj_lotro_save_v1]; G.Save.load() returns the snapshot with the current level; exportJSON round-trips through importJSON (+5 checks)
+
+Run 1 notes (wall-clock waits; `--fast --shots --verbose`; 18.4 min; exit 1; started 20:03Z, report written 20:35Z):
+
+Runner completed and wrote the report. Boot 36 s, quick-start 49 s. Game-side: **zero page/console/G.errors across the
+whole run** (R02 passed), all data/content checks passed (R30, R31, R32, R38), creation screen (R37), doors/NPC dialogue
+(R15), admin (R24), hotbar (R25), save/continue after reload (R41).
+
+Failures were almost all the same root cause — the suite still used wall-clock waits (`waitForTimeout(400)`), which
+elapse before the next frame at ~1–2 fps: key presses were evaluated before the frame that consumed them (R16, R19,
+R20, R21, R23, R26, R36 "panel did not open"), movement/roll distances were tiny (R10 0.1–0.3 m, R13 1.5 m), timed waits
+expired (R14, R17, R18, R22, R33, R35, R39, R40 floating text), `page.mouse.wheel` stalled (R11 timeout). Two genuine
+findings: **R03 measured 1005 draw calls at `high`** (budget 600), and R34/R12 teleported to the building centre,
+which is not inside the Prancing Pony's interior bounds (fixed in the suite: interior spots are used now).
+
+## Run 2 — 20:36 UTC · frame-based waits · default mode `--verbose` · aborted at R11 · exit 2 (harness)
+
+Frame-based helpers fixed R10's W (4.3 m in 1.13 game-s); S backpedals at walk speed (2.3 m in 1.05 game-s) so the S
+threshold was relaxed to ≥ 2.5 m in 2 game-s. R03 passed (max 320 draws) — but only because the game's auto-tuner had
+silently dropped quality to `low`; R04's bloom/shadow checks failed for the same reason (fixed: quality pinned via
+`G.Game.autoQuality = false`). The page died during R11 under load 25 and the harness crashed in `settle()` outside any
+try/catch, so **no report was written** — fixed: page/browser loss is detected, logged, recovered (relaunch + re-boot +
+re-quick-start, twice at most) and otherwise the remaining scenarios are marked failed with the reason; the report is
+always written. Throughput calibration (`slow` factor) and `--timescale` were added after this run.
+
+## Run 3 — 20:47 UTC · calibrated timeouts · `--fast --verbose` · 3/33 (killed) · 6.4 min · exit 1
+
+Calibration measured **0.17 frames/s** (load average 18–34; 35 other headless Chromium processes) → timeouts ×8.
+Boot 102 s, quick-start 67 s, R37/R01/R03 passed; the run was killed by hand because at that frame rate the full suite
+would have taken hours. The kill exercised the new failure path: "page closed unexpectedly → relaunching the browser
+(recovery 1/2)", then "recovery failed" (the process was being terminated), remaining scenarios marked failed, table +
+summary + report still written. A render-scale probe afterwards showed 0.15 fps at 1280×720 vs 0.55 fps at 640×360
+(`jsMs` 7.9 s → 1.2 s per frame; SwiftShader work is accounted inside the JS frame time), hence `--render-scale 0.5`.
+
+## Suite notes
+
+One headless-Chromium scenario per requirement id in `docs/REQUIREMENTS.md`. Usage:
+
+```
+node tools/verify.js                     # every scenario; table + "N/M passed"; tools/out/verify-report.json
+node tools/verify.js --only R16,R22      # subset (boot + quick-start always happen)
+node tools/verify.js --shots             # tools/out/verify-<id>.png after every scenario
+node tools/verify.js --fast              # shorter soak windows (auto-quest 120 s, AI sim 20 game-s, …)
+node tools/verify.js --timeout 180       # per-scenario timeout in seconds (default 120, stretched by the calibration factor)
+node tools/verify.js --timescale 1       # G.time.scale while scenarios run (default 3; 1 = realistic timing)
+node tools/verify.js --render-scale 1    # internal render resolution factor (default 0.5)
+node tools/verify.js --full-autoquest    # separate long test: bot until 150/150 or 40 min → tools/out/verify-autoquest.json
+node tools/verify.js --verbose           # print every check while running
+```
+
+Timing model (important when reading the numbers below): headless Chromium renders the game through SwiftShader
+(software GL). On this shared 4-core box, with other agents' browsers running (load average 15–35 during these runs),
+the game produced **0.15–2 frames per second**, and the game clamps `dt` to 0.05 s per frame — so one wall-clock second
+is only a small fraction of a game second. Since run 2 every wait in the suite is expressed in frames or game seconds
+(`T.press` waits for the frame that consumes the key; `T.holdGame`, `T.waitGame`, `T.frames`), the runner measures the
+actual frame rate after quick-start and stretches all timeouts by `slow = clamp(2 / fps, 1, 8)`, runs at `G.time.scale = 3`
+(fishing ×4, auto-quest ×6, AI sim ×5 for their own duration), pins PostFX quality to `low` (R03/R04 pin `high` for their
+measurements; `G.Game.autoQuality = false` so the auto-tuner cannot flip it back) and renders internally at 640×360
+(`--render-scale 0.5`, ≈ 3.7× more frames per second here). If the page or browser dies mid-run the runner relaunches,
+re-boots and re-quick-starts (twice at most); the report is always written.

@@ -30,7 +30,10 @@
  *              uidBump(id) (raise the uid counter above a loaded id); reportError(err, where) (record a caught exception);
  *              warn(msg) (console.warn, deduplicated); errorLocation(src, line, col) → 'module.js:line:col' (maps built-HTML lines to modules);
  *              errorsDropped (count beyond the 200 cap). G.debug is also switched on by '#debug' in the URL or localStorage 'cj_lotro_debug'='1'.
- *   Input:     released(code), anyPressed(), mouseDown(b), mousePressed(b), mouseReleased(b) (b: 0 left, 1 middle, 2 right; canvas-origin),
+ *   Input:     released(code), anyPressed(), pressedCodes(out) (this frame's key edges in arrival order), pendingEdges(),
+ *              edge queue: a tap that went down+up between two frames still reports pressed() for exactly one frame, a
+ *              second tap of the same key (and everything after it) is replayed on the following frames in order,
+ *              mouseDown(b), mousePressed(b), mouseReleased(b) (b: 0 left, 1 middle, 2 right; canvas-origin),
  *              mouse.nx/ny (NDC −1..1), mouse.overCanvas, bound (Set of codes that get preventDefault) + bind(code)/unbind(code),
  *              codeOf(label) ('1'→'Digit1', 'G'→'KeyG'), reset(), frame, lockSupported, onSequence() returns an unsubscribe fn,
  *              bus event 'pointerLock' (bool) on lock change. Sequence letters are not fed while typing in a text field.
@@ -1231,12 +1234,31 @@
     }
   }
 
+  const QUEUE_MAX = 32;
+  /** Record a key-down edge. pressed(code) reports each code at most once per frame; a repeat tap of a code that is
+   *  already exposed — and every edge after it, to keep arrival order — waits in the queue for the following frames.
+   *  So a key that went down and up between two frames (low FPS, headless GL) still counts for exactly one frame. */
+  function queueEdge(code) {
+    if (Input._queue.length || Input._pressed.has(code)) {
+      if (Input._queue.length >= QUEUE_MAX) Input._queue.shift();
+      Input._queue.push(code);
+    } else Input._pressed.add(code);
+  }
+  /** Move queued edges into the exposed set, in order, stopping at the first code already exposed this frame. */
+  function drainQueue() {
+    const q = Input._queue;
+    while (q.length && !Input._pressed.has(q[0])) Input._pressed.add(q.shift());
+  }
+
   function onKeyDown(e) {
-    if (Input.typing || isTypingEl(e.target)) { Input.typing = true; return; }
+    // Decide from the live DOM, never from the cached flag: a stale `typing` (a text field removed without focusout)
+    // must not swallow the keys of a player who is back on the canvas.
+    if (isTypingEl(e.target) || isTypingEl(document.activeElement)) { Input.typing = true; return; }
+    Input.typing = false;
     const code = codeOfEvent(e);
     if (!code) return;
     if (code.length === 4 && code.charCodeAt(0) === 75 && code.charCodeAt(1) === 101 && code.charCodeAt(2) === 121) feedSequence(code.charAt(3).toLowerCase());
-    if (!e.repeat && !Input.keys.has(code)) Input._pressed.add(code);
+    if (!e.repeat && !Input.keys.has(code)) queueEdge(code);
     Input.keys.add(code);
     if (shouldPrevent(e, code)) e.preventDefault();
   }
@@ -1248,7 +1270,10 @@
   }
   function onFocusChange(e) {
     const t = isTypingEl(e.target);
-    if (t && !Input.typing) { Input.keys.clear(); Input._pressed.clear(); Input._seqBuf = ''; }
+    // Held keys must not keep steering while a text field has focus. Pending edges are kept: they were tapped while
+    // the canvas still had focus (e.g. Escape right after the Enter that opened the chat, in one slow frame) and the
+    // HUD replays them in order — feeding those that landed after the focus change to the chat instead.
+    if (t && !Input.typing) { Input.keys.clear(); Input._seqBuf = ''; }
     Input.typing = t;
   }
   function onFocusOut() {
