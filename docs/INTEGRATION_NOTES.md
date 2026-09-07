@@ -126,3 +126,7 @@
 
 ## 33_ui_charcreate.js
 - Auto-initialises on DOM ready (loading screen visible before main). Main: forward `G.Game.progress(pct,text)` → `G.UI.Menu.progress`; call `G.UI.Menu.show()` when ready; call `G.UI.Menu.update(dt)` each frame during menu/create and render with `G.UI.Menu.getCamera()` (= `G.Player.camera`). `G.UI.Menu.driveWorld` (default true) streams Terrain/Veg/Buildings/Sky around the menu camera — set false if main drives them. Spec includes `eyeColor`. Events: `menuShown/menuHidden/createShown/createHidden/createConfirmed(spec)/loadingDone`. Calls `G.Game.startNew(spec)` / `G.Game.startFromSave()`.
+
+## 24_quests.js
+- `G.Quests.init()` at game start (before Save.apply). Collect-from drops are implemented by Quests in the `entityKilled` handler (Monsters/Combat need not drop quest items). `questDropsFor(typeId)`. Reward `choose` via `G.UI.Choose.open({quest, items, onPick(index)})`. s100 grants the Lost Kingdom set. `serialize/restore` in `{state, tracked}` shape. Extras: `get/list/storyIds/sideIds/activeIds/readyIds/availableIds/statusOf/progressOf/completeObjective(id,i)/bestChoice/posOfNpc/nextStory/bookOf/resolveObjective/grantLostKingdom`. Events: `questAbandoned, questTracked, questsInit, questsRestored, autoQuestStart/Stop/Finished`.
+- `G.AutoQuest`: `start/stop/toggle/active/paused/speed/status()/stats/plan/goTo/teleportNear/log`. Uses `G.Boats.pathToZone/instantTravel/sailTo`, `G.Fishing.autoFish`, `G.Player.autoMove`. Quest XP alone reaches ~L65; kills fill the rest (finish bumps to cap with a warn if short).
