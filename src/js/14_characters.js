@@ -1601,7 +1601,7 @@
     return rig;
   }
   const BAT_ANIMS = {
-    flap(P, t, c, rate, amp, base) { const R = c.rig, f = sin(t * rate) * amp + base; R.S(P, 'wingL', 0, PI, -f); R.S(P, 'wingR', 0, 0, f); },
+    flap(P, t, c, rate, amp, base) { const R = c.rig, f = sin(t * rate) * amp + base; R.S(P, 'wingL', 0.55, PI, -f); R.S(P, 'wingR', -0.55, 0, f); },
     idle(P, t, c) { const R = c.rig; BAT_ANIMS.flap(P, t, c, 11, 0.6, 0.15); P[R.BP + 1] = sin(t * 2.3) * 0.08 + sin(t * 11) * 0.015; R.A(P, 'body', -0.1 + 0.05 * sin(t * 0.9), 0.15 * sin(t * 0.6), 0.1 * sin(t * 0.7)); R.A(P, 'head', 0.1, 0.3 * sin(t * 0.8), 0); },
     walk(P, t, c) { const R = c.rig; BAT_ANIMS.flap(P, t, c, 13, 0.7, 0.1); P[R.BP + 1] = sin(t * 13) * 0.03; R.A(P, 'body', -0.35, 0, 0.08 * sin(t * 1.5)); R.A(P, 'head', 0.3, 0, 0); },
     run(P, t, c) { const R = c.rig; BAT_ANIMS.flap(P, t, c, 15, 0.75, 0.05); P[R.BP + 1] = sin(t * 15) * 0.03; R.A(P, 'body', -0.55, 0, 0.1 * sin(t * 1.5)); R.A(P, 'head', 0.45, 0, 0); },
@@ -1641,7 +1641,7 @@
       for (const sd of [-1, 1]) {
         const nm = sd < 0 ? 'L' : 'R';
         const w = R.joint('wing' + nm, sd * r * 0.7, r * 0.55, -len * 0.15, body, 0, sd < 0 ? PI : 0, 0);
-        R.add('wing' + nm, w, wingGeo(1.9, 1.0, dark, hexLerp(col, 0x201010, 0.35), 4), material(0xffffff, { vertexColors: true, rough: 0.7, double: true }), true);
+        R.add('wing' + nm, w, wingGeo(1.9, 1.0, dark, hexLerp(col, 0x3a2418, 0.3), 4), material(0xffffff, { vertexColors: true, rough: 0.7, double: true }), true);
       }
       // legs
       const legs = [['FL', -1, -1], ['FR', 1, -1], ['BL', -1, 1], ['BR', 1, 1]];
@@ -1677,7 +1677,7 @@
   }
   const DRAKE_ANIMS = {
     tailWave(P, t, c, amp, rate) { const R = c.rig; for (let i = 0; i < 3; i++) R.A(P, 'tail' + i, 0.05 * sin(t * rate * 0.7 + i), amp * sin(t * rate - i * 0.9), 0); },
-    wings(P, c, fold, flap) { const R = c.rig; R.S(P, 'wingL', 0.15 * fold, PI - 1.35 * fold, -0.35 * fold - flap); R.S(P, 'wingR', 0.15 * fold, 1.35 * fold, 0.35 * fold + flap); },
+    wings(P, c, fold, flap) { const R = c.rig; const rx = -1.15 * fold - 0.45 * (1 - fold); R.S(P, 'wingL', -rx, PI - 1.3 * fold, -0.55 * fold - flap); R.S(P, 'wingR', rx, 1.3 * fold, 0.55 * fold + flap); },
     idle(P, t, c) {
       const R = c.rig, b = sin(t * 1.2);
       P[R.BP + 1] = b * 0.01; R.A(P, 'body', b * 0.01, 0, 0);
@@ -1884,11 +1884,11 @@
       R.add('body', body, _merge(bl), MAT_VC(0.7, 0.02), true);
       // neck
       const neck = R.joint('neck', 0, r * 0.45, -len * 0.42, body, -0.95);
-      const nl = []; const nk = limb(r * 0.5, r * 2.0, r * 0.72, r * 0.42); nk.rotateX(PI); nl.push(_paint(nk, col));
+      const nl = []; const nk = limb(r * 0.5, r * 1.8, r * 0.74, r * 0.44); nk.rotateX(PI); nl.push(_paint(nk, col));
       for (let i = 0; i < 7; i++) { const m = sphere(r * 0.2, 8, 6); m.scale(0.55, 1, 1.1); m.translate(0, r * 0.35 + i * r * 0.27, r * 0.28 - i * r * 0.03); nl.push(_paint(m, mane)); }
       R.add('neck', neck, _merge(nl), MAT_VC(0.7, 0.02), true);
       // head
-      const head = R.joint('head', 0, r * 2.05, 0, neck, 1.05);
+      const head = R.joint('head', 0, r * 1.85, 0, neck, 1.05);
       const hl = []; const sk = sphere(r * 0.5, 14, 10); sk.scale(0.9, 1, 1.1); hl.push(_paint(sk, col));
       const mz = capsule(r * 0.33, r * 0.6, 3, 10); mz.rotateX(PI / 2 - 0.35); mz.scale(0.95, 0.9, 1); mz.translate(0, -r * 0.35, -r * 0.65); hl.push(_paint(mz, col));
       const nose = sphere(r * 0.31, 10, 8); nose.scale(1, 0.8, 0.8); nose.translate(0, -r * 0.5, -r * 1.05); hl.push(_paint(nose, hexMul(col, 0.8)));
