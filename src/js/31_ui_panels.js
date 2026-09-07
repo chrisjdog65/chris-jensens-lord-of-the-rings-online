@@ -11,7 +11,9 @@
      G.UI.Inventory   open(), highlight(tid), setFilter(id), sort(), filters, filter, splitStack(index, count)
      G.UI.Character   open(tab?), setTab('stats'|'sets'|'titles'), rebuildPreview(), preview (renderer state)
      G.UI.Abilities   open(id?), select(id)
-     G.UI.Journal     open(questId?), select(questId), setTab('active'|'available'|'completed'), selected
+     G.UI.Journal     open(questId?), select(questId), setTab('active'|'available'|'remaining'|'completed'), selected
+                      ('remaining' lists EVERY quest not yet done — active, available and locked — by Book / zone with a
+                      status chip, level, zone, giver and the unmet prerequisite; locked quests open in full detail)
      G.UI.Map         open(), centerOn(x, z), focus(x, z, zoom?), setZoom(z), zoom, setWaypointMode(bool),
                       showAI (bool), showLegend (bool), worldAt(clientX, clientY)
      G.UI.Players     open(id?), select(id), search(text), sortBy(column)
@@ -333,6 +335,25 @@
 .jn-row .jn-lv { font-size: 11px; color: var(--parch-dim); font-family: var(--font-ui); }
 .jn-row .jn-star { color: var(--gold-bright); font-size: 12px; }
 .jn-row .jn-giver { font-size: 11px; color: rgba(184,173,148,.7); }
+/* Remaining tab: wider list, two-line rows with a status chip and zone · giver · requirement */
+.jn-left.wide { flex-basis: 350px; }
+.jn-remhead { font-size: 12px; color: var(--parch-dim); padding: 4px 6px 5px; border-bottom: 1px solid var(--border); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jn-remhead b { color: var(--gold-bright); font-size: 13px; }
+.jn-remhead .jn-remsub { color: rgba(184,173,148,.75); }
+.jn-row.rem { flex-wrap: wrap; row-gap: 1px; padding: 3px 6px 4px; }
+.jn-row.rem .jn-nm { font-size: 12.5px; }
+.jn-row.locked .jn-nm { color: rgba(232,220,192,.62); }
+.jn-row .jn-st { flex: 0 0 auto; font-size: 9px; letter-spacing: .05em; text-transform: uppercase; line-height: 14px; padding: 0 5px; border-radius: 3px; border: 1px solid var(--border); color: var(--parch-dim); background: rgba(0,0,0,.45); }
+.jn-row .jn-st.active { color: #fff3c4; border-color: var(--gold-dim); }
+.jn-row .jn-st.complete { color: #a6e39f; border-color: #3f7a3a; }
+.jn-row .jn-st.available { color: #8fd0ff; border-color: #3a6a8a; }
+.jn-row .jn-st.locked { color: #d08a7a; border-color: #7a3a2a; }
+.jn-row .jn-meta { flex-basis: 100%; min-width: 0; padding-left: 28px; font-size: 10.5px; color: rgba(184,173,148,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jn-row .jn-meta.locked { color: rgba(208,138,122,.8); }
+.chip.locked { color: #d08a7a; border-color: #7a3a2a; }
+.chip.avail { color: #8fd0ff; border-color: #3a6a8a; }
+.jn-req { font-size: 12.5px; color: #d08a7a; margin: 4px 0 2px; }
+.jn-req b { color: #f0b8a8; font-weight: 600; }
 .jn-detail { flex: 1; min-width: 0; overflow-y: auto; padding: 4px 8px 4px 4px; }
 .jn-qname { font-family: var(--font-head); font-size: 19px; color: var(--gold-bright); text-shadow: 0 1px 2px #000; }
 .jn-chips { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 6px; }
@@ -1313,10 +1334,15 @@
       acts.appendChild(_btn(tracked ? 'Untrack' : 'Track', function () { if (_has(Q, 'setTracked')) Q.setTracked(tracked ? null : d.id); else if (Q) Q.tracked = tracked ? null : d.id; if (_has(UI, 'tracker') && UI.tracker && _has(UI.tracker, 'refresh')) UI.tracker.refresh(); _sfx('ui_click'); Jn.refresh(); }, tracked ? '' : 'primary'));
       acts.appendChild(_btn('Show on map', function () { let o = null; try { o = _has(Q, 'nextObjective') ? Q.nextObjective(d.id) : null; } catch (_) { o = null; } if (o && o.pos) { _open('map'); Mp.focus(o.pos.x, o.pos.z); } else _notify('No location is known for that objective.', 'info'); }));
       acts.appendChild(_btn('Abandon', function () { _confirm('Abandon "' + (d.name || d.id) + '"? Your progress on it will be lost.', function () { if (_has(Q, 'abandon')) Q.abandon(d.id); _sfx('ui_click'); Jn.selected = null; Jn.refresh(); }, { title: 'Abandon quest', yes: 'Abandon' }); }, 'danger'));
-    } else if (st === 'available') {
+    } else if (st === 'available' || st === 'locked') {
       const rec = _npcRec(d.giver);
       acts.appendChild(_btn('Show giver on map', function () { if (rec && rec.pos) { _setWaypoint(rec.pos.x, rec.pos.z, rec.name || 'Quest giver'); _open('map'); Mp.focus(rec.pos.x, rec.pos.z); } else _notify('The quest giver cannot be found on the map.', 'info'); }));
       if (rec && rec.town) acts.appendChild(el('span', { class: 'pn-sub', style: 'align-self:center', text: 'Found in ' + ((_town(rec.town) || {}).name || _title(rec.town)) }));
+      if (st === 'locked') {
+        const req = _jnUnmet(d);
+        const first = req.length ? _allQuests().find(function (q) { return (q.name || _title(q.id)) === req[0] && !_qdone(q.id); }) : null;
+        if (first) acts.appendChild(_btn('Go to "' + (first.name || _title(first.id)) + '"', function () { Jn.select(first.id); }, 'small'));
+      }
     } else if (st === 'done') {
       acts.appendChild(el('span', { class: 'pn-sub', style: 'align-self:center;color:#7fd47a', text: '✓ You have completed this quest.' }));
     }

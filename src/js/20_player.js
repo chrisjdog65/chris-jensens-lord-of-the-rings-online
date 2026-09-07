@@ -44,6 +44,8 @@
   const KEY_TURN = 2.4;                   // rad/s for ArrowLeft/Right
   const ACCEL = 40, DECEL = 50, AIR_CONTROL = 0.4, MOUNT_ACCEL = 24, MOUNT_DECEL = 34;
   const COYOTE = 0.12, JUMP_BUFFER = 0.15;
+  const SUB_DT = 0.05, MAX_SUB = 10;      // movement/physics sub-step length and cap (see stepMovement)
+  const MAX_DT = 0.5;                     // safety net only; main caps raw dt at 0.05 × time scale (≤ ×5)
   const FALL_DMG_SPEED = 14;
   const STRIDE_RUN = 1.6, STRIDE_WALK = 0.9, STRIDE_HORSE = 2.2;
   const RANGED_CD = 1.2, RANGED_RELEASE = 0.32;
@@ -1045,38 +1047,50 @@
     }
     _v1.set(ix * speed, 0, iz * speed);                          // desired velocity
 
-    // ---- rolling overrides everything
-    if (S.rolling) {
-      S.rollT += dt;
-      const t = S.rollT / (C.ROLL_TIME || 0.55);
-      const rs = (C.ROLL_SPEED || 10) * (1 - 0.35 * t * t);
-      _moveVel.x = S.rollDirX * rs; _moveVel.z = S.rollDirZ * rs;
-      if (t >= 1 || !pl.alive || pl.swimming) endRoll();
-    } else {
-      // ---- acceleration toward the desired velocity
-      const air = !(pl.onGround || pl.swimming);
-      const curL = Math.sqrt(_moveVel.x * _moveVel.x + _moveVel.z * _moveVel.z);
-      const accel = (speed > curL ? (mounted ? MOUNT_ACCEL : ACCEL) : (mounted ? MOUNT_DECEL : DECEL)) * (air ? AIR_CONTROL : 1);
-      let ddx = _v1.x - _moveVel.x, ddz = _v1.z - _moveVel.z;
-      const dl = Math.sqrt(ddx * ddx + ddz * ddz), maxStep = accel * dt;
-      if (dl <= maxStep || dl < 1e-6) { _moveVel.x = _v1.x; _moveVel.z = _v1.z; }
-      else { _moveVel.x += ddx / dl * maxStep; _moveVel.z += ddz / dl * maxStep; }
-    }
-    // vertical (fly-cam only)
-    if (G.state.flyCam && I) _moveVel.y = ((I.down('Space') ? 1 : 0) - (I.down('ShiftLeft') || I.down('ControlLeft') ? 1 : 0)) * Math.max(6, speed);
-    else _moveVel.y = 0;
-
-    // ---- jump (buffered + coyote)
-    if (controls && I && I.pressed('Space') && !G.state.flyCam) S.jumpBuffer = JUMP_BUFFER;
-    if (pl.onGround) S.coyote = COYOTE; else S.coyote = Math.max(0, S.coyote - dt);
-    if (S.jumpBuffer > 0) { S.jumpBuffer -= dt; if (jump()) S.jumpBuffer = 0; }
-
-    // ---- physics
+    // ---- integrate the FULL game dt in sub-steps of ≤ SUB_DT. The main loop caps raw dt at 0.05 s but multiplies it by
+    //      G.time.scale (×3 in the verifier, up to ×5 from the admin panel) → 0.15–0.25 s frames; the physics clamps its
+    //      own dt at 0.1, so a single call would move the player slower than G.time advances (and slower than every
+    //      monster). Sub-stepping keeps speed × game-time exact and the collision/jump integration accurate.
     const wasGround = pl.onGround, wasSwimming = pl.swimming;
     _prevPos.copy(pos);
     _physOpts.fly = !!G.state.flyCam; _physOpts.noclip = !!(G.state.noclip || G.state.flyCam);
-    if (G.Physics && typeof G.Physics.moveEntity === 'function') G.Physics.moveEntity(pl, _moveVel, dt, _physOpts);
-    else { pos.x += _moveVel.x * dt; pos.z += _moveVel.z * dt; pos.y = terrainH(pos.x, pos.z); pl.onGround = true; }
+    if (controls && I && I.pressed('Space') && !G.state.flyCam) S.jumpBuffer = JUMP_BUFFER;
+    const nSub = dt > SUB_DT ? Math.min(MAX_SUB, Math.ceil(dt / SUB_DT - 1e-6)) : 1;
+    const sdt = dt / nSub;
+    let landed = 0, splashed = 0;
+    for (let s = 0; s < nSub; s++) {
+      // ---- rolling overrides everything
+      if (S.rolling) {
+        S.rollT += sdt;
+        const t = S.rollT / (C.ROLL_TIME || 0.55);
+        const rs = (C.ROLL_SPEED || 10) * (1 - 0.35 * t * t);
+        _moveVel.x = S.rollDirX * rs; _moveVel.z = S.rollDirZ * rs;
+        if (t >= 1 || !pl.alive || pl.swimming) endRoll();
+      } else {
+        // ---- acceleration toward the desired velocity
+        const air = !(pl.onGround || pl.swimming);
+        const curL = Math.sqrt(_moveVel.x * _moveVel.x + _moveVel.z * _moveVel.z);
+        const accel = (speed > curL ? (mounted ? MOUNT_ACCEL : ACCEL) : (mounted ? MOUNT_DECEL : DECEL)) * (air ? AIR_CONTROL : 1);
+        let ddx = _v1.x - _moveVel.x, ddz = _v1.z - _moveVel.z;
+        const dl = Math.sqrt(ddx * ddx + ddz * ddz), maxStep = accel * sdt;
+        if (dl <= maxStep || dl < 1e-6) { _moveVel.x = _v1.x; _moveVel.z = _v1.z; }
+        else { _moveVel.x += ddx / dl * maxStep; _moveVel.z += ddz / dl * maxStep; }
+      }
+      // vertical (fly-cam only)
+      if (G.state.flyCam && I) _moveVel.y = ((I.down('Space') ? 1 : 0) - (I.down('ShiftLeft') || I.down('ControlLeft') ? 1 : 0)) * Math.max(6, speed);
+      else _moveVel.y = 0;
+
+      // ---- jump (buffered + coyote)
+      if (pl.onGround) S.coyote = COYOTE; else S.coyote = Math.max(0, S.coyote - sdt);
+      if (S.jumpBuffer > 0) { S.jumpBuffer -= sdt; if (jump()) S.jumpBuffer = 0; }
+
+      // ---- physics
+      if (G.Physics && typeof G.Physics.moveEntity === 'function') G.Physics.moveEntity(pl, _moveVel, sdt, _physOpts);
+      else { pos.x += _moveVel.x * sdt; pos.z += _moveVel.z * sdt; pos.y = terrainH(pos.x, pos.z); pl.onGround = true; }
+      if (pl.justLanded > landed) landed = pl.justLanded;
+      if (pl.justSplashed > splashed) splashed = pl.justSplashed;
+    }
+    pl.justLanded = landed; pl.justSplashed = splashed;         // per-frame events: a landing in an early sub-step is kept
     // actual horizontal velocity (so a wall stops the run animation and momentum is not stored into obstacles)
     let ax = 0, az = 0, actual = 0;
     if (dt > 1e-4) {
@@ -1218,7 +1232,7 @@
   // ================================================================================================ UPDATE
   function update(dt) {
     if (!player) return;
-    dt = num(dt, 0); if (dt <= 0) return; if (dt > 0.1) dt = 0.1;
+    dt = num(dt, 0); if (dt <= 0) return; if (dt > MAX_DT) dt = MAX_DT;
     const pl = player, I = G.Input;
     if (G.state.stats) G.state.stats.playTime = num(G.state.stats.playTime, 0) + dt;
 
