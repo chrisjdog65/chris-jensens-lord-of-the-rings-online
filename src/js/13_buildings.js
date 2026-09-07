@@ -266,6 +266,9 @@
   /* materials — one shared MeshStandardMaterial per surface class (vertex colours carry variation)     */
   /* ------------------------------------------------------------------------------------------------ */
   const MAT = {};
+  const BANNER_U = { time: { value: 0 }, wind: { value: 1 } };           // shared by every banner cloth (see getMat('banner'))
+  const BANNER_WIND = { clear: 1, cloudy: 1.7, rain: 2.3, snow: 1.2, storm: 3.6 };
+  let _bannerWindTarget = 1;
   const UV_SCALE = { stone: 2.0, brick: 1.3, wood: 1.6, planks: 1.8, thatch: 1.5, plaster: 3.0, tile: 1.6, grass: 3.2, hide: 1.6, rock: 2.6 };
   const TEX_FN = { stone: texStone, brick: texBrick, wood: texWood, planks: texPlanks, thatch: texThatch, plaster: texPlaster, tile: texTile, grass: texGrass, hide: texHide, rock: texStone };
   const _texCache = {};
@@ -287,6 +290,25 @@
       case 'flat': m = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0 }); break;
       case 'metal': m = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.75 }); break;
       case 'cloth': m = new T.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: T.DoubleSide }); break;
+      case 'banner':   // hanging cloth that sways in the wind (vertex shader; uv.y = 1 at the crossbar, 0 at the hem)
+        m = new T.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: T.DoubleSide });
+        m.onBeforeCompile = function (shader) {
+          shader.uniforms.uBTime = BANNER_U.time; shader.uniforms.uBWind = BANNER_U.wind;
+          shader.vertexShader = 'uniform float uBTime;\nuniform float uBWind;\n' + shader.vertexShader.replace('#include <begin_vertex>', [
+            'vec3 transformed = vec3( position );',
+            '{',
+            '  float hang = 1.0 - uv.y;',
+            '  vec3 wp = ( modelMatrix * vec4( position, 1.0 ) ).xyz;',
+            '  float ph = uBTime * 1.7 + wp.x * 0.35 + wp.z * 0.27;',
+            '  float amp = ( 0.05 + 0.035 * uBWind ) * hang * hang;',
+            '  transformed.x += sin( ph ) * amp + sin( ph * 2.3 + wp.y ) * amp * 0.35;',
+            '  transformed.z += cos( ph * 0.8 + 1.3 ) * amp * 0.8;',
+            '  transformed.y += ( 1.0 - cos( ph ) ) * amp * 0.25;',
+            '}',
+          ].join('\n'));
+        };
+        m.customProgramCacheKey = function () { return 'bld_banner_wind_v1'; };
+        break;
       case 'awning': m = new T.MeshStandardMaterial({ map: makeTex(256, 64, texAwning, true), roughness: 1, side: T.DoubleSide }); break;
       case 'rug': m = new T.MeshStandardMaterial({ map: makeTex(256, 256, texRug('man'), false), roughness: 1 }); break;
       case 'rug_elf': m = new T.MeshStandardMaterial({ map: makeTex(256, 256, texRug('elf'), false), roughness: 1 }); break;
@@ -1881,6 +1903,61 @@
       b.boxCol(-0.75, 0, -0.75, 0.75, 1.4, 0.75);
     },
   });
+  /* ---------------- banner: pole on a stone footing + hanging cloth with heraldic bands and a device; the cloth sways ---------------- */
+  const HERALDRY = {
+    man:     { cloth: 0x8a2a2a, band: 0xd8b24a, device: 0xf0e2b8 },
+    hobbit:  { cloth: 0x3e6a44, band: 0xe8d8a0, device: 0xd8b24a },
+    dwarf:   { cloth: 0x2a4a8a, band: 0xc8ccd8, device: 0xd8b24a },
+    elf:     { cloth: 0x4a6a8a, band: 0xd8dce8, device: 0xeef2f8 },
+    ruin:    { cloth: 0x6a4a3a, band: 0xa89870, device: 0x9a8a70 },
+    camp:    { cloth: 0x7a3a2a, band: 0xc8a860, device: 0xe0d0a0 },
+    lossoth: { cloth: 0x6a7e96, band: 0xe8eef4, device: 0xc8d8e8 },
+  };
+  def('banner', {
+    static: true, variants: 2,
+    key(spec, v) { return 'banner:' + (HERALDRY[spec.style] ? spec.style : 'man') + ':' + v; },
+    build(b, v, spec) {
+      const H = HERALDRY[spec.style] || HERALDRY.man;
+      const ph = 4.0 + v * 0.5, W = 0.9, L = 2.3 + v * 0.2;
+      b.cyl('ext', 'stone', 0.3, 0.36, 0.24, 8, 0, 0.12, 0, 0x8d8579, { jit: 0.06 });
+      b.cyl('ext', 'wood', 0.055, 0.08, ph, 7, 0, ph / 2, 0, 0x4e3a28, { jit: 0.05 });
+      b.cone('ext', 'metal', 0.06, 0.24, 6, 0, ph + 0.11, 0, 0xb08a40);
+      b.cyl('ext', 'wood', 0.03, 0.03, W + 0.3, 6, 0, ph - 0.14, -0.1, WOOD_D, { rz: HPI });
+      for (const sx of [-1, 1]) b.torus('ext', 'metal', 0.035, 0.008, sx * (W / 2 - 0.05), ph - 0.14, -0.1, 0x3a3a40, { ry: HPI });
+      const geo = b.piece('ext', 'banner', new T.PlaneGeometry(W, L, 4, 12), 0, ph - 0.16 - L / 2, -0.1, H.cloth, { jit: 0.025 });
+      const col = geo.attributes.color, uv = geo.attributes.uv, pos = geo.attributes.position;
+      const cb = new T.Color(H.band), cd = new T.Color(H.device);
+      for (let i = 0; i < col.count; i++) {
+        const u = uv.getX(i), t = uv.getY(i);
+        const band = (t > 0.3 && t < 0.43) || (t > 0.13 && t < 0.2);
+        const dev = Math.abs(u - 0.5) * 1.1 + Math.abs(t - 0.7) * 0.55 < 0.17;
+        if (dev) col.setXYZ(i, cd.r, cd.g, cd.b); else if (band) col.setXYZ(i, cb.r, cb.g, cb.b);
+        if (t < 0.001) pos.setY(i, pos.getY(i) + Math.abs(u - 0.5) * (v === 0 ? 0.5 : 0.2));   // swallow-tailed hem
+      }
+      b.cylCol(0, 0, 0.16, 2.6);
+    },
+  });
+  /* ---------------- anvil: on an oak stump (v0) or a stone block (v1), with hammer, tongs, quench bucket, horseshoes ---------------- */
+  def('anvil', {
+    static: true, variants: 2,
+    build(b, v) {
+      if (v === 0) F.anvil(b, 'ext');
+      else {
+        b.box('ext', 'stone', 0.72, 0.56, 0.62, 0, 0.28, 0, 0x6f6a64, { jit: 0.06 });
+        b.box('ext', 'metal', 0.36, 0.14, 0.26, 0, 0.63, 0, 0x4a4b52); b.box('ext', 'metal', 0.44, 0.16, 0.3, 0, 0.78, 0, 0x55565e);
+        b.cone('ext', 'metal', 0.13, 0.4, 8, 0.4, 0.79, 0, 0x55565e, { rz: -HPI }); b.box('ext', 'metal', 0.16, 0.12, 0.22, -0.3, 0.78, 0, 0x55565e);
+      }
+      const top = v === 0 ? 0.85 : 0.86;
+      b.cyl('ext', 'wood', 0.02, 0.025, 0.42, 6, 0.02, top + 0.035, -0.02, 0x6a4a2a, { rz: HPI, ry: 0.35, jit: 0.04 });          // hammer
+      b.box('ext', 'metal', 0.1, 0.07, 0.07, -0.18, top + 0.04, -0.09, 0x3a3a40);
+      b.rod('ext', 'metal', 0.36, 0.0, 0.34, 0.2, 0.62, 0.16, 0.012, 0x3a3a40); b.rod('ext', 'metal', 0.42, 0.0, 0.3, 0.22, 0.62, 0.16, 0.012, 0x3a3a40);   // tongs leaning on the base
+      b.at(-0.62, 0.34, 0); F.barrel(b, 'ext', 0.17, 0.4); b.end();                                                                       // quench bucket
+      b.cyl('ext', 'water', 0.15, 0.15, 0.02, 10, -0.62, 0.38, 0.34, 0x33505c, { jit: 0.02 });
+      for (let i = 0; i < 3; i++) b.torus('ext', 'metal', 0.07, 0.014, 0.5 + (i % 2) * 0.16, 0.015, -0.32 + i * 0.14, 0x45454c, { rx: HPI, ry: i * 0.9 });   // horseshoes
+      b.cylCol(0, 0, 0.5, 0.95);
+      b.spot(0, -0.85, 0, 'forge');
+    },
+  });
 
   /* ------------------------------------------------------------------------------------------------ */
   /* Runtime: instancing, doors, colliders, lights, update loop, world builders                        */
@@ -2485,6 +2562,8 @@
     _time += dt;
     if (!pool.length) ensurePool();
     updateMaterials();
+    BANNER_U.time.value = _time;
+    BANNER_U.wind.value += (_bannerWindTarget - BANNER_U.wind.value) * Math.min(1, dt * 0.6);
     if (!playerPos || typeof playerPos.x !== 'number') playerPos = (G.state && G.state.player && G.state.player.pos) || null;
     if (!playerPos) { updateDoors(dt, 1e9, 1e9); flickerLights(); return; }
     const px = playerPos.x, py = playerPos.y, pz = playerPos.z;
@@ -2519,6 +2598,7 @@
   }
 
   if (typeof G.on === 'function') G.on('sceneReady', function (sc) { if (sc && sc.isScene) init(sc); });
+  if (typeof G.on === 'function') G.on('weatherChanged', function (kind) { if (BANNER_WIND[kind] != null) _bannerWindTarget = BANNER_WIND[kind]; });
 
   G.Buildings = {
     init, build, place, remove, buildTown, buildPOI, buildDocks, buildTownWalls, batchStatic,

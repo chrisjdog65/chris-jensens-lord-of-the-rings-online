@@ -29,7 +29,7 @@
      (the F1 key-help panel is the registered panel 'keyhelp' → element #panel-keyhelp)
      G.Player.respawn(); G.Combat.useAbility(ent, id), G.Combat.removeEffect(ent, id); G.Progress.setHotbar(slot, id), xpToNext();
      G.Quests.active()/tracked/setTracked/nextObjective/state/completion/available/turnins; G.AutoQuest.active/start/stop/status();
-     G.Terrain.mapCanvas(1024) (north = top, x → right), G.Terrain.zoneAt; G.Data.world.zones/towns/npcs, G.Data.questById;
+     G.Terrain.mapCanvas(1024, {labels:false}) (north = top, x → right; the minimap draws its own labels), G.Terrain.zoneAt; G.Data.world.zones/towns/npcs, G.Data.questById;
      player.casting = { ability|id|name, elapsed|t|start, duration|total|castTime }; ent.questMark ('!'|'?'|'?grey') on NPCs.
    Private helpers are prefixed with _ (module-local). ==== */
 (function () {
@@ -1803,7 +1803,7 @@
     ctx.save();
     ctx.beginPath(); ctx.arc(R, R, R, 0, Math.PI * 2); ctx.clip();
     let map = null;
-    try { map = (G.Terrain && typeof G.Terrain.mapCanvas === 'function') ? G.Terrain.mapCanvas(1024) : null; } catch (_) { map = null; }
+    try { map = (G.Terrain && typeof G.Terrain.mapCanvas === 'function') ? G.Terrain.mapCanvas(1024, { labels: false }) : null; } catch (_) { map = null; }   // label-free base: the minimap draws its own small labels
     if (map && map.width) {
       const world = (G.C && G.C.WORLD_SIZE) || 4096, half = world / 2;
       const mpp = map.width / world;                                                     // map pixels per metre
@@ -1835,12 +1835,14 @@
         const dx = (tp.x - px) * zoom, dy = (tp.z - pz) * zoom;
         if (dx * dx + dy * dy > R * R * 1.1) continue;
         if (s === 1 && zoom < 1) continue;
-        ctx.font = (s === 0 ? 'bold 10px ' : '9px ') + 'Cinzel, Georgia, serif';
+        // small outlined names (towns ≤ 10 px, places 9 px) — the base map carries no baked lettering
+        ctx.font = (s === 0 ? '600 10px ' : '9px ') + 'Cinzel, Georgia, serif';
+        ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(18,12,4,.8)';
+        ctx.strokeText(_str(t.name), R + dx, R + dy - 6);
         ctx.fillStyle = s === 0 ? '#fff3c4' : '#dfd2b0';
-        ctx.shadowColor = '#000'; ctx.shadowBlur = 3;
         ctx.fillText(_str(t.name), R + dx, R + dy - 6);
-        ctx.shadowBlur = 0;
         ctx.fillStyle = s === 0 ? '#ffd54a' : '#c9b98a'; ctx.beginPath(); ctx.arc(R + dx, R + dy, 2, 0, Math.PI * 2); ctx.fill();
+        ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.stroke();
       }
     }
     // entities
