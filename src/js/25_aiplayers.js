@@ -50,7 +50,7 @@
   const RENDER_DIST = C.AIPLAYER_RENDER_DIST > 0 ? C.AIPLAYER_RENDER_DIST : 180;
   const RENDER_DROP = RENDER_DIST + 30;       // hysteresis for rig disposal
   const MAX_RIGS = 25;
-  const RIG_BUILDS_PER_FRAME = 2;
+  const RIG_BUILDS_PER_FRAME = 1;
   const NAMEPLATE_DIST = 60;
   const NEAR_SIM_DIST = 120;                  // physics + real combat within this distance of the hero
   const RUN_SPEED = C.RUN_SPEED > 0 ? C.RUN_SPEED : 6.5;
@@ -67,7 +67,7 @@
   const EAT_TIME = 6;
   const RESPAWN_TIME = 10;
   const FIGHT_TIME = [30, 75];
-  const TOWN_TIME = [20, 75];
+  const TOWN_TIME = [15, 60];
   const FISH_TIME = [60, 180];
   const NIGHT_START = 22, NIGHT_END = 5;
   const PI = Math.PI, TAU = Math.PI * 2;
@@ -638,7 +638,7 @@
   function needFor(L) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'needFor')) ? num(X.needFor(L), 500) : 500; }
   function killXP(mobL, L, mult) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'killXP')) ? num(X.killXP(mobL, L, mult), 5) : 5; }
   function questXP(L, type) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'questXP')) ? num(X.questXP(L, type), 100) : 100; }
-  function xpPace(L) { return 1.3 / (1 + L / 40); }   // 1.27 at L1 → 0.65 at L40 → 0.43 at L80 (levels slow down)
+  function xpPace(L) { return 1.5 / (1 + L / 40); }   // 1.46 at L1 → 0.75 at L40 → 0.5 at L80 (levels slow down)
 
   // ------------------------------------------------------------------------------------------------ population
   function uniqueName(race, gender, rng, used) {
@@ -1320,19 +1320,22 @@
     }
     return false;
   }
-  function tryAttack(e, m) {
-    const rot = e.rotation; const CB = G.Combat; if (!CB) return false;
-    const a = e.ai;
-    if (rot && rot.attack.length && hasFn(CB, 'useAbility')) {
-      const n = rot.attack.length;
-      for (let k = 0; k < n; k++) {
-        const id = rot.attack[(a.rot + k) % n];
-        let ok = false; try { ok = CB.useAbility(e, id, m); } catch (err) { report(err, 'useAbility'); ok = false; }
-        if (ok) { a.rot = (a.rot + k + 1) % n; counters.abilities++; return true; }
-      }
+  function tryAbility(e, m) {
+    const rot = e.rotation; const CB = G.Combat; if (!CB || !rot || !rot.attack.length || !hasFn(CB, 'useAbility')) return false;
+    const a = e.ai; const n = rot.attack.length;
+    for (let k = 0; k < n; k++) {
+      const id = rot.attack[(a.rot + k) % n];
+      if (hasFn(CB, 'abilityReady') && !CB.abilityReady(e, id)) continue;          // skip cooling abilities without the full check
+      let ok = false; try { ok = CB.useAbility(e, id, m); } catch (err) { report(err, 'useAbility'); ok = false; }
+      if (ok) { a.rot = (a.rot + k + 1) % n; counters.abilities++; return true; }
     }
-    if (hasFn(CB, 'basicAttack')) { let ok = false; try { ok = CB.basicAttack(e, m); } catch (err) { report(err, 'basicAttack'); } if (ok) counters.attacks++; return ok; }
     return false;
+  }
+  function tryBasic(e, m) {
+    const CB = G.Combat; if (!CB || !hasFn(CB, 'basicAttack')) return false;
+    let ok = false; try { ok = CB.basicAttack(e, m); } catch (err) { report(err, 'basicAttack'); }
+    if (ok) counters.attacks++;
+    return ok;
   }
   function combatStep(e, dt, t) {
     const a = e.ai;
@@ -1354,12 +1357,14 @@
       return;
     }
     if (t < a.nextCast) return;
-    a.nextCast = t + 0.35;
-    if (tryHeal(e, t)) return;
+    a.nextCast = t + 0.3;
     const range = RANGED_CLASSES[e.cls] ? 20 : 2.4;
     const d = Math.sqrt(_dist2sq(e.pos.x, e.pos.z, m.pos.x, m.pos.z)) - num(m.radius, 0.5) - e.radius;
     if (d > range + 0.3) return;
-    tryAttack(e, m);
+    const gcdFree = num(e.gcdReady, 0) <= t && !e.casting;
+    if (gcdFree && tryHeal(e, t)) return;
+    if (gcdFree && tryAbility(e, m)) return;
+    if (num(e.nextSwing, 0) <= t && d <= 2.8 + 0.3) tryBasic(e, m);         // auto-attack runs alongside skills (melee reach)
   }
   function onDamaged(dst, src, amount) {
     if (!dst || dst.kind !== 'aiplayer' || dst.dead) return;
@@ -1805,7 +1810,8 @@
     const p = player();
     if (p && p.pos) {
       scanT -= dt;
-      if (scanT <= 0) { scanT = 0.5; scanNear(p.pos.x, p.pos.z); rigBudget(); }
+      if (scanT <= 0) { scanT = 0.5; scanNear(p.pos.x, p.pos.z); }
+      rigBudget();
       for (let i = 0; i < nearList.length; i++) {
         const e = nearList[i]; if (!e._near) continue;
         e._d2 = _dist2sq(p.pos.x, p.pos.z, e.pos.x, e.pos.z);
