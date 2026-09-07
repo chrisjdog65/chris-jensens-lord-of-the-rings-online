@@ -104,3 +104,8 @@
 - Gather nodes write `player.casting` `{x,z,end(far future),elapsed,duration,name}` for the HUD cast bar; `G.NPCs.channel`, `cancelChannel()`. `npc.questMark` ('!'|'?'|'?grey') for minimap. Events: `npcTalk`, `npcTalkEnd`, `vendorOpened`, `gatherStart`, `gathered`, `rested`.
 - BUG for 13_buildings: line ~2407 passes colour names ('chestnut') to `G.Chars.buildHorse` (expects hex) → "Unknown color" warning. FIX in polish.
 - Data note: `map_home` vendor value 0.
+
+## 30_ui_hud.js
+- `registerPanel(id, def)` extras: `footer(el,panel)`, `buttons[]`, `remember`, `sound`, `rebuildOnOpen`, `minWidth`; `openPanel(id, arg)` forwards arg to `onOpen`. Panel objects: `addButton/setTitle/refresh/close`. Key-help panel id is `keyhelp`.
+- HUD consumes Esc, Enter, F1, B and registered panel keys; hotbar keys are executed by Player (`useHotbar`), HUD only flashes. `G.Player.interactTarget` preferred for the prompt. `player.casting` shape `{name|id, elapsed|start|end, duration|total}`.
+- Extras: `notifyBig(text, sub)`, `showLoot(items, gold)/hideLoot`, `setWaypoint(x,z)/clearWaypoint/waypoint`, `DeathScreen{show,hide,visible}`, `minimap{zoom,setZoom,redraw,worldAt}`, `tracker{refresh}`, `hotbarRefresh()`, `showZone(zoneId)`, `getPanel/topPanel/anyModal/openPanels`, `fade(seconds)`, `fps`, `hudVisible`, `chatCommand`, `chatSend`.
