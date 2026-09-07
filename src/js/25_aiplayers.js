@@ -638,7 +638,7 @@
   function needFor(L) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'needFor')) ? num(X.needFor(L), 500) : 500; }
   function killXP(mobL, L, mult) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'killXP')) ? num(X.killXP(mobL, L, mult), 5) : 5; }
   function questXP(L, type) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'questXP')) ? num(X.questXP(L, type), 100) : 100; }
-  function xpPace(L) { return 1.5 / (1 + L / 40); }   // 1.46 at L1 → 0.75 at L40 → 0.5 at L80 (levels slow down)
+  function xpPace(L) { return 1.4 / (1 + L / 40); }   // 1.37 at L1 → 0.7 at L40 → 0.47 at L80 (levels slow down)
 
   // ------------------------------------------------------------------------------------------------ population
   function uniqueName(race, gender, rng, used) {
@@ -1060,7 +1060,11 @@
           if (a.timer <= 0 && !a.fightTarget) { if (a.grind && schance(0.5)) { a.timer = sr(20, 50); } else returnToTown(e, !a.grind); }
         } else if (a.phase === 'return') {
           if (advancePath(e, dt)) {
-            if (a.turnin && schance(0.6)) { e.questsDone = Math.min(150, e.questsDone + 1); counters.quests++; addXP(e, questXP(e.level, schance(0.3) ? 'story' : 'side') * 0.6); forEachMember(e, (m) => { if (m.fellowshipRole === 'member') { m.questsDone = Math.min(150, m.questsDone + 1); addXP(m, questXP(m.level, 'side') * 0.5); } }); }
+            if (a.turnin && schance(0.7)) {
+              const nq = 1 + (schance(0.45) ? 1 : 0);              // real players hand in a couple of quests per trip
+              for (let q = 0; q < nq; q++) { e.questsDone = Math.min(150, e.questsDone + 1); counters.quests++; addXP(e, questXP(e.level, schance(0.25) ? 'story' : 'side') * 0.7); }
+              forEachMember(e, (m) => { if (m.fellowshipRole === 'member') { for (let q = 0; q < nq; q++) { m.questsDone = Math.min(150, m.questsDone + 1); addXP(m, questXP(m.level, 'side') * 0.6); } } });
+            }
             enterTown(e, { turnin: a.turnin });
           }
         }
@@ -1171,7 +1175,7 @@
     if (e.dead) { if (hasFn(rig, 'setAnim')) rig.setAnim('death', true); }
     else if (e.ai.sit && hasFn(rig, 'setAnim')) rig.setAnim(e.ai.dance ? 'emote_dance' : 'sit', true);
     if (e.mounted) syncMountRig(e);
-    rigList.push(e); rigCount++; counters.rigsBuilt++;
+    rigList.push(e); rigCount++; counters.rigsBuilt++; frameBuilds++;
     ensureScene();
     return true;
   }
@@ -1193,14 +1197,17 @@
     const i = rigList.indexOf(e); if (i >= 0) rigList.splice(i, 1);
     rigCount--; counters.rigsDisposed++;
   }
+  let frameBuilds = 0;          // expensive rig/horse builds this frame (spread over frames to avoid hitches)
   function ensureHorse(e) {
     if (e.mountRig) return e.mountRig;
     if (!G.Chars || !hasFn(G.Chars, 'buildHorse')) return null;
+    if (frameBuilds >= RIG_BUILDS_PER_FRAME) { e._mountDirty = true; return null; }
     let h = null;
     try { h = G.Chars.buildHorse(HORSE_COLORS[(e.seed >>> 0) % HORSE_COLORS.length]); } catch (err) { h = null; }
+    frameBuilds++;
     if (!h || !h.group) return null;
     h.group.name = 'ai_horse_' + e.id;
-    e.mountRig = h;
+    e.mountRig = h; e._mountDirty = false;
     return h;
   }
   function detachFromMount(e) {
@@ -1252,11 +1259,10 @@
     if (!root || !ensureScene()) return;
     const drop2 = RENDER_DROP * RENDER_DROP, keep2 = RENDER_DIST * RENDER_DIST;
     for (let i = rigList.length - 1; i >= 0; i--) { const e = rigList[i]; if (e._d2 > drop2 || e._rank >= MAX_RIGS + 4 || e.sailing) disposeRig(e); }
-    let built = 0;
-    for (let i = 0; i < nearList.length && i < MAX_RIGS && built < RIG_BUILDS_PER_FRAME; i++) {
+    for (let i = 0; i < nearList.length && i < MAX_RIGS && frameBuilds < RIG_BUILDS_PER_FRAME; i++) {
       const e = nearList[i];
       if (e.rig || e.sailing || e._d2 > keep2 || rigCount >= MAX_RIGS) continue;
-      if (buildRig(e)) built++;
+      buildRig(e);
     }
   }
 
@@ -1526,6 +1532,7 @@
     animStep(e, dt, t);
     const rig = e.rig;
     if (rig) {
+      if (e._mountDirty && e.mounted && frameBuilds < RIG_BUILDS_PER_FRAME) syncMountRig(e);
       syncRig(e);
       if (e.mounted && e.mountRig) { const h = e.mountRig; if (hasFn(h, 'play')) { try { h.play(dt, e); } catch (err) { report(err, 'horse.play'); } } }
       if (hasFn(rig, 'play')) { try { rig.play(dt, e); } catch (err) { report(err, 'rig.play'); } }
@@ -1795,7 +1802,7 @@
   function update(dt) {
     if (!inited || !all.length) return;
     dt = num(dt, 0); if (dt <= 0) return; if (dt > 0.25) dt = 0.25;
-    frame++;
+    frame++; frameBuilds = 0;
     const t = now();
     // far LOD: round-robin so every AI ticks about every FAR_TICK seconds
     const n = Math.min(all.length, Math.max(1, Math.ceil(all.length * dt / FAR_TICK)));

@@ -228,7 +228,7 @@
 .pn-inventory .panel-body { padding: 8px 10px 6px; }
 .inv-top { display: flex; align-items: flex-end; gap: 6px; margin-bottom: 6px; }
 .inv-top .tabs { flex: 1; margin: 0; border-bottom: 1px solid var(--border); }
-.inv-top .tab { padding: 4px 8px; font-size: 11px; }
+.inv-top .tab { padding: 4px 6px; font-size: 10.5px; letter-spacing: .03em; }
 .inv-top .btn { margin-bottom: 3px; }
 .inv-grid-wrap { overflow-y: auto; overflow-x: hidden; min-height: 0; max-height: calc(92vh - 190px); padding: 2px 4px 2px 2px; }
 .inv-grid { display: grid; grid-template-columns: repeat(10, 44px); gap: 4px; }
@@ -267,7 +267,7 @@
 .ch-preview .ch-floor { position: absolute; left: 30px; right: 30px; bottom: 26px; height: 22px; border-radius: 50%; background: radial-gradient(ellipse at center, rgba(0,0,0,.55), rgba(0,0,0,0) 70%); pointer-events: none; }
 .ch-preview .ch-fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 120px; opacity: .6; text-shadow: 0 4px 12px #000; }
 .ch-preview .ch-hint { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: 10px; color: rgba(184,173,148,.5); letter-spacing: .06em; pointer-events: none; }
-.ch-weapons { display: flex; gap: 14px; padding-bottom: 14px; }
+.ch-weapons { display: flex; gap: 14px; padding-bottom: 2px; }
 .ch-weapons .ch-slot { position: relative; }
 .ch-side { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .ch-side .tabs { margin-bottom: 4px; }
@@ -753,7 +753,7 @@
     Inv._hlTimer = setTimeout(function () { Inv._hlTimer = 0; Inv._hl = {}; Inv.mark(); }, 2400);
     if (Inv.isOpen()) { const slots = Inv.body ? Inv.body.querySelectorAll('.inv-slot') : []; const p = _player(); for (let i = 0; i < slots.length; i++) { const idx = parseInt(slots[i].dataset.i, 10); const inst = p && p.inventory && p.inventory[idx]; if (inst && inst.tid === tid) slots[i].classList.add('hl'); } }
   };
-  definePanel('inventory', Inv, { title: 'Inventory', key: 'KeyI', width: 508, pos: 'right' });
+  definePanel('inventory', Inv, { title: 'Inventory', key: 'KeyI', width: 544, pos: 'right' });
 
   // ================================================================================================ CHARACTER (C)
   const PV = { renderer: null, scene: null, camera: null, rig: null, canvas: null, group: null, angle: 0.55, dragging: false, idleT: 9, needRebuild: true, failed: false, ent: null, lastEquipSig: '', spinning: true, fallback: null };
@@ -878,6 +878,7 @@
     });
     return s;
   }
+  const ROLE_NAME = { tank: 'Tank', dps: 'Damage', support: 'Support', healer: 'Healer' };
   function _statRow(label, value, statKey, extra) {
     const k = el('span', { class: 'k', text: label });
     const v = el('span', { class: 'v' });
@@ -992,7 +993,7 @@
     sel.addEventListener('keydown', function (ev) { ev.stopPropagation(); });
     _tip(sel, '<div class="tt-name">Title</div><div class="tt-line">Choose which of your earned titles is shown beside your name.</div>');
     const sub = el('div', { class: 'ch-sub' });
-    sub.innerHTML = 'Level <b>' + _num(p.level, 1) + '</b> ' + esc((p.gender === 'female' ? 'Female ' : 'Male ') + ((rd && rd.name) || _title(p.race || ''))) + ' <b style="color:' + (cd ? _hex(cd.color) : 'inherit') + '">' + esc((cd && cd.name) || _title(p.cls || '')) + '</b>' + (cd ? ' <span class="chip">' + esc(_title(cd.role || '')) + '</span><span class="chip">' + esc(_title(cd.armourType || '')) + ' armour</span>' : '');
+    sub.innerHTML = 'Level <b>' + _num(p.level, 1) + '</b> ' + esc((p.gender === 'female' ? 'Female ' : 'Male ') + ((rd && rd.name) || _title(p.race || ''))) + ' <b style="color:' + (cd ? _hex(cd.color) : 'inherit') + '">' + esc((cd && cd.name) || _title(p.cls || '')) + '</b>' + (cd ? ' <span class="chip">' + esc(ROLE_NAME[cd.role] || _title(cd.role || '')) + '</span><span class="chip">' + esc(_title(cd.armourType || '')) + ' armour</span>' : '');
     const xi = _xpInfo(p);
     const xpRow = el('div', { class: 'ch-xp' }, [el('span', { text: 'XP' }), _bar(xi.frac, 'xp', xi.capped ? 'Level cap reached' : _fmt(Math.round(xi.cur)) + ' / ' + _fmt(Math.round(xi.need))), el('span', { text: xi.capped ? '' : _fmt(Math.round(xi.toNext)) + ' to ' + (xi.level + 1) })]);
     body.appendChild(el('div', { class: 'ch-head' }, [portrait, el('div', { class: 'ch-headmain' }, [el('div', { class: 'ch-nameline' }, [nameEl, sel]), sub, xpRow])]));
@@ -1000,7 +1001,7 @@
     const left = el('div', { class: 'ch-col' }); CH_LEFT.forEach(function (s) { left.appendChild(_chSlot(s, p)); });
     const right = el('div', { class: 'ch-col' }); CH_RIGHT.forEach(function (s) { right.appendChild(_chSlot(s, p)); });
     const weapons = el('div', { class: 'ch-weapons' });
-    CH_WEAPONS.forEach(function (s) { const sl = _chSlot(s, p); sl.appendChild(el('span', { class: 'slot-label', text: _slotLabel(s) })); weapons.appendChild(sl); });
+    CH_WEAPONS.forEach(function (s) { weapons.appendChild(_chSlot(s, p)); });
     const center = el('div', { class: 'ch-center' }, [_pvBox(), weapons]);
     const doll = el('div', { class: 'ch-doll' }, [left, center, right]);
     const tabs = el('div', { class: 'tabs' });
@@ -1389,6 +1390,93 @@
     ctx.fillStyle = '#2a1a05'; ctx.font = 'bold ' + (big ? 11 : 10) + 'px Cinzel, Georgia, serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(n), x, y - r * 1.6 + 0.5);
     ctx.restore();
   }
+  // ---- label-free base map: painted here from G.Terrain.coarseHeight (grid lookups, cheap) + zone colours, a few rows per
+  //      frame, because G.Terrain.mapCanvas bakes its own zone/town names which would double up with the panel's overlays.
+  const MB = { canvas: null, ctx: null, img: null, row: 0, done: false, failed: false, size: MAP_SZ, zones: null };
+  const MB_SEA = [0x1c, 0x3b, 0x66], MB_SHALLOW = [0x4a, 0x8c, 0xbc], MB_SAND = [0xdc, 0xcb, 0x9a], MB_SNOW = [0xf1, 0xf4, 0xf7], MB_ROCK = [0x8c, 0x86, 0x7a];
+  function _mbPrep() {
+    const w = _world(); const zs = (w && Array.isArray(w.zones)) ? w.zones : [];
+    MB.zones = zs.filter(function (z) { return z && z.center; }).map(function (z) {
+      const r = Math.max(50, _num(z.radius, 300)) * 1.18;
+      const gc = _num(z.grassColor, 0x6fae4a), dc = _num(z.groundColor, 0x8b7a4c);
+      return { x: z.center.x, z: z.center.z, r2: r * r, inv: 1 / (r * r), gr: (gc >> 16) & 255, gg: (gc >> 8) & 255, gb: gc & 255, dr: (dc >> 16) & 255, dg: (dc >> 8) & 255, db: dc & 255, mountain: _num(z.mountain), arctic: z.biome === 'arctic' ? 1 : 0, dark: z.biome === 'dark' ? 1 : 0 };
+    });
+    MB.canvas = document.createElement('canvas'); MB.canvas.width = MB.canvas.height = MB.size;
+    MB.ctx = MB.canvas.getContext('2d');
+    MB.img = MB.ctx ? MB.ctx.createImageData(MB.size, MB.size) : null;
+    if (!MB.img) MB.failed = true;
+  }
+  function _mbFinish() {
+    const ctx = MB.ctx, size = MB.size, w = _world(), sc = size / _world_(), HALF = _world_() / 2;
+    ctx.putImageData(MB.img, 0, 0); MB.img = null;
+    const P = function (x, z) { return [(x + HALF) * sc, (z + HALF) * sc]; };
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const rivers = (w && w.water && Array.isArray(w.water.rivers)) ? w.water.rivers : [];
+    ctx.strokeStyle = '#3f7fb4';
+    rivers.forEach(function (rv) {
+      if (!Array.isArray(rv.points) || rv.points.length < 2) return;
+      ctx.lineWidth = Math.max(1, _num(rv.width, 12) * sc * 1.2); ctx.beginPath(); let first = true;
+      for (let i = 0; i + 1 < rv.points.length; i++) {
+        const a = rv.points[i], b = rv.points[i + 1]; const L = Math.hypot(b.x - a.x, b.z - a.z), n = Math.max(1, Math.ceil(L / 10));
+        for (let k = 0; k <= n; k++) { const t = k / n; const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t; const wx = x - 7 * G.fbm(x * 0.0083 + 31, z * 0.0083 + 17, 2, 2, 0.5), wz = z - 7 * G.fbm(x * 0.0083 - 13, z * 0.0083 + 43, 2, 2, 0.5); const q = P(wx, wz); if (first) { ctx.moveTo(q[0], q[1]); first = false; } else ctx.lineTo(q[0], q[1]); }
+      }
+      ctx.stroke();
+    });
+    const roads = (w && Array.isArray(w.roads)) ? w.roads : [];
+    const drawRoads = function (style, width) { ctx.strokeStyle = style; ctx.lineWidth = width; roads.forEach(function (rd) { if (!rd || !Array.isArray(rd.points) || rd.points.length < 2) return; ctx.beginPath(); for (let i = 0; i < rd.points.length; i++) { const q = P(rd.points[i].x, rd.points[i].z); if (i === 0) ctx.moveTo(q[0], q[1]); else ctx.lineTo(q[0], q[1]); } ctx.stroke(); }); };
+    drawRoads('rgba(60,40,20,0.55)', Math.max(1.2, size / 512 * 2.6));
+    drawRoads('#d9c08e', Math.max(1, size / 512 * 1.5));
+    MB.done = true; MP.dirty = true;
+  }
+  function _mpBaseStep(rows) {
+    if (MB.done || MB.failed) return;
+    const T = G.Terrain;
+    if (!T || !_has(T, 'coarseHeight')) { MB.failed = true; return; }
+    if (!MB.canvas) { _mbPrep(); if (MB.failed) return; }
+    const size = MB.size, WORLD = _world_(), HALF = WORLD / 2, cell = WORLD / size, d = MB.img.data, zs = MB.zones, sea = _num(C.SEA_LEVEL, 0);
+    const lx = -0.62, ly = 0.5, lz = -0.6, ss = G.smoothstep, noise = _has(G, 'noise2') ? G.noise2 : null;
+    const end = Math.min(size, MB.row + Math.max(1, rows | 0));
+    for (let py = MB.row; py < end; py++) {
+      const z = -HALF + (py + 0.5) * cell;
+      for (let px = 0; px < size; px++) {
+        const x = -HALF + (px + 0.5) * cell;
+        const h = T.coarseHeight(x, z);
+        let r, g, b;
+        if (h < sea - 0.15) {
+          const t = ss(-14, -0.15, h);
+          r = MB_SEA[0] + (MB_SHALLOW[0] - MB_SEA[0]) * t; g = MB_SEA[1] + (MB_SHALLOW[1] - MB_SEA[1]) * t; b = MB_SEA[2] + (MB_SHALLOW[2] - MB_SEA[2]) * t;
+        } else {
+          const hl = T.coarseHeight(x - cell, z), hr = T.coarseHeight(x + cell, z), hu = T.coarseHeight(x, z - cell), hd = T.coarseHeight(x, z + cell);
+          let nx = (hl - hr) / (2 * cell), nz = (hu - hd) / (2 * cell);
+          const nl = 1 / Math.sqrt(nx * nx + 1 + nz * nz); nx *= nl; nz *= nl; const ny = nl;
+          const sl = Math.sqrt(Math.max(0, 1 - ny * ny));
+          const shade = 0.55 + 0.75 * Math.max(0, nx * lx + ny * ly + nz * lz) - 0.1 * sl;
+          let wr = 0, wg = 0, wb = 0, ws = 0, mount = 0, arctic = 0, dark = 0;
+          const dirt = ss(0.12, 0.45, sl);
+          for (let i = 0; i < zs.length; i++) {
+            const zn = zs[i]; const dx = x - zn.x, dz = z - zn.z, d2 = dx * dx + dz * dz;
+            if (d2 >= zn.r2) continue;
+            const t = 1 - d2 * zn.inv, wt = t * t;
+            ws += wt; mount += wt * zn.mountain; arctic += wt * zn.arctic; dark += wt * zn.dark;
+            wr += (zn.gr + (zn.dr - zn.gr) * dirt) * wt; wg += (zn.gg + (zn.dg - zn.gg) * dirt) * wt; wb += (zn.gb + (zn.db - zn.gb) * dirt) * wt;
+          }
+          if (ws > 0) { r = wr / ws; g = wg / ws; b = wb / ws; mount /= ws; arctic /= ws; dark /= ws; } else { r = 0x5e; g = 0x7a; b = 0x3e; }
+          if (noise) { const v = 1 + 0.07 * noise(x * 0.012, z * 0.012) + 0.04 * noise(x * 0.05, z * 0.05); r *= v; g *= v; b *= v; }
+          const sand = ss(2.6, 0.6, h);
+          if (sand > 0) { r += (MB_SAND[0] - r) * sand; g += (MB_SAND[1] - g) * sand; b += (MB_SAND[2] - b) * sand; }
+          const rock = clamp(ss(0.5, 0.8, sl) * 0.65 + ss(70, 150, h) * (0.25 + mount * 0.5) + dark * 0.25, 0, 0.85);
+          if (rock > 0) { r += (MB_ROCK[0] - r) * rock; g += (MB_ROCK[1] - g) * rock; b += (MB_ROCK[2] - b) * rock; }
+          const snow = clamp((ss(110, 190, h) * (0.5 + mount * 0.8) + arctic * 0.75) * (1 - ss(0.6, 0.9, sl)), 0, 0.92);
+          if (snow > 0) { r += (MB_SNOW[0] - r) * snow; g += (MB_SNOW[1] - g) * snow; b += (MB_SNOW[2] - b) * snow; }
+          r *= shade; g *= shade; b *= shade;
+        }
+        const k = (py * size + px) * 4;
+        d[k] = r < 0 ? 0 : r > 255 ? 255 : r; d[k + 1] = g < 0 ? 0 : g > 255 ? 255 : g; d[k + 2] = b < 0 ? 0 : b > 255 ? 255 : b; d[k + 3] = 255;
+      }
+    }
+    MB.row = end;
+    if (MB.row >= size) _mbFinish();
+  }
   function _mpDraw() {
     const ctx = MP.ctx; if (!ctx || !MP.W) return;
     const p = _player(), w = _world(), Q = G.Quests, zoom = MP.zoom, dpr = MP.dpr;
@@ -1397,7 +1485,9 @@
     ctx.fillStyle = '#0d1a26'; ctx.fillRect(0, 0, MP.W, MP.H);
     const ox = MP.W / 2 - MP.cx * zoom, oy = MP.H / 2 - MP.cy * zoom, size = MAP_SZ * zoom;
     if (!MP.img) { try { MP.img = _has(G.Terrain, 'mapCanvas') ? G.Terrain.mapCanvas(MAP_SZ) : null; } catch (_) { MP.img = null; } }
-    if (MP.img && MP.img.width) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = zoom > 2 ? 'low' : 'high'; ctx.drawImage(MP.img, 0, 0, MP.img.width, MP.img.height, ox, oy, size, size); }
+    const base = MB.done ? MB.canvas : MP.img;
+    const baked = !MB.done && !!(base && base.width);            // the terrain's map carries its own labels
+    if (base && base.width) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = zoom > 2 ? 'low' : 'high'; ctx.drawImage(base, 0, 0, base.width, base.height, ox, oy, size, size); }
     else {
       ctx.fillStyle = '#3d5a2e'; ctx.fillRect(ox, oy, size, size);
       if (w && Array.isArray(w.zones)) w.zones.forEach(function (z) { if (!z.center) return; ctx.fillStyle = 'rgba(120,150,80,.35)'; ctx.beginPath(); ctx.arc(_mpSX(z.center.x), _mpSY(z.center.z), _num(z.radius, 200) / _world_() * size, 0, Math.PI * 2); ctx.fill(); });
@@ -1408,7 +1498,7 @@
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.45)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, MP.W, MP.H);
     MP.hits.length = 0;
     // ---- zones
-    if (w && Array.isArray(w.zones)) {
+    if (w && Array.isArray(w.zones) && !baked) {
       const a = zoom < 2.5 ? 0.9 : Math.max(0.2, 0.9 - (zoom - 2.5) * 0.3);
       w.zones.forEach(function (z) {
         if (!z.center) return;
@@ -1465,7 +1555,7 @@
         ctx.fillStyle = col; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.lineWidth = 1.2;
         ctx.beginPath(); ctx.arc(sx, sy, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
         ctx.strokeStyle = col; ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(sx, sy, 7.5, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
-        if (zoom >= 0.75) _mpLabel(ctx, t.name, sx, sy - 12, 'bold ' + clamp(9 + zoom * 1.5, 11, 14) + 'px Cinzel, Georgia, serif', '#fff3c4');
+        if (zoom >= 0.75 && !baked) _mpLabel(ctx, t.name, sx, sy - 12, 'bold ' + clamp(9 + zoom * 1.5, 11, 14) + 'px Cinzel, Georgia, serif', '#fff3c4');
         const feats = []; if (t.hasStable) feats.push('stable'); if (t.hasInn) feats.push('inn'); if (t.hasDock) feats.push('dock');
         _mpHit(sx, sy, 11, '<div class="tt-name">' + esc(t.name) + '</div><div class="tt-line">' + esc(_title(t.style || 'town') + ' settlement · ' + _zoneName(t.zone)) + '</div>' + (feats.length ? '<div class="tt-stat">' + esc(feats.join(' · ')) + '</div>' : '') + '<div class="tt-sub">Shift-click to set a waypoint</div>', { kind: 'town', wx: t.pos.x, wz: t.pos.z, name: t.name });
       });
@@ -1560,7 +1650,7 @@
     // ---- scale bar
     const metres = zoom >= 4 ? 100 : zoom >= 2 ? 250 : zoom >= 1 ? 500 : 1000;
     const barPx = metres / _world_() * MAP_SZ * zoom;
-    const bx = MP.W - 24 - barPx, by = MP.H - (MP.showLegend ? 118 : 26);
+    const bx = MP.W - 24 - barPx, by = MP.H - ((MP.showLegend && MP.legendEl && !MP.legendEl.hidden) ? MP.legendEl.offsetHeight + 24 : 26);
     ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(bx - 6, by - 14, barPx + 12, 22);
     ctx.fillStyle = '#e8dcc0'; ctx.fillRect(bx, by, barPx, 3);
     ctx.fillRect(bx, by - 4, 1.5, 7); ctx.fillRect(bx + barPx - 1.5, by - 4, 1.5, 7);
@@ -1682,8 +1772,11 @@
     _mpUpdateCoords();
     MP.dirty = true;
   };
+  Mp.prewarm = function (rows) { let guard = 0; while (!MB.done && !MB.failed && guard++ < 4096) _mpBaseStep(rows || MAP_SZ); return MB.done; };
+  Object.defineProperty(Mp, 'baseReady', { get: function () { return MB.done; } });
   Mp.update = function (dt) {
     if (!Mp.isOpen()) return;
+    if (!MB.done && !MB.failed) _mpBaseStep(40);
     _mpResize();
     MP.t += dt; MP.aiT += dt;
     MP.pulse = (Math.sin(_now() * 3.2) + 1) * 0.5;

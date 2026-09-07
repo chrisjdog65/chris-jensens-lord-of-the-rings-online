@@ -359,3 +359,166 @@
         progress: 'Is the summit still his? I can see the tower from the wall, and I can see the fires.',
         complete: "The fires are out. I saw it from the wall last night — the summit dark for the first time since the snow. Ugrûk dead, and his camp scattered, and the Weather Hills ours again for a season. The Eglain call you the Watcher of Weathertop now; it is not a title we give, it is one we say, which is better.",
       } },
+
+    // ---- q021 L33 · The North Downs · Goodman Wyatt, farmer of Trestlebridge
+    { id: 'q021', name: 'Wargs at the Trestlespan', type: 'side', level: L(21), zone: 'northdowns', giver: 'npc_trestlebridge_farmer', turnin: 'npc_trestlebridge_farmer', prereq: [],
+      objectives: [
+        { type: 'kill', target: 'northdowns_warg', count: 6, label: 'Hunt the Downs wargs that come down to the farms at night' },
+        { type: 'collect', item: 'mat_warg_hide', count: 4, from: 'northdowns_warg', label: 'Bring Wyatt warg-hides to nail to the barn' },
+      ],
+      rewards: R(L(21), ['food_ranger_stew', 'pot_heal_elixir']),
+      summary: 'Wargs come down off the Downs every night to Goodman Wyatt’s sheep-fold, and he has decided that a few hides nailed to the barn door might make the rest think twice.',
+      hint: 'The wargs den on the downs south-west of Trestlebridge, below the bridge; they range along the road at dusk.',
+      text: {
+        intro: "Nine ewes this month. Nine! I have sat up with a lantern and a pitchfork every night since the moon was new, and every morning there is another one gone and the tracks run straight back up onto the Downs. Wargs, the Bridge-captain says, as if I did not know a warg from a wet dog. Go up there and thin them out — and bring me a few of their hides while you are at it. I mean to nail them to the barn door where the rest can see them. It may not work. It will make me feel better.",
+        accept: 'South-west, below the bridge, where the downs fold. You will hear them before you see them.',
+        progress: 'Six of them, and four hides. And do not tell my wife about the barn door.',
+        complete: "Look at those! Great ugly things, the pair of them. I shall have them up on the barn by nightfall and we shall see what the rest of the pack makes of that. Here — my wife's stew, which is the one thing on this farm the wargs have not had, and something for your hurts.",
+      } },
+
+    // ---- q022 L35 · The North Downs · Nella Bridgewater, innkeeper of Trestlebridge
+    { id: 'q022', name: "Old Wyatt's Treasure Map", type: 'side', level: L(22), zone: 'northdowns', giver: 'npc_trestlebridge_innkeeper', turnin: 'npc_trestlebridge_innkeeper', prereq: [],
+      objectives: [
+        { type: 'explore', pos: { x: 80, z: -780 }, radius: 18, label: 'Find the first mark: the standing stones of Nan Amlug' },
+        { type: 'explore', pos: { x: 480, z: -500 }, radius: 18, label: 'Find the second mark: the orc-camp at Dol Dínen' },
+        { type: 'use', node: 'gn_northdowns_5', count: 1, label: 'Open the cache in the Fornost treasury' },
+      ],
+      rewards: R(L(22), ['scroll_fortune_10', 'pot_heal_elixir', 'misc_treasure_cache']),
+      summary: 'A tinker paid for his room at the Trestlebridge Inn with a treasure map. Nella cannot read it, but you can: two landmarks, then a cache in the ruins of Fornost.',
+      hint: 'Nan Amlug is the stone-ringed hollow west of Esteldín; Dol Dínen is the orc-camp east of the road; the treasury is deep in the ruins of Fornost to the north, under the King’s Court.',
+      text: {
+        intro: "A tinker slept here a week ago, ate like three men, and paid with this — a map, he said, to something his grandfather buried in Fornost before the fall. I told him a map is not a room, and he said if I could read it I would not think so, and then he left before dawn. I cannot read it. There are two marks — a ring of stones and a camp — and then a cross in the old city. I am too old and too busy to go treasure-hunting, but I am not too proud to go halves.",
+        accept: 'Stones first, then the camp, then the cross. That is what the tinker said, and he ate three suppers on it.',
+        progress: 'Have you found the stones? The camp? The cross? Do not tell me what it is until you are holding it.',
+        complete: "You found it! What — what is it? A box? Well, a box is more than I expected, and it is heavier than a tinker's promise. Halves, I said, and halves it is: you keep the box, I keep the story, and I shall dine out on it for a year.",
+      } },
+
+    // ---- q023 L36 · The North Downs · Mirwen, cook of Esteldín
+    { id: 'q023', name: 'Bear-meat for the Rangers', type: 'side', level: L(23), zone: 'northdowns', giver: 'npc_esteldin_food', turnin: 'npc_esteldin_food', prereq: [],
+      objectives: [
+        { type: 'collect', item: 'qc_bear_haunch', count: 5, from: 'northdowns_bear', label: 'Bring haunches from the Downs bears north of the refuge' },
+        { type: 'deliver', item: 'qc_ranger_rations', npc: 'npc_esteldin_guard2', label: 'Carry a ration-bag to Tadion at the eastern watch' },
+      ],
+      rewards: R(L(23), ['food_ranger_stew', 'pot_power_elixir']),
+      summary: 'Mirwen has forty Rangers to feed and an empty larder. Five bear-haunches from the Downs would fill it — and Tadion on the east watch has not eaten since yesterday.',
+      hint: 'Downs bears forage north of Esteldín towards Fornost and on the hills south of the refuge. Tadion stands the eastern watch, outside the walls to the east.',
+      text: {
+        intro: "Forty Rangers, one cook, and a larder with a mouse in it — that is Esteldín this week. Halbarad sends patrols out and they come back hungry, and every one of them looks at me as if I could make stew from stones. Bear, that is what I need: five good haunches from the Downs bears north of here, and I can feed the refuge for a fortnight. And take this ration-bag out to Tadion on the east watch before you go. He will not leave his post to eat, and he will not admit he is hungry, so do not ask him.",
+        accept: 'Five haunches, and the bag to Tadion. Do not eat the bag.',
+        progress: 'Has Tadion eaten? And the bear — how much bear? Five haunches, I said, not five bears.',
+        complete: "Five haunches — oh, that is enough for a proper stew, with the marrow and everything. And Tadion ate? He did not say thank you, I suppose. He never does. Here is the last of the old pot and something to keep you on your feet; you have earned a bowl of the new one when it is done.",
+      } },
+
+    // ---- q024 L38 · The North Downs · Aldan, Ranger recruit (requires Book 4 to have begun)
+    { id: 'q024', name: "Aldan's First Patrol", type: 'side', level: L(24), zone: 'northdowns', giver: 'npc_esteldin_recruit', turnin: 'npc_esteldin_recruit', prereq: ['s038'],
+      objectives: [
+        { type: 'kill', target: 'uruk_fornost', count: 5, label: 'Slay Uruks of the Fornost garrison' },
+        { type: 'explore', pos: { x: 250, z: -960 }, radius: 20, label: 'Walk the ruined streets of Fornost Erain' },
+      ],
+      rewards: R(L(24), ['n_shield_fornost', 'pot_heal_elixir']),
+      summary: 'Aldan has been told he is not ready for Fornost. He means to prove otherwise — through you, since Halbarad will not let him go himself.',
+      hint: 'Fornost lies at the north end of the Downs, up the road from Esteldín. The Uruk garrison holds the south quarter of the ruins.',
+      text: {
+        intro: "Halbarad says I am not ready for Fornost. He says it kindly, which is worse. I have trained a year and I can put an arrow through a ring at fifty paces and still it is 'not yet, Aldan, not yet'. So here is what I propose: you go. You slay five of the Uruks in the south quarter and you walk the old streets to the King's Court, and you come back and tell me exactly what it is like, and then when he asks I shall know. It is not the same. I know it is not the same. But it is something.",
+        accept: 'Five Uruks and the streets walked. And — tell me everything. Even the bad parts.',
+        progress: 'Is it very terrible? The Uruks, I mean, and the ruins? Do not spare me.',
+        complete: "The streets grown through with birch, and the Uruks — five of them — and the King's Court open to the sky. I can see it. I can almost see it. Thank you. This shield was dug out of those ruins by a Ranger who is not coming back; Halbarad gave it to me to keep. I think he would rather it were carried.",
+      } },
+
+    // ---- q025 L39 · Evendim · Old Rúmil, fisherman of Tinnudir
+    { id: 'q025', name: "Rúmil's Lost Lines", type: 'side', level: L(25), zone: 'evendim', giver: 'npc_tinnudir_rumil', turnin: 'npc_tinnudir_rumil', prereq: [],
+      objectives: [
+        { type: 'fish', count: 5, spot: 'fs_evendim_north', label: 'Fish the north shore of Nenuial where Rúmil set his lines' },
+        { type: 'kill', target: 'evendim_crawler', count: 5, label: 'Kill the lake-crawlers that have been cutting the lines' },
+      ],
+      rewards: R(L(25), ['bait_minnow', 'fish_evendim_salmon', 'food_ranger_stew']),
+      summary: 'Old Rúmil set his long-lines off the north shore of the lake and something with claws has been cutting them. He wants his fish, and the crawlers gone.',
+      hint: 'Follow the causeway north-west off the isle to the north shore; cast from the shingle. The crawlers come up out of the shallows just west of it.',
+      text: {
+        intro: "Sixty years I have fished this lake and I have never had a line cut. Cut! Not bitten through — cut, clean as a knife, four nights running, off the north shore where the perch run in autumn. Lake-crawlers, the young ones say, come up out of the deeps with the cold. Well, my knees do not go up to the north shore any more, but yours look as though they might. Fish my water there and see what is biting, and if it is crawlers, do to them what they did to my lines.",
+        accept: 'North shore, off the causeway. Perch and pike, if the crawlers have left any.',
+        progress: 'Five fish and the crawlers cut down to size. My lines will be waiting.',
+        complete: "Perch! And a pike, and — is that a salmon? Off the north shore? Sixty years, I tell you. The crawlers are done for, then; I shall set my lines again tomorrow and sit here with my pipe and think about my knees. Take a lure, and a fish, and a bowl of Elwen's stew; you have earned all three.",
+      } },
+
+    // ---- q026 L41 · Evendim · Pell, scholar's apprentice of Tinnudir
+    { id: 'q026', name: 'Stones of the Lost City', type: 'side', level: L(26), zone: 'evendim', giver: 'npc_tinnudir_apprentice', turnin: 'npc_tinnudir_apprentice', prereq: [],
+      objectives: [
+        { type: 'kill', target: 'tomb_robber', count: 6, label: 'Drive the tomb-robbers from the ruins of Annúminas' },
+        { type: 'collect', item: 'qc_annuminas_tablet', count: 4, from: 'tomb_robber', label: 'Recover the inscribed tablets they have prised loose' },
+        { type: 'explore', pos: { x: -540, z: -900 }, radius: 20, label: 'Study the great square of Annúminas' },
+      ],
+      rewards: R(L(26), ['scroll_tactics_10', 'pot_heal_elixir']),
+      summary: 'Tomb-robbers are prising the inscribed stones out of the walls of Annúminas to sell in Bree. Pell would have them back before the last of the old letters is lost.',
+      hint: 'Annúminas is the ruined city on the west shore, reached by the Lakeside Way. The robbers camp among the buildings on its southern edge.',
+      text: {
+        intro: "Do you know what they are doing over there? The tomb-robbers — they are prising the inscriptions out of the walls of Annúminas with crowbars and selling them in Bree as doorstops. Doorstops! Some of those stones bear the only record we have of the last kings of Arnor. Master Ninias says the Rangers will deal with it 'in time', and time is exactly what those stones do not have. Drive the robbers off, get back whatever tablets you can, and — look at the square while you are there. Just look. It was the fairest city in the North, once.",
+        accept: 'The tablets will be in their packs. Please do not let them drop them.',
+        progress: 'Four tablets, and the square seen with your own eyes. How is it? Is the fountain still standing?',
+        complete: "Four! And this one — look, the name of Eärendur, I would swear to it. Master Ninias will pretend not to be excited and fail. The square, you saw it? The seven stars on the paving? Then you understand. Here — a scroll from the library, and something for the road. I owe you far more, and so does the North.",
+      } },
+
+    // ---- q027 L42 · Evendim · Nengel, lake-fisher of Tinnudir
+    { id: 'q027', name: 'The Pike of Tinnudir', type: 'side', level: L(27), zone: 'evendim', giver: 'npc_tinnudir_nengel', turnin: 'npc_tinnudir_nengel', prereq: [],
+      objectives: [
+        { type: 'talk', npc: 'npc_tinnudir_rumil', label: 'Ask Old Rúmil where the great pike lies' },
+        { type: 'fish', count: 6, spot: 'fs_tinnudir_shore', label: 'Fish the Tinnudir shallows until the great pike takes the hook' },
+      ],
+      rewards: R(L(27), ['misc_fishing_rod_elven', 'bait_minnow'], { title: 'Pike-wrestler of Nenuial' }),
+      summary: 'There is a pike in the Tinnudir shallows as long as a boat, and Nengel has lost three rods to it. Ask Old Rúmil where it lies, then go and lose a fourth — or land it.',
+      hint: 'Rúmil sits at the north end of the isle by the boats. The shallows are on the south side of Tinnudir, below the keep.',
+      text: {
+        intro: "There is a pike in the shallows below the keep that has taken three of my rods and, I am fairly sure, one of my boots. As long as a boat, with a jaw like a bear-trap, and it laughs at me — I am certain it laughs. Old Rúmil claims he has known it for forty years and knows where it lies, but he will not tell me because I once called him old. Go and ask him; he likes new faces. Then take a rod down to the shallows and fish until it comes, and bring it up, or bring me back the rod.",
+        accept: 'Rúmil first. He will make you listen to a story. Listen; the pike is at the end of it.',
+        progress: 'Six casts at the least, Rúmil says — it will not come for less. Has it taken the rod yet?',
+        complete: "You — you landed it? The pike? Or at least you fished the shallows and came back with the rod, which is more than I have managed. Then the rod is yours by right — this one, the elven one, the one I was saving for the day the pike was gone. Pike-wrestler, Rúmil says they should call you. He is old. He is also right.",
+      } },
+
+    // ---- q028 L44 · Evendim · Dorlas, Ranger sentry of Tinnudir (requires Book 5 to have begun)
+    { id: 'q028', name: 'Bounty: Ardaric the Tomb-robber', type: 'side', level: L(28), zone: 'evendim', giver: 'npc_tinnudir_guard', turnin: 'npc_tinnudir_guard', prereq: ['s051'],
+      objectives: [
+        { type: 'kill', target: 'tomb_robber_lieutenant', count: 3, label: "Break Ardaric's lieutenants at the robbers' camp" },
+        { type: 'killboss', boss: 'boss_ardaric', label: 'Slay Ardaric the Tomb-robber in the ruins of Annúminas' },
+      ],
+      rewards: R(L(28), ['n_spear_warden', 'pot_heal_greater'], { title: 'Warden of Annúminas' }),
+      summary: 'Ardaric the Tomb-robber has plundered the tombs of the kings for a year and killed two Rangers who went after him. Dorlas has the captain’s leave to post a bounty, and he is posting it on you.',
+      hint: 'The robbers’ camp is on the shore north of Annúminas; Ardaric himself holds the drowned quays at the city’s heart.',
+      text: {
+        intro: "Ardaric. You will have heard the name if you have been on the west shore — the tomb-robber who dug out the crypt of Eärendur and sold the bones, and who killed Meneldor and Rhavan when they went to bring him in. Captain Tarondor has given me leave to post a bounty, and I have decided that you are the bounty. His lieutenants hold the camp on the shore north of the city; break them first, or they will hold the city against you. Then find Ardaric among the drowned quays, and finish what Meneldor started.",
+        accept: 'The lieutenants first. Then the quays. Do not go into the water; he has friends there too.',
+        progress: 'Is it done? I will know — the whole shore will know.',
+        complete: "Ardaric dead among the tombs he emptied. There is a justice in that which I did not expect to feel. Meneldor carried this spear; it came back to us without him, and I have not been able to look at it since. Carry it on the lake-shore in his place, Warden — for that is what the captain will call you, whether you want it or not.",
+      } },
+
+    // ---- q029 L45 · The Trollshaws · Aradan, wounded Ranger of Thorenhad
+    { id: 'q029', name: "Aradan's Reckoning", type: 'side', level: L(29), zone: 'trollshaws', giver: 'npc_thorenhad_wounded', turnin: 'npc_thorenhad_wounded', prereq: [],
+      objectives: [
+        { type: 'kill', target: 'hillman_brigand', count: 6, label: 'Punish the hillmen of the western camp who ambushed Aradan' },
+        { type: 'collect', item: 'mat_athelas', count: 3, from: null, node: 'gn_trollshaws_1', label: 'Gather athelas for his wound from the glade east of the ford' },
+      ],
+      rewards: R(L(29), ['pot_heal_greater', 'food_cram']),
+      summary: 'Aradan took a hillman spear in the thigh on the west road and is not healing. He wants kingsfoil from the eastern glade — and the hillmen taught a lesson.',
+      hint: 'The hillman camp is west of Thorenhad on the Ost Guruth road, south of the river. The athelas glade lies east across the Last Bridge, south of the Rivendell road.',
+      text: {
+        intro: "Do not look at the leg; it is worse than it looks and it looks bad enough. Hillmen, on the west road — six of them out of the heather, and I took a spear before I had my sword out. Berenon will not spare a man to go after them and Hathlaf says the wound wants athelas, which grows in the glade past the bridge where I cannot walk. So. Two things, if you would. The kingsfoil, three sprigs, from the eastern glade. And the hillmen — all six — because I am not the first they have taken on that road and I will not be the last unless someone goes.",
+        accept: 'The camp is west along the road. The glade is east over the bridge. Bring the leaf back green.',
+        progress: 'The leaf — is it green still? And the hillmen. Tell me about the hillmen.',
+        complete: "Six. Good. And the leaf — ah, that is the true smell, I feel it already. Hathlaf can boil it and I can stop being a burden by the week's end. This is a poor return for a good deed: a draught the quartermaster does not know I have and a lump of dwarf-bread that will outlast us both. Take them, and my thanks, which will outlast the bread.",
+      } },
+
+    // ---- q030 L47 · The Trollshaws · Bofri, dwarf-envoy at Rivendell
+    { id: 'q030', name: 'The Troll-hoard', type: 'side', level: L(30), zone: 'trollshaws', giver: 'npc_rivendell_bofri', turnin: 'npc_rivendell_bofri', prereq: [],
+      objectives: [
+        { type: 'explore', pos: { x: 1230, z: -110 }, radius: 18, label: "Find the three stone-trolls of Mr. Baggins' tale" },
+        { type: 'kill', target: 'stone_troll', count: 4, label: 'Slay the living trolls that have gathered in the clearing' },
+        { type: 'use', node: 'gn_trollshaws_5', count: 1, label: "Open the trolls' hoard" },
+      ],
+      rewards: R(L(30), ['n_gauntlets_troll', 'pot_heal_greater']),
+      summary: 'Bofri has heard Bilbo tell the tale of the three trolls a dozen times, and every time it ends with a hoard in a cave. He means to have a look — through you.',
+      hint: 'The stone-trolls stand in a clearing north-west of Rivendell, up the Thorenhad road and north into the wood. The hoard-cave is a few paces east of them.',
+      text: {
+        intro: "Every night in the Hall of Fire, Mr. Baggins tells of the three trolls that Gandalf turned to stone, and every night it ends with a cave and a hoard, and every night I think: a dwarf could do something with a hoard. The stones are real — I have seen them from the road. What I have not seen is what has moved into the clearing since: living trolls, the elves say, and more than three. Find the clearing, deal with whatever is walking about in it, and open the hoard. Halves to Thorin's Hall, and halves to you, and I shall write it all down for Mr. Baggins.",
+        accept: 'North-west, off the Thorenhad road. Stone trolls stand still; the other kind do not.',
+        progress: 'Have you found the stones? The cave is beyond them, so the story goes. So the story goes.',
+        complete: "You opened it! And? Swords, the story said, and — well, no matter what it said; you have brought back enough to make the envoy of Thorin's Hall a happy dwarf. Mr. Baggins will want every detail. These gauntlets are troll-bone, from a troll who was rather less stone than he should have been; they are yours, and welcome.",
+      } },
