@@ -133,3 +133,10 @@
 
 ## 25_aiplayers.js
 - `init(scene?)`, `update(dt)`; hooks: Combat should call `G.AIPlayers.onDamaged(ent, src, amount)` for aiplayer victims (optional). HUD `/w Name text` must emit `chat {channel:'whisper', to:'Name', text}`. `setChatRate` stores `G.state.settings.aiChat`. Emits `aiLevelUp`, `aiDeath`, `aiChat`. Extras: `spawnNear(pos)`, `whisper(name,text)`, `say(id,text)`, `fellowships`, `chatLog`, `all`.
+
+## 31_ui_panels.js
+- Extras: `G.UI.Map.pickOnce(cb)/cancelPick/focus/centerOn/centerOnPlayer/setZoom/prewarm()`, `Inventory.highlight/setFilter/sort/splitStack`, `Character.rebuildPreview`, `Journal.select(id)/open(id)`, `Players.select/search`, `Dialogue.showQuest`, `Choose.open(items, onPick(index, inst))` (cancel → −1), `G.UI.contextMenu(items,x,y)`, fallback `G.UI.fade`. Map paints its own label-free base (Terrain `mapCanvas` bakes labels — a `{labels:false}` option would be cleaner; the minimap also shows giant baked letters → polish). Writes `player.title` display name.
+
+## INTEGRATION FINDINGS (first full smoke run)
+- SMOKE OK with 30 modules. Stats at high quality: drawCalls 985 (budget ≤ 600), triangles 1.47M, entities 953, NPC rigs 27, monster rigs 14, AI rigs 5, veg 23 calls, chunks ~50–125. → PERF: reduce per-rig draw calls (merge static parts / share materials), cap rendered NPC rigs ~16 & monsters ~24 & AI ~12 by distance, no shadows on far rigs.
+- Warnings: `[Buildings] unknown recipe banner`, `unknown recipe anvil` (used as town props in 05) → add prop recipes or alias.
