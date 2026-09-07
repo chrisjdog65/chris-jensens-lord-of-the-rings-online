@@ -140,3 +140,8 @@
 ## INTEGRATION FINDINGS (first full smoke run)
 - SMOKE OK with 30 modules. Stats at high quality: drawCalls 985 (budget ≤ 600), triangles 1.47M, entities 953, NPC rigs 27, monster rigs 14, AI rigs 5, veg 23 calls, chunks ~50–125. → PERF: reduce per-rig draw calls (merge static parts / share materials), cap rendered NPC rigs ~16 & monsters ~24 & AI ~12 by distance, no shadows on far rigs.
 - Warnings: `[Buildings] unknown recipe banner`, `unknown recipe anvil` (used as town props in 05) → add prop recipes or alias.
+
+## 99_main.js
+- `G.Game`: `boot, startNew, startFromSave, toMenu, toCharCreate, restart, zoneMusic(), togglePause, readyPromise, fps, frameMs, autoQuality, scene, renderer, camera, canvas, timings`. `renderer.info.autoReset=false` with a manual reset so drawCalls in `__T.stats()` include shadow + PostFX passes (main pass ≈ 581 in Archet at 'high'; 992 incl. passes).
+- `__T`: `ready, inGame, errors, G, quickStart(opts), stats(), press(code), teleport(x,z), setTime(h), screenshotReady(), waitFrames(n), timings`. Scripted tests must space repeated same-key presses by ≥ 1 frame (use `__T.waitFrames`) under software GL.
+- Boot ≈ 6.6 s on a quiet machine (swiftshader). Auto-quality steps down when fps < 50.
