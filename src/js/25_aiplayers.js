@@ -1525,3 +1525,260 @@
       if (np) { const vis = e._d2 < NAMEPLATE_DIST * NAMEPLATE_DIST; np.visible = vis; const cam = vis ? cameraOf() : null; if (cam && G.Chars && hasFn(G.Chars, 'updateNameplate')) { try { G.Chars.updateNameplate(np, cam); } catch (err) { /* ignore */ } } }
     }
   }
+
+  // ------------------------------------------------------------------------------------------------ chat: templates
+  function chatRate() { const s = G.state && G.state.settings; const v = s && typeof s.aiChat === 'number' ? s.aiChat : 1; return isFinite(v) && v > 0 ? v : 0; }
+  function chatEnabled() { return chatRate() > 0; }
+  let _fishNames = null;
+  function fishName() {
+    if (!_fishNames) { _fishNames = []; const items = G.Data && G.Data.items; if (items) for (const k in items) { const t = items[k]; if (t && t.type === 'fish' && t.name) _fishNames.push(t.name); } if (!_fishNames.length) _fishNames.push('trout', 'salmon', 'pike'); }
+    return spick(_fishNames);
+  }
+  let _itemCounter = 0;
+  function itemName(e) {
+    const I = G.Items; if (I && hasFn(I, 'generate')) { try { const inst = I.generate({ level: e.level, cls: schance(0.5) ? e.cls : undefined, seed: 'chat:' + e.id + ':' + (_itemCounter++) }); if (inst && inst.name) return inst.name; } catch (err) { /* ignore */ } }
+    return spick(['Bright Blade', 'Sturdy Cloak', 'Ring of Vigour', 'Hunter\'s Bow', 'Shield of the Watch']);
+  }
+  function otherName(e) {
+    const f = fellowshipOf(e);
+    if (f && schance(0.6)) { const id = spick(f.members); const o = byId[id]; if (o && o !== e) return o.name; }
+    for (let k = 0; k < 4; k++) { const o = spick(all); if (o && o !== e) return o.name; }
+    return 'someone';
+  }
+  function otherTown(e) {
+    const n = graph.nodes[e.townId];
+    if (n && n.adj.length) { const ed = graph.edges[spick(n.adj)]; const id = ed.a === e.townId ? ed.b : ed.a; const t = townData(id); if (t) return t.name; }
+    const ts = (world() && world().towns) || []; for (let k = 0; k < 4; k++) { const t = spick(ts); if (t && t.id !== e.townId) return t.name; }
+    return 'Bree';
+  }
+  function otherZone(e) {
+    const zs = (world() && world().zones) || []; const cand = [];
+    for (let i = 0; i < zs.length; i++) { const z = zs[i]; if (z.id === e.zone) continue; const lv = z.level || [1, 80]; if (lv[0] <= e.level + 18 && lv[1] >= e.level - 5) cand.push(z); }
+    const z = cand.length ? spick(cand) : spick(zs);
+    return z ? z.name : 'Bree-land';
+  }
+  function zoneMonster(e) {
+    const W = world(); let list = null;
+    if (W && hasFn(W, 'typesInZone')) { try { list = W.typesInZone(e.zone); } catch (err) { list = null; } }
+    if (!list || !list.length) { const sp = spawnsInZone(e.zone); list = []; for (let i = 0; i < sp.length; i++) { const mt = monsterType(sp[i].type); if (mt) list.push(mt); } }
+    const mt = spick(list); return mt ? mt.name : 'wolf';
+  }
+  function zoneBoss() { const W = world(); const bs = (W && W.bosses) || []; const b = spick(bs); const mt = b ? monsterType(b.type) : null; return (b && b.name) || (mt && mt.name) || 'the Gaunt-lord'; }
+  function zonePoi(e) { const ps = poisIn(e.zone); const p = spick(ps); return p ? p.name : (townName(e.townId) + ' hill'); }
+  function heroTown() { const p = player(); const W = world(); if (!p || !p.pos || !W) return 'Bree'; if (hasFn(W, 'nearestTown')) { try { const t = W.nearestTown(p.pos.x, p.pos.z); if (t) return t.name; } catch (err) { /* ignore */ } } return 'Bree'; }
+  function token(k, e, ctx) {
+    if (ctx && ctx[k] != null) return String(ctx[k]);
+    const p = player();
+    switch (k) {
+      case 'zone': return zoneName(e.zone);
+      case 'town': return townName(e.townId);
+      case 'class': return className(e.cls);
+      case 'level': return String(e.level);
+      case 'race': return raceName(e.race);
+      case 'name': return otherName(e);
+      case 'item': return '[' + itemName(e) + ']';
+      case 'gold': return _fmtGold(e.level * e.level * 60 + e.level * 300 + si(0, 900));
+      case 'kills': return String(e.kills);
+      case 'pzone': return zoneName((G.state && G.state.zone) || e.zone);
+      case 'ptown': return heroTown();
+      case 'pclass': return p ? className(p.cls) : 'adventurer';
+      case 'plevel': return p ? String(num(p.level, 1)) : '1';
+      case 'pname': return (p && p.name) ? String(p.name) : 'friend';
+      case 'monster': return zoneMonster(e);
+      case 'spawn': return spawnName(e.ai.spawn) || spawnName(spick(spawnsInZone(e.zone))) || 'the wilds';
+      case 'poi': return zonePoi(e);
+      case 'boss': return zoneBoss();
+      case 'dungeon': return spick(DUNGEONS);
+      case 'inn': return innName(townData(e.townId));
+      case 'othertown': return otherTown(e);
+      case 'otherzone': return otherZone(e);
+      case 'hour': return HOUR_WORD();
+      case 'fish': return fishName();
+      default: return '';
+    }
+  }
+  function fill(tpl, e, ctx) { if (!tpl) return ''; return String(tpl).replace(/\{(\w+)\}/g, (m, k) => token(k, e, ctx)); }
+  function pickLine(e, cat, ctx) {
+    const list = BANK[cat]; if (!list || !list.length) return '';
+    let line = '';
+    for (let k = 0; k < 6; k++) {
+      line = fill(spick(list), e, ctx);
+      if (line && line !== e.lastLine && line !== lastWorldLine) break;
+    }
+    return line;
+  }
+  function sendLine(e, text, channel, to) {
+    if (!text || !e) return false;
+    const t = now();
+    if (text === e.lastLine && channel !== 'whisper') return false;
+    e.lastLine = text; e.lastChatAt = t;
+    if (channel === 'world') { lastWorldLine = text; lastWorldFrom = e; lastWorldAt = t; }
+    const U = G.UI;
+    if (U && hasFn(U, 'chat')) { try { U.chat(text, channel, e.name); } catch (err) { report(err, 'UI.chat'); } }
+    chatLog.push({ from: e.name, channel: channel, text: text, at: t, to: to || null });
+    if (chatLog.length > 60) chatLog.shift();
+    counters.chats++;
+    emit('aiChat', { ent: e, text: text, channel: channel });
+    return true;
+  }
+  function schedule(e, text, channel, delay, to) {
+    if (!e || !text) return;
+    pending.push({ at: now() + Math.max(0, num(delay, 1)), e: e, text: text, channel: channel || 'world', to: to || null });
+  }
+  function processPending(t) {
+    for (let i = pending.length - 1; i >= 0; i--) {
+      const q = pending[i]; if (q.at > t) continue;
+      pending.splice(i, 1);
+      const e = q.e;
+      if (q.channel === 'say' && (e.dead || !nearHero(e.pos.x, e.pos.z, SAY_RANGE + 5))) continue;
+      if (q.channel !== 'whisper' && !chatEnabled()) continue;
+      sendLine(e, q.text, q.channel, q.to);
+      if (q.channel === 'say' && e.rig && hasFn(e.rig, 'setAnim') && !e.ai.fightTarget && !e.ai.sit && schance(0.25) && !e.rig.oneShot) { /* a little gesture while talking */ e.rig.setAnim(schance(0.5) ? 'emote_wave' : 'emote_cheer', false); }
+    }
+  }
+  function chatWeight(e, t) { if (!e || e.dead || e.online === false) return 0; if (t - e.lastChatAt < 45) return 0; return e.persona.chatty * (e.persona.style === 'quiet' ? 0.25 : 1) + 0.02; }
+  function pickChatter(t, exclude, preferStyle) {
+    let best = null, total = 0;
+    for (let i = 0; i < all.length; i++) { const e = all[i]; if (e === exclude) continue; let w = chatWeight(e, t); if (!w) continue; if (preferStyle && e.persona.style === preferStyle) w *= 3; total += w; if (S() * total < w) best = e; }
+    return best;
+  }
+  function followUp(cat, src, delay, count) {
+    for (let i = 0; i < count; i++) {
+      const o = pickChatter(now(), src, cat === 'q_reply' ? 'helper' : null);
+      if (!o) return;
+      const line = pickLine(o, cat, { name: src.name, level: src.level, class: className(src.cls) });
+      if (line) { schedule(o, line, 'world', delay + i * sr(1.5, 4)); o.lastChatAt = now(); counters.replies++; }
+    }
+  }
+  const STYLE_CATS = {
+    casual: [['casual', 34], ['question', 20], ['lfg', 12], ['joke', 8], ['tip', 5], ['wts', 8], ['wtb', 4], ['rp', 3], ['gz', 2], ['death', 4]],
+    trader: [['wts', 45], ['wtb', 25], ['casual', 10], ['question', 10], ['joke', 5], ['tip', 5]],
+    helper: [['tip', 38], ['question', 14], ['casual', 22], ['lfg', 12], ['rp', 6], ['wtb', 4], ['gz', 4]],
+    jokester: [['joke', 52], ['casual', 22], ['question', 8], ['lfg', 6], ['gz', 4], ['wts', 4], ['death', 4]],
+    roleplay: [['rp', 58], ['question', 10], ['casual', 10], ['lfg', 10], ['tip', 8], ['death', 4]],
+    quiet: [['casual', 40], ['question', 30], ['lfg', 20], ['tip', 10]],
+  };
+  function contextCategory(e, t) {
+    const a = e.ai;
+    if (a.fightTarget) return 'say_fight';
+    if (a.state === 'fishing' && a.phase === 'fish') return 'say_fish';
+    if (a.state === 'town' && a.inInn) return 'say_inn';
+    if (a.state === 'town' && a.spotKind === 'campfire') return 'say_camp';
+    const r = S();
+    const w = (G.state && G.state.weather) || 'clear';
+    if (r < 0.3) { if (w === 'rain') return 'say_rain'; if (w === 'snow') return 'say_snow'; if (w === 'storm') return 'say_storm'; if (w === 'cloudy') return 'say_cloudy'; return 'say_clear'; }
+    if (r < 0.5) { const h = dayTime(); if (h >= NIGHT_START || h < NIGHT_END) return 'say_night'; if (h < 7) return 'say_dawn'; if (h >= 18 && h < 20) return 'say_dusk'; return 'say_day'; }
+    if (r < 0.7 && !e.saidClass) { e.saidClass = true; return 'say_class'; }
+    if (r < 0.78 && t - heroLastSeen > 120) return 'say_greet';
+    return 'say_zone';
+  }
+  function worldChatOnce(t) {
+    // near the hero: someone comments on the surroundings
+    const p = player();
+    if (p && p.pos && schance(0.45)) {
+      let best = null, total = 0;
+      for (let i = 0; i < nearList.length; i++) { const e = nearList[i]; if (e._d2 > SAY_RANGE * SAY_RANGE) break; const w = chatWeight(e, t); if (!w) continue; total += w; if (S() * total < w) best = e; }
+      if (best) { const cat = contextCategory(best, t); const line = pickLine(best, cat, null); if (line) { schedule(best, line, 'say', sr(0.2, 1.5)); best.lastChatAt = t; heroLastSeen = t; return; } }
+    }
+    const e = pickChatter(t, null, null); if (!e) return;
+    const a = e.ai;
+    let cat;
+    if (a.state === 'dead' && schance(0.6)) cat = 'death';
+    else {
+      const cats = STYLE_CATS[e.persona.style] || STYLE_CATS.casual;
+      for (let k = 0; k < 3; k++) { cat = (G.weightedPick(cats, (c) => c[1], S) || cats[0])[0]; if (cat !== lastWorldCat || schance(0.3)) break; }
+      if (cat === 'death' && a.state !== 'dead' && t - a.deathAt > 120) cat = 'casual';
+      if (cat === 'lfg' && e.level < 8) cat = 'question';
+    }
+    const line = pickLine(e, cat, null); if (!line) return;
+    schedule(e, line, 'world', sr(0.1, 1)); e.lastChatAt = t; lastWorldCat = cat;
+    if (cat === 'question' && schance(0.6)) followUp('q_reply', e, sr(5, 14), 1);
+    else if (cat === 'lfg' && schance(0.35)) followUp('lfg_reply', e, sr(4, 10), 1);
+    else if (cat === 'joke' && schance(0.3)) followUp('r_lol', e, sr(3, 8), 1);
+    else if (cat === 'rp' && schance(0.25)) followUp('rp', e, sr(6, 15), 1);
+    else if (cat === 'death' && schance(0.25)) followUp('r_default', e, sr(4, 9), 1);
+  }
+
+  // ------------------------------------------------------------------------------------------------ chat: replies to the hero
+  const KEYWORDS = [
+    ['r_bye', /\b(bye|cya|see ya|good ?night|gn|afk|later|farewell)\b/i],
+    ['r_thanks', /\b(thanks|thank you|thx|ty|tyvm|cheers)\b/i],
+    ['r_gg', /\b(gg|gz|grats|gratz|congrats|congratulations|wp)\b/i],
+    ['r_lfg', /\b(lfg|lfm|lf\d?m|group|fellowship|party|inv|invite|need (a )?(healer|tank|dps))\b/i],
+    ['r_where', /\b(where|which way|how (do|can) i (get|go|find)|direction|lost)\b/i],
+    ['r_quest', /\b(quest|objective|turn ?in|book \d|chapter)\b/i],
+    ['r_sell', /\b(sell|buy|wts|wtb|trade|gold|price|vendor|auction|cheap)\b/i],
+    ['r_lol', /\b(lol|haha|hehe|rofl|lmao|xd)\b|:d|:\)/i],
+    ['r_help', /\b(help|tip|tips|how do|how to|advice|stuck|noob|new here|newbie)\b/i],
+    ['r_hi', /^\s*(hi|hello|hey|yo|hiya|greetings|hail|well met|good (morning|evening|day)|o\/|ola|sup|howdy)\b/i],
+  ];
+  function classify(text) {
+    const s = String(text || '').trim();
+    for (let i = 0; i < KEYWORDS.length; i++) if (KEYWORDS[i][1].test(s)) return KEYWORDS[i][0];
+    if (/\?\s*$/.test(s)) return 'r_where';
+    return null;
+  }
+  function nearChatters(t, r, exclude) {
+    _tmp.length = 0;
+    for (let i = 0; i < nearList.length; i++) { const e = nearList[i]; if (e._d2 > r * r) break; if (e === exclude || e.dead || e.persona.chatty < 0.08) continue; _tmp.push(e); }
+    return _tmp;
+  }
+  function replyToHero(ev) {
+    const t = now();
+    const text = String(ev.text || '');
+    if (!text.trim()) return;
+    let cat = classify(text);
+    if (ev.channel === 'emote') { cat = schance(0.5) ? 'say_greet' : 'emote_line'; }
+    if (!cat) { if (!schance(0.45)) return; cat = 'r_default'; }
+    let count = cat === 'r_lfg' ? si(1, 3) : (cat === 'r_hi' || cat === 'r_gg') ? si(1, 2) : 1;
+    let channel = 'say';
+    const cands = [];
+    if (ev.channel === 'say' || ev.channel === 'emote') {
+      const near = nearChatters(t, SAY_RANGE, null);
+      for (let i = 0; i < near.length; i++) cands.push(near[i]);
+      if (!cands.length) return;                          // nobody heard it
+    } else if (ev.channel === 'world') {
+      channel = 'world';
+      for (let k = 0; k < count + 3 && cands.length < count; k++) { const e = pickChatter(t, null, cat === 'r_help' || cat === 'r_where' || cat === 'r_quest' ? 'helper' : null); if (e && cands.indexOf(e) < 0) cands.push(e); }
+      if (!cands.length) return;
+    } else return;
+    if (cands.length > count) { for (let i = cands.length - 1; i > 0; i--) { const j = Math.floor(S() * (i + 1)); const x = cands[i]; cands[i] = cands[j]; cands[j] = x; } cands.length = count; }
+    for (let i = 0; i < cands.length; i++) {
+      const e = cands[i];
+      const line = pickLine(e, cat, null); if (!line) continue;
+      schedule(e, line, channel, sr(2, 6) + i * sr(0.5, 2)); e.lastChatAt = t; counters.replies++;
+      if (channel === 'say' && cat === 'r_hi' && e.rig && hasFn(e.rig, 'setAnim') && e._d2 < 14 * 14 && !e.ai.fightTarget && !e.ai.sit) { e.ai.emoteUntil = t + 2.5; e.rig.setAnim('emote_wave', true); }
+    }
+  }
+  function whisper(name, text) {
+    const e = byName(name);
+    const U = G.UI;
+    if (!e) { if (U && hasFn(U, 'chat')) U.chat('There is no player named "' + String(name || '') + '" online.', 'system'); return false; }
+    const t = now();
+    let cat = classify(text);
+    if (cat === 'r_lfg') cat = 'r_whisper_lfg'; else if (cat === 'r_where' || cat === 'r_quest') cat = 'r_whisper_where'; else if (cat === 'r_thanks') cat = 'r_whisper_thanks'; else if (cat === 'r_bye') cat = 'r_whisper_bye';
+    else if (cat === 'r_hi' || !cat) cat = 'r_whisper';
+    const line = pickLine(e, cat, null);
+    if (line) schedule(e, line, 'whisper', sr(2, 5), 'You');
+    e.whispered = true; e.lastChatAt = t; counters.replies++;
+    return true;
+  }
+  function onChat(ev) {
+    if (!ev || ev.from !== 'You') return;
+    if (ev.channel === 'whisper') { if (ev.to) whisper(ev.to, ev.text); return; }
+    if (!chatEnabled() || !inited) return;
+    try { replyToHero(ev); } catch (err) { report(err, 'replyToHero'); }
+  }
+  function onPlayerLevelUp(level) {
+    if (!chatEnabled() || !inited) return;
+    const t = now(); const n = si(1, 3); const p = player();
+    const L = typeof level === 'number' ? level : (p ? num(p.level, 1) : 1);
+    const used = [];
+    for (let i = 0; i < n; i++) {
+      const e = pickChatter(t, null, null); if (!e || used.indexOf(e) >= 0) continue; used.push(e);
+      const near = e._near && e._d2 < SAY_RANGE * SAY_RANGE;
+      const line = pickLine(e, 'gz', { level: String(L), name: (p && p.name) || 'friend' });
+      if (line) { schedule(e, line, near ? 'say' : 'world', sr(2, 5) + i * sr(0.5, 1.5)); e.lastChatAt = t; }
+      if (near && e.rig && hasFn(e.rig, 'setAnim') && !e.ai.fightTarget) { e.ai.emoteUntil = t + 2; e.rig.setAnim('emote_cheer', true); }
+    }
+  }
