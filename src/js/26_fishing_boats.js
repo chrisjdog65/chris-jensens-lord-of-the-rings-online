@@ -487,6 +487,7 @@
     }
     FS.baitBonus = baitBonus;
     FS.waitT = waitTime(pl, baitBonus);
+    if (Fishing.autoActive) FS.waitT = Math.min(FS.waitT, 2.5);           // the auto angler never sits through a long wait
     FS.nibbleN = rand() < 0.55 ? (rand() < 0.4 ? 2 : 1) : 0;
     FS.nibbleAt[0] = CAST_TIME + 0.7 + rand() * Math.max(0.2, FS.waitT - 1.2); FS.nibbleAt[1] = CAST_TIME + 0.7 + rand() * Math.max(0.2, FS.waitT - 1.2);
     if (FS.nibbleAt[1] < FS.nibbleAt[0] + 0.6) FS.nibbleAt[1] = FS.nibbleAt[0] + 0.6;
@@ -543,6 +544,7 @@
     diff *= 1 - skill / 250;
     R.t = 0; R.tension = 0.5; R.progress = 0; R.gh = clamp(0.13 + 0.12 * (1 - diff) + skill * 0.0012, 0.12, 0.38);
     R.dur = 2 + 2 * diff; R.amp = 0.3 + 0.55 * diff; R.w1 = 2.1 + diff * 1.5; R.w2 = 5.3 + diff; R.p1 = rand() * TAU; R.p2 = rand() * TAU;
+    if (Fishing.autoActive) R.dur = Math.min(R.dur, 2.5);                 // a perfect angler lands it briskly
     R.surge = 0; R.surgeT = 0.5 + rand() * 0.6; R.maxT = 0; R.zeroT = 0; R.splashT = 0.3;
     rigAnim('fish_reel', true);
     sfx('splash', { pos: FS.bobPos, vol: 0.4, pitch: 1.1 });
@@ -648,8 +650,11 @@
       for (let i = 0; i < MOVE_KEYS.length; i++) if (keyPressed(MOVE_KEYS[i])) { cancel(Fishing.state === 'reeling' ? 'You let the fish go.' : 'You reel in your line.'); break; }
     }
   }
+  /** Largest step the fishing clock accepts per frame: the main loop clamps raw dt to 0.05 s and multiplies by
+   *  G.time.scale, so clamping at a flat 0.1 would silently run the cycle at half speed under time ×4 (bots, verification). */
+  function maxStep() { const sc = (G.time && G.time.scale > 0) ? G.time.scale : 1; return clamp(0.05 * sc, 0.1, 0.5); }
   function update(dt) {
-    dt = clamp(num(dt, 0), 0, 0.1);
+    dt = clamp(num(dt, 0), 0, maxStep());
     readInput();
     if (Fishing.state === 'idle') {
       if (FS.retractT > 0 && lineMesh && Fishing.bobber) {                  // line snapping back after a cancel / fail
@@ -1456,6 +1461,17 @@
     sfx('boat_bell', { vol: 0.8 });
     notify('Setting sail for ' + to.name + (cost ? ' (' + fmtMoney(cost) + ')' : '') + '.', 'info');
     emit('sailDepart', { from: from.data, to: to.data, cost: cost });
+    if (opts.instant) {
+      // Instant travel must not depend on frames elapsing (the fade-out alone is 0.6 game-s ≈ many frames at low fps,
+      // and callers such as the auto-quest bot / verification poll `travelling`): cut to black now, put the player on
+      // the far quay in this very call and let only the fade-in play out over the following frames.
+      fadeAlpha = 1; fadeTarget = 1;
+      { const fe = ensureFade(); if (fe) { fe.style.display = 'block'; fe.style.opacity = '1'; } }
+      const tv = BS.travel;
+      try { arrive(tv); } catch (e) { report(e, 'arrive'); abortTravel(); return true; }
+      finishTravel();
+      fade(false, FADE_T);
+    }
     return true;
   }
   function instantTravel(dockId, opts) { const o = Object.assign({}, opts || EMPTY, { instant: true }); return sailTo(dockId, o.from || null, o); }

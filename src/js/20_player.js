@@ -316,15 +316,36 @@
   }
 
   // ================================================================================================ SPAWN / TELEPORT
+  /** Enterable building whose footprint contains (x,z) — Physics.groundY without a feet height picks the HIGHEST
+   *  floor collider (an upper storey / roof slab), so a teleport into a building must resolve the floor itself. */
+  function buildingFootprintAt(x, z) {
+    const B = G.Buildings; if (!B || typeof B.footprintAt !== 'function') return null;
+    try { return B.footprintAt(x, z) || null; } catch (e) { return null; }
+  }
+  /** Ground-floor height inside `bld` at (x,z): the walkable top within a step of the building's floor level
+   *  (its floor collider, or the terrain), never more than 2 m away from `bld.y`. */
+  function interiorFloorY(bld, x, z) {
+    const base = num(bld.y, terrainH(x, z));
+    if (G.Physics && typeof G.Physics.groundY === 'function') {
+      const g = G.Physics.groundY(x, z, base + 0.05);
+      if (typeof g === 'number' && isFinite(g) && Math.abs(g - base) <= 2) return g;
+    }
+    return base;
+  }
   function spawnAt(x, z, yaw) {
     if (!player) return false;
     x = num(x, 0); z = num(z, 0);
     let fx_ = x, fz = z, fy;
-    if (G.Physics && typeof G.Physics.nearestFree === 'function') {
-      const f = G.Physics.nearestFree(x, z, player.radius || 0.4);
-      if (f) { fx_ = num(f.x, x); fz = num(f.z, z); }
+    const bld = buildingFootprintAt(x, z);
+    if (bld) {
+      fy = interiorFloorY(bld, x, z);                          // inside a building: land on ITS floor, not the roof
+    } else {
+      if (G.Physics && typeof G.Physics.nearestFree === 'function') {
+        const f = G.Physics.nearestFree(x, z, player.radius || 0.4);
+        if (f) { fx_ = num(f.x, x); fz = num(f.z, z); }
+      }
+      fy = groundYAt(fx_, fz);
     }
-    fy = groundYAt(fx_, fz);
     player.pos.set(fx_, fy, fz);
     player.vel.set(0, 0, 0);
     if (player.knockback) player.knockback.set(0, 0, 0);

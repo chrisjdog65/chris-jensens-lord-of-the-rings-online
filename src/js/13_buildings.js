@@ -2522,6 +2522,21 @@
   }
 
   /* ---- inside detection ---- */
+  /** The enterable building whose interior footprint contains (x,z), ignoring height — for callers that need to
+   *  find the building BEFORE they know which storey they are on (teleport / spawn placement lands on `bld.y`,
+   *  the ground floor, instead of the roof or an upper slab). Returns null in the open. */
+  function footprintAt(x, z) {
+    if (typeof x !== 'number' || typeof z !== 'number' || x !== x || z !== z) return null;
+    for (let i = 0; i < enterables.length; i++) {
+      const bld = enterables[i];
+      const dx = x - bld.x, dz = z - bld.z;
+      if (dx * dx + dz * dz > bld.radius2) continue;
+      const ib = bld.interiorBounds; if (!ib) continue;
+      const lx = dx * bld.cos - dz * bld.sin, lz = dx * bld.sin + dz * bld.cos;
+      if (lx >= ib.minx - 0.3 && lx <= ib.maxx + 0.3 && lz >= ib.minz - 0.3 && lz <= ib.maxz + 0.3) return bld;
+    }
+    return null;
+  }
   function isInside(pos) {
     if (!pos) return null;
     for (let i = 0; i < enterables.length; i++) {
@@ -2602,7 +2617,7 @@
 
   G.Buildings = {
     init, build, place, remove, buildTown, buildPOI, buildDocks, buildTownWalls, batchStatic,
-    update, isInside, nearest, spotFor, setLightsEnabled, registerColliders: registerAllColliders,
+    update, isInside, footprintAt, nearest, spotFor, setLightsEnabled, registerColliders: registerAllColliders,
     openDoor: function (d) { setDoor(d, true); }, closeDoor: function (d) { setDoor(d, false); }, toggleDoor,
     all, byId, root, batches, recipes: RECIPES, RECIPES: Object.keys(RECIPES), materials: MAT, getMaterial: getMat, stats,
     get playerInside() { return playerInside; },

@@ -9,6 +9,8 @@
  *   node tools/verify.js --fast             # shorter soak windows (auto-quest 60 s, AI sim 6 s, …)
  *   node tools/verify.js --timeout 180      # per-scenario timeout in seconds (default 120)
  *   node tools/verify.js --timescale 1      # game-time multiplier while scenarios run (default 3; 1 = realistic timing)
+ *   node tools/verify.js --render-scale 1   # internal render resolution factor (default 0.5: 640×360 through PostFX,
+ *                                           # canvas stays 1280×720 CSS px; software GL raster is the headless bottleneck)
  *   node tools/verify.js --full-autoquest   # separate long test: run the bot until 150/150 or 40 minutes
  *   node tools/verify.js --html some.html   # verify a different build (default dist/Chris-Jensens-LOTRO.html)
  *   node tools/verify.js --verbose          # print per-check detail while running
@@ -57,6 +59,7 @@ const OPTS = {
   fullAutoquest: flag('--full-autoquest'),
   timeoutMs: Math.max(5, parseFloat(opt('--timeout', '120'))) * 1000,
   timescale: Math.max(0.25, Math.min(10, parseFloat(opt('--timescale', '3')) || 3)),
+  renderScale: Math.max(0.1, Math.min(1, parseFloat(opt('--render-scale', '0.5')) || 0.5)),
 };
 const OUT = path.join(__dirname, 'out');
 if (!fs.existsSync(OUT)) fs.mkdirSync(OUT, { recursive: true });
@@ -290,10 +293,24 @@ async function quickStart(page, ctx) {
   await page.evaluate(installProbe);
   // Headless software GL renders a 1280×720 'high' frame in 250–800 ms; run the behavioural scenarios at 'low'
   // (R03/R04 switch to 'high' for their own measurements and switch back).
-  await page.evaluate((ts) => { try { window.G.PostFX.setQuality('low'); } catch (e) { /* ignore */ } try { window.G.time.scale = ts; } catch (e) { /* ignore */ } }, OPTS.timescale);
+  await page.evaluate((o) => { try { window.G.PostFX.setQuality('low'); } catch (e) { /* ignore */ } try { window.G.time.scale = o.ts; } catch (e) { /* ignore */ } }, { ts: OPTS.timescale });
   await page.waitForTimeout(500);
+  await applyRenderScale(page);
   ctx.quickStartMs = Date.now() - t0;
   await calibrate(page, ctx);
+}
+
+/** Lower the internal render resolution (PostFX targets + renderer size, not the CSS canvas size). */
+async function applyRenderScale(page) {
+  if (OPTS.renderScale >= 0.999) return;
+  await page.evaluate((rs) => {
+    const G = window.G; const c = document.getElementById('game'); if (!G || !c) return;
+    const w = Math.max(160, Math.round(c.clientWidth * rs)), h = Math.max(90, Math.round(c.clientHeight * rs));
+    try { if (G.Game && G.Game.renderer) G.Game.renderer.setPixelRatio(1); } catch (e) { /* ignore */ }
+    try { if (G.PostFX && G.PostFX.resize) G.PostFX.resize(w, h); else if (G.Game && G.Game.renderer) G.Game.renderer.setSize(w, h, false); } catch (e) { /* ignore */ }
+    c.style.width = '100%'; c.style.height = '100%';
+    window.__V_renderScale = rs;
+  }, OPTS.renderScale).catch(() => { });
 }
 
 /** Measure how fast the game actually renders here and derive the timeout multiplier `ctx.slow`. */
@@ -407,7 +424,7 @@ scenario('R03', 'Performance: ≤ 600 draw calls at high; frame time (report)', 
   ok('draw calls measurable', draws.length > 0);
   ok('draw calls ≤ 600 at high', isFinite(maxDraw) && maxDraw <= 600, 'max ' + maxDraw + ' over ' + draws.length + ' samples (quality ' + (samples[0] && samples[0].quality) + ')');
   ok('adaptive quality API present (G.PostFX.setQuality / G.Game.fps)', await T.evalG(() => !!(window.G.PostFX && window.G.PostFX.setQuality) && typeof (window.G.Game && window.G.Game.fps) !== 'undefined'));
-  ok('frame time (report only; headless software GL)', true, 'avg fps ' + (isFinite(avgFps) ? avgFps.toFixed(1) : '?') + ' ≈ ' + (isFinite(avgFps) && avgFps > 0 ? (1000 / avgFps).toFixed(1) : '?') + ' ms/frame; tris ' + (samples[0] && (samples[0].stats && samples[0].stats.triangles || samples[0].tris)));
+  ok('frame time (report only; headless software GL, render scale ' + OPTS.renderScale + ')', true, 'avg fps ' + (isFinite(avgFps) ? avgFps.toFixed(1) : '?') + ' ≈ ' + (isFinite(avgFps) && avgFps > 0 ? (1000 / avgFps).toFixed(1) : '?') + ' ms/frame; tris ' + (samples[0] && (samples[0].stats && samples[0].stats.triangles || samples[0].tris)));
 });
 
 scenario('R04', 'Graphics: post-processing, shadows, day/night, weather, water, vegetation, fog', async (T, ok) => {
@@ -1204,6 +1221,7 @@ scenario('R41', 'Save/load: localStorage, export round-trip, Continue from the m
   await T.wait(1500);
   await T.evalG(installProbe);
   await T.evalG((ts) => { try { window.G.PostFX.setQuality('low'); } catch (e) { /* ignore */ } try { window.G.time.scale = ts; } catch (e) { /* ignore */ } }, OPTS.timescale);
+  await applyRenderScale(T.page);
   const r = await T.evalG(() => { const p = window.G.state.player; return { level: p.level, gold: p.gold, name: p.name, xp: p.xp, questsDone: window.G.Quests.completion().done, phase: window.G.state.phase }; });
   ok('restored player level / gold / name match', r.level === s.level && r.gold === s.gold && r.name === s.name, { saved: { level: s.level, gold: s.gold, name: s.name }, restored: r });
   ok('restored quest completion matches', r.questsDone === s.questsDone, { saved: s.questsDone, restored: r.questsDone });
