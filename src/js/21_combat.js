@@ -724,7 +724,7 @@
     else if (optSfx !== null && !optDot && HIT_SFX[dtype]) sfx(HIT_SFX[dtype], dst, 0.8, 1);
     if (dstIsPlayer && dealt > 0 && !st.godMode) {
       const t = now(); const maxM = dst.stats ? num(dst.stats.maxMorale, 100) : 100;
-      if (dealt >= maxM * 0.03 && t - _lastHurtAt > 0.4) { _lastHurtAt = t; sfx('hurt', dst, 0.9, 1); }
+      if (dealt >= maxM * 0.01 && t - _lastHurtAt > 0.4) { _lastHurtAt = t; sfx('hurt', dst, Math.min(1, 0.5 + dealt / maxM * 4), 1); }
     }
     if (!optNoAnim && !avoided && dealt > 0) hitReaction(dst);
 
@@ -904,7 +904,8 @@
     if (!chk.ok) { failFeedback(ent, chk.reason, chk.code); return false; }
     const t = chk.target;
     if (isPlayer(ent) && ent.mounted) dismountPlayer(ent);
-    if (t && t !== ent && (a.kind === 'melee' || !isPlayer(ent) || opts.face)) faceTarget(ent, t);
+    const aim = (t === ent) ? ((target && target !== ent && isAlive(target)) ? target : ent.target) : t;
+    if (aim && aim !== ent && isAlive(aim) && isHostile(ent, aim) && (a.kind === 'melee' || !isPlayer(ent) || opts.face)) faceTarget(ent, aim);
     if (a.castTime > 0) { startCast(ent, a, t); return true; }
     return execute(ent, a, t);
   }

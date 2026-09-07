@@ -1760,27 +1760,27 @@
     const s = { id, name, zone, pos: { x, z }, radius, fish: fish.map((f) => ({ tid: 'fish_' + f[0], weight: f[1] })) };
     W.fishingSpots.push(s); return s;
   }
-  FS('fs_bywater_pool', 'The Bywater Pool', 'shire', -966, -92, 14, [['trout', 5], ['bywater_perch', 4], ['golden_carp', 3], ['pike', 1]]);
-  FS('fs_hobbiton_water', 'The Water at Hobbiton', 'shire', -1000, -165, 12, [['trout', 5], ['bywater_perch', 3], ['carp', 2]]);
-  FS('fs_brandywine_bridge', 'The Brandywine under the Bridge', 'shire', -620, -70, 12, [['salmon', 3], ['nenuial_pike', 3], ['midgewater_eel', 2], ['trout', 2]]);
-  FS('fs_brandywine_south', 'Brandywine Reach', 'shire', -626, -170, 12, [['trout', 3], ['evendim_salmon', 2], ['golden_carp', 2], ['eel', 2]]);
-  FS('fs_brandywine_marches', 'The Brandywine at the Bree-land Marches', 'breeland', -598, -150, 12, [['pike', 3], ['bywater_perch', 3], ['brandywine_trout', 2], ['eel', 2]]);
-  FS('fs_brandywine_hedge', 'The Brandywine at the Hedge', 'oldforest', -562, 380, 12, [['pike', 3], ['evendim_salmon', 2], ['bywater_perch', 2], ['eel', 2]]);
-  FS('fs_withywindle', 'The Withywindle', 'oldforest', -540, 700, 12, [['eel', 3], ['nenuial_pike', 3], ['bywater_perch', 2], ['carp', 2]]);
-  FS('fs_lonelands_tarn', 'The Weather Hills Tarn', 'lonelands', 700, 172, 14, [['perch', 4], ['nenuial_pike', 3], ['golden_carp', 2], ['trout', 1]]);
-  FS('fs_hoarwell_bridge', 'The Hoarwell below the Last Bridge', 'trollshaws', 1045, -80, 12, [['salmon', 4], ['brandywine_trout', 3], ['nenuial_pike', 2], ['char', 1]]);
-  FS('fs_hoarwell_ford', 'The Hoarwell Ford', 'trollshaws', 1020, 200, 12, [['salmon', 3], ['brandywine_trout', 3], ['midgewater_eel', 2], ['sturgeon', 1]]);
-  FS('fs_hoarwell_angmar', 'The Hoarwell Headwaters', 'angmar', 1105, -1200, 12, [['trout', 3], ['hoarwell_grayling', 3], ['evendim_salmon', 2], ['sturgeon', 1]]);
-  FS('fs_tinnudir_shore', 'The Tinnudir Shallows', 'evendim', -215, -1130, 14, [['perch', 4], ['nenuial_pike', 3], ['silver_trout', 1], ['sturgeon', 1]]);
-  FS('fs_evendim_east', 'The East Shore of Nenuial', 'evendim', 20, -900, 14, [['perch', 4], ['nenuial_pike', 2], ['golden_carp', 2], ['himling_sturgeon', 1], ['golden_perch', 1]]);
-  FS('fs_annuminas_quay', 'The Drowned Quays of Annúminas', 'evendim', -512, -840, 14, [['sturgeon', 3], ['nenuial_pike', 3], ['silver_trout', 2], ['perch', 2]]);
-  FS('fs_evendim_north', 'The North Shore of Nenuial', 'evendim', -250, -1172, 14, [['perch', 3], ['hoarwell_grayling', 2], ['nenuial_pike', 2], ['golden_perch', 1]]);
-  FS('fs_celondim_quay', 'The Quay of Celondim', 'eredluin', -1485, -720, 14, [['cod', 4], ['lune_herring', 4], ['mackerel', 3]]);
-  FS('fs_kheledul', 'The Kheledûl Shore', 'eredluin', -1486, -560, 14, [['cod', 3], ['lune_herring', 3], ['tolfuin_seabass', 3], ['eel', 1]]);
-  FS('fs_forochel_bay', 'The Ice-bay', 'forochel', 550, -1885, 14, [['char', 5], ['forochel_icecod', 3], ['herring', 2]]);
-  FS('fs_tolfuin_cove', "The Serpent's Cove Shallows", 'tolfuin', -1780, -1678, 14, [['mackerel', 4], ['forochel_icecod', 3], ['lune_herring', 2], ['sturgeon', 1]]);
-  FS('fs_himling_shore', 'The Ras Himling Strand', 'himling', -1553, -380, 14, [['cod', 4], ['lune_herring', 3], ['mackerel', 2]]);
-  FS('fs_morwen_harbour', 'Morwen Harbour', 'tolmorwen', -1705, 690, 14, [['herring', 4], ['tolfuin_seabass', 3], ['forochel_icecod', 2], ['sturgeon', 2]]);
+  FS('fs_bywater_pool', 'The Bywater Pool', 'shire', -966, -92, 14, [['brandywine_trout', 5], ['bywater_perch', 4], ['golden_carp', 3], ['nenuial_pike', 1]]);
+  FS('fs_hobbiton_water', 'The Water at Hobbiton', 'shire', -1000, -165, 12, [['brandywine_trout', 5], ['bywater_perch', 3], ['golden_carp', 2]]);
+  FS('fs_brandywine_bridge', 'The Brandywine under the Bridge', 'shire', -620, -70, 12, [['evendim_salmon', 3], ['nenuial_pike', 3], ['midgewater_eel', 2], ['brandywine_trout', 2]]);
+  FS('fs_brandywine_south', 'Brandywine Reach', 'shire', -626, -170, 12, [['brandywine_trout', 3], ['evendim_salmon', 2], ['golden_carp', 2], ['midgewater_eel', 2]]);
+  FS('fs_brandywine_marches', 'The Brandywine at the Bree-land Marches', 'breeland', -598, -150, 12, [['nenuial_pike', 3], ['bywater_perch', 3], ['brandywine_trout', 2], ['midgewater_eel', 2]]);
+  FS('fs_brandywine_hedge', 'The Brandywine at the Hedge', 'oldforest', -562, 380, 12, [['nenuial_pike', 3], ['evendim_salmon', 2], ['bywater_perch', 2], ['midgewater_eel', 2]]);
+  FS('fs_withywindle', 'The Withywindle', 'oldforest', -540, 700, 12, [['midgewater_eel', 3], ['nenuial_pike', 3], ['bywater_perch', 2], ['golden_carp', 2]]);
+  FS('fs_lonelands_tarn', 'The Weather Hills Tarn', 'lonelands', 700, 172, 14, [['bywater_perch', 4], ['nenuial_pike', 3], ['golden_carp', 2], ['brandywine_trout', 1]]);
+  FS('fs_hoarwell_bridge', 'The Hoarwell below the Last Bridge', 'trollshaws', 1045, -80, 12, [['evendim_salmon', 4], ['brandywine_trout', 3], ['nenuial_pike', 2], ['hoarwell_grayling', 1]]);
+  FS('fs_hoarwell_ford', 'The Hoarwell Ford', 'trollshaws', 1020, 200, 12, [['evendim_salmon', 3], ['brandywine_trout', 3], ['midgewater_eel', 2], ['himling_sturgeon', 1]]);
+  FS('fs_hoarwell_angmar', 'The Hoarwell Headwaters', 'angmar', 1105, -1200, 12, [['brandywine_trout', 3], ['hoarwell_grayling', 3], ['evendim_salmon', 2], ['himling_sturgeon', 1]]);
+  FS('fs_tinnudir_shore', 'The Tinnudir Shallows', 'evendim', -215, -1130, 14, [['bywater_perch', 4], ['nenuial_pike', 3], ['silver_trout', 1], ['himling_sturgeon', 1]]);
+  FS('fs_evendim_east', 'The East Shore of Nenuial', 'evendim', 20, -900, 14, [['bywater_perch', 4], ['nenuial_pike', 2], ['golden_carp', 2], ['himling_sturgeon', 1], ['silver_trout', 1]]);
+  FS('fs_annuminas_quay', 'The Drowned Quays of Annúminas', 'evendim', -512, -840, 14, [['himling_sturgeon', 3], ['nenuial_pike', 3], ['silver_trout', 2], ['bywater_perch', 2]]);
+  FS('fs_evendim_north', 'The North Shore of Nenuial', 'evendim', -250, -1172, 14, [['bywater_perch', 3], ['hoarwell_grayling', 2], ['nenuial_pike', 2], ['silver_trout', 1]]);
+  FS('fs_celondim_quay', 'The Quay of Celondim', 'eredluin', -1485, -720, 14, [['forochel_icecod', 4], ['lune_herring', 4], ['tolfuin_seabass', 3]]);
+  FS('fs_kheledul', 'The Kheledûl Shore', 'eredluin', -1486, -560, 14, [['forochel_icecod', 3], ['lune_herring', 3], ['tolfuin_seabass', 3], ['midgewater_eel', 1]]);
+  FS('fs_forochel_bay', 'The Ice-bay', 'forochel', 550, -1885, 14, [['hoarwell_grayling', 5], ['forochel_icecod', 3], ['lune_herring', 2]]);
+  FS('fs_tolfuin_cove', "The Serpent's Cove Shallows", 'tolfuin', -1780, -1678, 14, [['tolfuin_seabass', 4], ['forochel_icecod', 3], ['lune_herring', 2], ['himling_sturgeon', 1]]);
+  FS('fs_himling_shore', 'The Ras Himling Strand', 'himling', -1553, -380, 14, [['forochel_icecod', 4], ['lune_herring', 3], ['tolfuin_seabass', 2]]);
+  FS('fs_morwen_harbour', 'Morwen Harbour', 'tolmorwen', -1705, 690, 14, [['lune_herring', 4], ['tolfuin_seabass', 3], ['forochel_icecod', 2], ['himling_sturgeon', 2]]);
 
   // ---------------------------------------------------------------- gather nodes ---------------------------------------------
   W.gatherNodes = [];
