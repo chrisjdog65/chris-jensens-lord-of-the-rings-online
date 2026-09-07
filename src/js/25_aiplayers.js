@@ -525,9 +525,10 @@
     out.kind = kind; out.name = town ? town.name : '';
     if (!town || !town.pos) { out.x = 0; out.z = 0; return out; }
     const cx = num(town.pos.x), cz = num(town.pos.z), R = Math.max(12, num(town.radius, 40));
+    const RB = (town.walls || town.id === 'bree') ? num(town.wallRadius, R * 1.05 + 6) - 6 : R;   // only this town's buildings (inside the wall)
     const jitter = () => { const a = S() * TAU, d = sr(1.5, 4); out.x += Math.sin(a) * d; out.z += Math.cos(a) * d; };
     const fromBuilding = (recipe, dataList) => {
-      const bl = buildingsNear(cx, cz, R * 1.3, recipe);
+      const bl = buildingsNear(cx, cz, RB, recipe);
       if (bl.length) { const b = spick(bl); if (doorFront(b, sr(2.5, 4.5), out)) { out.name = b.name || out.name; jitter(); return true; } }
       if (dataList && dataList.length) { const d = spick(dataList); const dx = cx - num(d.x), dz = cz - num(d.z), l = Math.sqrt(dx * dx + dz * dz) || 1; out.x = num(d.x) + dx / l * 8; out.z = num(d.z) + dz / l * 8; out.name = d.name || out.name; jitter(); return true; }
       return false;
@@ -837,6 +838,7 @@
   }
   function updateMount(e) {
     const a = e.ai;
+    if (e.fellowshipRole === 'member' && leaderOf(e)) return;             // members mirror their leader's mount
     if (e.dead || e.sailing || a.fightTarget || a.sit) { setMounted(e, false); return; }
     const rem = pathRemaining(a.path, a.pathIdx, e.pos.x, e.pos.z);
     if (!e.mounted && rem > MOUNT_MIN_DIST && (a.state === 'travelling' || a.state === 'questing' || a.state === 'exploring' || a.state === 'fishing')) setMounted(e, true);
@@ -1097,6 +1099,12 @@
     for (let k = 0; k < 8; k++) { const ang = k / 8 * TAU; const px = e.pos.x + Math.sin(ang) * 4, pz = e.pos.z + Math.cos(ang) * 4; if (isWaterAt(px, pz)) { e.yaw = _yawTo(Math.sin(ang), Math.cos(ang)); return; } }
   }
   const FORMATION = [[0, 0], [-1.6, 1.6], [1.6, 1.6], [0, 3.2], [-3.2, 3.4], [3.2, 3.4]];
+  function nearestWaypoint(path, x, z, maxIdx) {
+    let best = 0, bd = Infinity; const lim = Math.min(path.length - 1, Math.max(0, maxIdx));
+    for (let i = 0; i <= lim; i++) { const d = _dist2sq(x, z, path[i].x, path[i].z); if (d < bd) { bd = d; best = i; } }
+    if (best < lim && bd < 36) best++;                                     // already standing on it: head for the next one
+    return best;
+  }
   function memberTarget(e, leader, out) {
     const f = FORMATION[Math.min(FORMATION.length - 1, e.formation)] || FORMATION[1];
     const cy = Math.cos(leader.yaw), sy = Math.sin(leader.yaw);
@@ -1122,9 +1130,23 @@
     memberTarget(e, leader, _spot);
     a.goal.x = _spot.x; a.goal.z = _spot.z;
     const d2 = _dist2sq(e.pos.x, e.pos.z, _spot.x, _spot.z);
-    if (d2 > 450 * 450 && !e._near && !nearHero(_spot.x, _spot.z, 80)) { placeAt(e, _spot.x, _spot.z, leader.yaw); return; }   // lost far away: catch up off-screen
-    if (e._near) { a.followX = _spot.x; a.followZ = _spot.z; a.follow = d2 > 6; if (a.follow) a.followT = t; }
-    else if (d2 > 1.5) {
+    if (d2 > 450 * 450 && !e._near && !nearHero(_spot.x, _spot.z, 80)) { placeAt(e, _spot.x, _spot.z, leader.yaw); a.path = null; return; }   // lost far away: catch up off-screen
+    // members travel the leader's route (same roads and town gates) until they are close, then slot into formation
+    const dl2 = _dist2sq(e.pos.x, e.pos.z, leader.pos.x, leader.pos.z);
+    if (la.path) {
+      if (a.leaderPath !== la.path || (!a.path && dl2 > 8 * 8)) { a.leaderPath = la.path; a.path = la.path; a.pathIdx = nearestWaypoint(la.path, e.pos.x, e.pos.z, la.pathIdx); a.arriveDist = Math.max(2.5, la.arriveDist); a.stuckT = 0; a.nudges = 0; }
+    } else if (!a.path && dl2 > 30 * 30) {                                  // leader idle far away: walk over, through gates
+      a.leaderPath = null; setPath(e, withGates([{ x: _spot.x, z: _spot.z, boat: false }], e.pos.x, e.pos.z), 3);
+    }
+    if (a.path && la.path && a.leaderPath === la.path && a.pathIdx > la.pathIdx) a.pathIdx = la.pathIdx;     // trail, never overtake
+    const onRoute = !!(a.path && a.pathIdx < a.path.length && dl2 > 8 * 8);
+    if (!onRoute && a.path && dl2 <= 8 * 8) a.path = null;
+    if (e._near) {
+      if (onRoute) a.follow = false;                                        // nearMove() walks the shared path
+      else { a.followX = _spot.x; a.followZ = _spot.z; a.follow = d2 > 6; if (a.follow) a.followT = t; }
+    } else if (onRoute) {
+      advancePath(e, dt * (dl2 > 40 * 40 ? 1.3 : 1.05));
+    } else if (d2 > 1.5) {
       const d = Math.sqrt(d2); const step = Math.min(d, speedOf(e) * (d > 40 ? 1.6 : 1.15) * dt);
       const dx = (_spot.x - e.pos.x) / d, dz = (_spot.z - e.pos.z) / d;
       e.pos.x += dx * step; e.pos.z += dz * step; e.yaw = _yawTo(dx, dz);

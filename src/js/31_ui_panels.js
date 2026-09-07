@@ -212,8 +212,8 @@
 .pn-kv .k { color: var(--parch); cursor: help; }
 .pn-kv .v { color: var(--gold-bright); font-family: var(--font-ui); text-align: right; white-space: nowrap; }
 .pn-kv .v .pct { color: var(--parch-dim); font-size: 12px; margin-left: 4px; }
-.pn-fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .35s ease; z-index: 90; }
-.pn-fade.on { opacity: 1; pointer-events: auto; }
+.pn-fade, #overlays > .pn-fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none !important; transition: opacity .35s ease; z-index: 90; }
+.pn-fade.on, #overlays > .pn-fade.on { opacity: 1; pointer-events: auto !important; }
 .pn-fade.instant { transition: none; }
 /* ---- context menu ---- */
 .ctx-menu { position: fixed; z-index: 1200; min-width: 160px; background: rgba(12,9,5,.97); border: 1px solid var(--border-hi); border-radius: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.8); padding: 4px; font-size: 13px; animation: fadeIn .12s ease-out; }
@@ -1166,7 +1166,10 @@
       act.forEach(function (q) { const d = _questData(q); if (d && out.indexOf(d) < 0) out.push(d); });
       if (!act.length && Q && Q.state) for (const id in Q.state) { const s = Q.state[id]; if (s && (s.status === 'active' || s.status === 'complete')) { const d = _questData(id); if (d) out.push(d); } }
     } else if (tab === 'available') {
-      _allQuests().forEach(function (d) {
+      let ids = null;
+      if (Q && _has(Q, 'availableIds')) { try { ids = Q.availableIds(); } catch (_) { ids = null; } }
+      if (Array.isArray(ids)) ids.forEach(function (id) { const d = _questData(id); if (d && _num(d.level, 1) <= L + 5) out.push(d); });
+      else _allQuests().forEach(function (d) {
         const st = _qstatus(d.id);
         if (st !== 'available') return;
         if (_num(d.level, 1) > L + 5) return;
@@ -1318,7 +1321,8 @@
     let comp = { done: 0, total: 150, pct: 0 };
     try { if (_has(Q, 'completion')) comp = Q.completion() || comp; } catch (_) { /* ignore */ }
     let sDone = 0, sTot = 0, qDone = 0, qTot = 0;
-    _allQuests().forEach(function (d) { const done = _qdone(d.id); if (d.type === 'story') { sTot++; if (done) sDone++; } else { qTot++; if (done) qDone++; } });
+    if (comp.story && comp.side) { sDone = _num(comp.story.done); sTot = _num(comp.story.total); qDone = _num(comp.side.done); qTot = _num(comp.side.total); }
+    else _allQuests().forEach(function (d) { const done = _qdone(d.id); if (d.type === 'story') { sTot++; if (done) sDone++; } else { qTot++; if (done) qDone++; } });
     if (!sTot && !qTot) { sTot = 100; qTot = 50; }
     const pct = _num(comp.pct, comp.total ? comp.done / comp.total * 100 : 0);
     const compEl = el('span', { class: 'jn-comp' });
@@ -1348,7 +1352,7 @@
 
   // ================================================================================================ MAP (M)
   const MAP_SZ = 1024, MAP_MIN_ZOOM = 0.5, MAP_MAX_ZOOM = 6;
-  const MP = { canvas: null, ctx: null, W: 0, H: 0, dpr: 1, cx: MAP_SZ / 2, cy: MAP_SZ / 2, zoom: 2, drag: null, hits: [], hover: null, wpMode: false, showAI: true, showLegend: true, t: 0, pulse: 0, dirty: true, img: null, cursor: { x: 0, z: 0, sx: 0, sy: 0, inside: false }, coordsEl: null, legendEl: null, wpBtn: null, aiBtn: null, lgBtn: null, zoneEl: null, ro: null, aiList: [], aiT: 9, hostBody: null, _bound: false, _tipShown: false };
+  const MP = { pick: null, canvas: null, ctx: null, W: 0, H: 0, dpr: 1, cx: MAP_SZ / 2, cy: MAP_SZ / 2, zoom: 2, drag: null, hits: [], hover: null, wpMode: false, showAI: true, showLegend: true, t: 0, pulse: 0, dirty: true, img: null, cursor: { x: 0, z: 0, sx: 0, sy: 0, inside: false }, coordsEl: null, legendEl: null, wpBtn: null, aiBtn: null, lgBtn: null, zoneEl: null, ro: null, aiList: [], aiT: 9, hostBody: null, _bound: false, _tipShown: false };
   const Mp = {};
   const TOWN_COLOR = { hobbit: '#a6e39f', man: '#ffd54a', elf: '#bfe6ff', dwarf: '#f0c080', ruin: '#d8c8a0', camp: '#e0b890', lossoth: '#d0f0ff' };
   const POI_GLYPH = { ruin: '▲', landmark: '◆', cave: '●', camp: '▲', bridge: '═', tower: '♜', grave: '✝', lake: '≈', waterfall: '≈', shrine: '✦', dungeon: '☠' };
@@ -1397,7 +1401,7 @@
   function _mbPrep() {
     const w = _world(); const zs = (w && Array.isArray(w.zones)) ? w.zones : [];
     MB.zones = zs.filter(function (z) { return z && z.center; }).map(function (z) {
-      const r = Math.max(50, _num(z.radius, 300)) * 1.18;
+      const r = Math.max(50, _num(z.radius, 300)) * 1.75;
       const gc = _num(z.grassColor, 0x6fae4a), dc = _num(z.groundColor, 0x8b7a4c);
       return { x: z.center.x, z: z.center.z, r2: r * r, inv: 1 / (r * r), gr: (gc >> 16) & 255, gg: (gc >> 8) & 255, gb: gc & 255, dr: (dc >> 16) & 255, dg: (dc >> 8) & 255, db: dc & 255, mountain: _num(z.mountain), arctic: z.biome === 'arctic' ? 1 : 0, dark: z.biome === 'dark' ? 1 : 0 };
     });
@@ -1452,7 +1456,7 @@
           const sl = Math.sqrt(Math.max(0, 1 - ny * ny));
           const shade = 0.55 + 0.75 * Math.max(0, nx * lx + ny * ly + nz * lz) - 0.1 * sl;
           let wr = 0, wg = 0, wb = 0, ws = 0, mount = 0, arctic = 0, dark = 0;
-          const dirt = ss(0.12, 0.45, sl);
+          const dirt = ss(0.22, 0.6, sl) * 0.75;
           for (let i = 0; i < zs.length; i++) {
             const zn = zs[i]; const dx = x - zn.x, dz = z - zn.z, d2 = dx * dx + dz * dz;
             if (d2 >= zn.r2) continue;
@@ -1460,7 +1464,9 @@
             ws += wt; mount += wt * zn.mountain; arctic += wt * zn.arctic; dark += wt * zn.dark;
             wr += (zn.gr + (zn.dr - zn.gr) * dirt) * wt; wg += (zn.gg + (zn.dg - zn.gg) * dirt) * wt; wb += (zn.gb + (zn.db - zn.gb) * dirt) * wt;
           }
-          if (ws > 0) { r = wr / ws; g = wg / ws; b = wb / ws; mount /= ws; arctic /= ws; dark /= ws; } else { r = 0x5e; g = 0x7a; b = 0x3e; }
+          // soft normalisation: a little neutral meadow colour is always mixed in, so zone edges fade instead of cutting
+          const kN = 0.18; wr += 0x62 * kN; wg += 0x8e * kN; wb += 0x44 * kN; ws += kN;
+          r = wr / ws; g = wg / ws; b = wb / ws; mount /= ws; arctic /= ws; dark /= ws;
           if (noise) { const v = 1 + 0.07 * noise(x * 0.012, z * 0.012) + 0.04 * noise(x * 0.05, z * 0.05); r *= v; g *= v; b *= v; }
           const sand = ss(2.6, 0.6, h);
           if (sand > 0) { r += (MB_SAND[0] - r) * sand; g += (MB_SAND[1] - g) * sand; b += (MB_SAND[2] - b) * sand; }
@@ -1567,7 +1573,7 @@
       if (typeof cx !== 'number') return;
       const sx = _mpSX(cx), sy = _mpSY(cz);
       if (!_mpVisible(sx, sy)) return;
-      _mpLabel(ctx, '⚑', sx, sy - 6, 'bold 14px sans-serif', '#d08cff');
+      _mpLabel(ctx, c.icon || '⚑', sx, sy - 6, 'bold 14px sans-serif', '#d08cff');
       _mpLabel(ctx, c.name || 'Place', sx, sy + 9, '10px "Crimson Pro", Georgia, serif', '#e8d0ff');
       _mpHit(sx, sy, 9, '<div class="tt-name">' + esc(c.name || 'Custom place') + '</div><div class="tt-line">' + Math.round(cx) + ', ' + Math.round(cz) + '</div><div class="tt-sub">Added through the admin panel</div>', { kind: 'place', wx: cx, wz: cz, name: c.name });
     });
@@ -1668,7 +1674,7 @@
     let x, z, label;
     if (MP.cursor.inside) { x = MP.cursor.x; z = MP.cursor.z; label = 'Cursor'; } else if (p && p.pos) { x = p.pos.x; z = p.pos.z; label = 'You'; } else { x = 0; z = 0; label = ''; }
     const zn = _zoneName(_mpZoneAt(x, z));
-    MP.coordsEl.innerHTML = esc(label) + ' <b>' + Math.round(x) + ', ' + Math.round(z) + '</b> · ' + esc(zn) + ' · zoom ×' + MP.zoom.toFixed(1) + (MP.wpMode ? ' · <span class="pn-gold">click to place a waypoint</span>' : '');
+    MP.coordsEl.innerHTML = esc(label) + ' <b>' + Math.round(x) + ', ' + Math.round(z) + '</b> · ' + esc(zn) + ' · zoom ×' + MP.zoom.toFixed(1) + (MP.pick ? ' · <span class="pn-gold">click a spot on the map</span>' : MP.wpMode ? ' · <span class="pn-gold">click to place a waypoint</span>' : '');
   }
   function _mpSetWpMode(on) { MP.wpMode = !!on; if (MP.wpBtn) MP.wpBtn.classList.toggle('on', MP.wpMode); if (MP.canvas) MP.canvas.classList.toggle('wp', MP.wpMode); _mpUpdateCoords(); }
   function _mpBind() {
@@ -1705,7 +1711,8 @@
       if (!d.moved) {
         const l = local(ev);
         const h = _mpFindHit(l.x, l.y);
-        if (MP.wpMode || ev.shiftKey || d.shift) { const wx = _mpWorldX(l.x), wz = _mpWorldZ(l.y); _setWaypoint(wx, wz, h && h.name && h.kind !== 'me' ? h.name : 'Map waypoint'); _mpSetWpMode(false); _sfx('ui_click'); }
+        if (MP.pick) { const cb = MP.pick; MP.pick = null; if (MP.canvas) MP.canvas.classList.remove('wp'); _mpUpdateCoords(); _sfx('ui_click'); try { cb({ x: _mpWorldX(l.x), z: _mpWorldZ(l.y) }); } catch (err) { _report(err, 'map pick'); } }
+        else if (MP.wpMode || ev.shiftKey || d.shift) { const wx = _mpWorldX(l.x), wz = _mpWorldZ(l.y); _setWaypoint(wx, wz, h && h.name && h.kind !== 'me' ? h.name : 'Map waypoint'); _mpSetWpMode(false); _sfx('ui_click'); }
         else if (h && h.kind === 'quest' && h.questId && _has(G.Quests, 'setTracked')) { G.Quests.setTracked(h.questId); if (UI.tracker && _has(UI.tracker, 'refresh')) UI.tracker.refresh(); _sfx('ui_click'); }
         else if (h && h.kind === 'ai' && h.id) { Pl.select(h.id); }
       }
@@ -1738,6 +1745,9 @@
   Mp.focus = function (x, z, zoom) { Mp.centerOn(x, z); if (zoom != null) Mp.zoomAt(zoom); else if (MP.zoom < 2.5) Mp.zoomAt(3); Mp.centerOn(x, z); };
   Mp.centerOnPlayer = function () { const p = _player(); if (p && p.pos) Mp.centerOn(p.pos.x, p.pos.z); };
   Mp.setWaypointMode = function (on) { _mpSetWpMode(on); };
+  // pickOnce(cb): the next click on the map calls cb({x, z}) with world coordinates (used by the admin panel's teleport).
+  Mp.pickOnce = function (cb) { MP.pick = typeof cb === 'function' ? cb : null; if (MP.canvas) MP.canvas.classList.toggle('wp', !!MP.pick); if (!Mp.isOpen()) _open('map'); _mpUpdateCoords(); return true; };
+  Mp.cancelPick = function () { MP.pick = null; if (MP.canvas) MP.canvas.classList.remove('wp'); _mpUpdateCoords(); };
   Mp.worldAt = function (clientX, clientY) { if (!MP.canvas) return null; const r = MP.canvas.getBoundingClientRect(); return { x: _mpWorldX(clientX - r.left), z: _mpWorldZ(clientY - r.top) }; };
   Mp.render = function () {
     const body = Mp.body; if (!body) return;
@@ -1789,7 +1799,7 @@
     setTimeout(function () { _mpResize(); Mp.centerOnPlayer(); MP.dirty = true; if (Mp.isOpen()) _mpDraw(); }, 0);
     _mpResize(); Mp.centerOnPlayer(); _mpDraw();
   };
-  Mp.onClose = function () { MP.drag = null; MP.hover = null; if (MP._tipShown) { _tipHide(); MP._tipShown = false; } _mpSetWpMode(false); };
+  Mp.onClose = function () { MP.drag = null; MP.hover = null; MP.pick = null; if (MP._tipShown) { _tipHide(); MP._tipShown = false; } _mpSetWpMode(false); };
   definePanel('map', Mp, { title: 'Map of Middle-earth', key: 'KeyM', width: '90vw', height: '85vh', pos: 'center', remember: false });
 
   // ================================================================================================ PLAYERS (P)
@@ -2210,7 +2220,7 @@
     const p = _player();
     if (!p || !p.pos || !VD.npc.pos || typeof VD.npc.pos.x !== 'number') return;
     const d = G.dist2 ? G.dist2(p.pos.x, p.pos.z, VD.npc.pos.x, VD.npc.pos.z) : 0;
-    if (d > 8) { VD._far += dt; if (VD._far > 0.3) { Vd.close(); _notify('You walk away from ' + (VD.npc.name || 'the merchant') + '.', 'info'); } } else VD._far = 0;
+    if (d > 8) { VD._far += dt; if (VD._far > 0.3) { const nm = VD.npc.name || 'the merchant'; Vd.close(); _notify('You walk away from ' + nm + '.', 'info'); } } else VD._far = 0;
   };
   Vd.onClose = function () { const npc = VD.npc; VD.npc = null; if (npc && _has(G.NPCs, 'endTalk')) { try { G.NPCs.endTalk(npc); } catch (_) { /* ignore */ } } };
   definePanel('vendor', Vd, { title: 'Trade', width: 900, height: Math.min(600, Math.max(420, _vh() - 80)), pos: 'center' });
@@ -2380,9 +2390,18 @@
     const s = _settings();
     const input = el('input', { type: 'range', min: min, max: max, step: step, value: _num(s[key], ST_DEFAULTS[key]) });
     const val = el('span', { class: 'st-val', text: fmtFn(_num(s[key], ST_DEFAULTS[key])) });
-    input.addEventListener('input', function () { const v = parseFloat(input.value); s[key] = v; val.textContent = fmtFn(v); if (onChange) onChange(v); });
+    const commit = function () { const v = parseFloat(input.value); s[key] = v; val.textContent = fmtFn(v); if (onChange) onChange(v); };
+    input.addEventListener('input', commit);
     input.addEventListener('change', function () { _sfx('ui_click'); });
-    input.addEventListener('keydown', function (ev) { ev.stopPropagation(); });
+    // 00_core's key handler prevents the default of arrow keys, so step the range ourselves
+    input.addEventListener('keydown', function (ev) {
+      ev.stopPropagation();
+      const dir = (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') ? -1 : (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') ? 1 : 0;
+      if (!dir) return;
+      ev.preventDefault();
+      input.value = String(clamp(parseFloat(input.value) + dir * step, min, max));
+      commit(); _sfx('ui_click');
+    });
     const lab = el('label', { text: label });
     if (tip) _tip(lab, tip);
     return el('div', { class: 'st-row' }, [lab, input, val]);
@@ -2497,6 +2516,9 @@
   ['questAccepted', 'questProgress', 'questCompleted'].forEach(function (evt) { G.on(evt, function () { Jn.mark(); MP.dirty = true; }); });
   G.on('qualityChanged', function () { St.mark(); });
   G.on('zoneChanged', function () { MP.dirty = true; });
+  G.on('customPlacesChanged', function () { MP.dirty = true; });
+  G.on('questTracked', function () { Jn.mark(); MP.dirty = true; });
+  G.on('questAbandoned', function () { Jn.mark(); MP.dirty = true; });
   G.on('load', function () { PV.needRebuild = true; MP.img = null; _markAll(); St.apply(); });
   G.on('gameStart', function () { PV.needRebuild = true; MP.img = null; _markAll(); });
   G.on('panelClosed', function (id) { if (id === 'vendor' || id === 'dialogue' || id === 'travel') _dndReset(); });

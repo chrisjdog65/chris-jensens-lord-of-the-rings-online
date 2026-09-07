@@ -6,8 +6,8 @@
    before the quests. At most ten quests carry a story prerequisite (a lower-level story quest) — the Sundered-Isles side
    quests wait for s089, a few others for the first quest of their Book.
    Public API: pushes onto G.Data.quests; calls G.Data.registerQuests(list) when 24_quests / another data module defines it.
-   Objective-type census (checked by tools/scratch/quests_c_check.js): kill 32 · collect-from 14 · collect-node/use 21 ·
-   talk 10 · explore 19 · deliver 5 · fish 8 · killboss 3. ==== */
+   Objective-type census (checked by tools/scratch/quests_c_check.js): kill 33 · collect-from 14 · collect-node 14 · use 4 ·
+   talk 11 · explore 21 · deliver 5 · fish 8 · killboss 3 (halgar, ugruk, ardaric — never the final boss). ==== */
 (function () {
   'use strict';
   const G = window.G; G.Data = G.Data || {}; G.Data.quests = G.Data.quests || [];
@@ -522,3 +522,338 @@
         progress: 'Have you found the stones? The cave is beyond them, so the story goes. So the story goes.',
         complete: "You opened it! And? Swords, the story said, and — well, no matter what it said; you have brought back enough to make the envoy of Thorin's Hall a happy dwarf. Mr. Baggins will want every detail. These gauntlets are troll-bone, from a troll who was rather less stone than he should have been; they are yours, and welcome.",
       } },
+
+    // ---- q031 L49 · The Trollshaws · Bilbo Baggins, poet of Rivendell
+    { id: 'q031', name: "Bilbo's Book of Tales", type: 'side', level: L(31), zone: 'trollshaws', giver: 'npc_rivendell_bilbo', turnin: 'npc_rivendell_bilbo', prereq: [],
+      objectives: [
+        { type: 'talk', npc: 'npc_rivendell_bofri', label: "Collect Bofri's tale of the Blue Mountains" },
+        { type: 'talk', npc: 'npc_rivendell_elrohir', label: "Collect Elrohir's tale of the hunt in the Trollshaws" },
+        { type: 'talk', npc: 'npc_rivendell_lindir', label: "Collect Lindir's tale of the Hall of Fire" },
+      ],
+      rewards: R(L(31), ['drink_miruvor', 'scroll_tactics_50'], { title: 'Chronicler of Rivendell' }),
+      summary: 'Bilbo is at the chapter about Rivendell and has run out of Rivendell. Three tales — from a dwarf, a son of Elrond and a singer — would fill it nicely.',
+      hint: 'Bofri stands by the guest-house steps, Elrohir walks the terraces west of the Last Homely House, and Lindir sings in the Hall of Fire.',
+      text: {
+        intro: "Come in, come in, mind the papers. I am at the chapter about Rivendell, you see — 'the Last Homely House east of the Sea' — and I find I have written everything I know about it and it is only two pages. Two! A book cannot have a two-page Rivendell. Would you be a dear and collect me some tales? Bofri has one about the Blue Mountains he tells when he has had wine; Elrohir hunted a troll here last winter and will not talk about it unless asked; and Lindir knows every song that was ever sung in the Hall, which is rather the point of him. Three tales, and I shall have a chapter.",
+        accept: 'Ask nicely, listen closely, and if Elrohir says it was nothing, it was not nothing.',
+        progress: 'Three tales — what has Bofri said? And Elrohir? And has Lindir stopped singing long enough to speak?',
+        complete: "A troll on the Bruinen ford, and a mine that sang, and the night Lindir made Elrond laugh — oh, this is a chapter. This is two chapters. You shall go in the acknowledgements, which nobody reads, and in the fourth chapter, which everybody will. Take a drop of miruvor for the road, and a scroll I have never had the least use for.",
+      } },
+
+    // ---- q032 L50 · The Misty Mountains · Brók, skald of the High Crag
+    { id: 'q032', name: 'The Cairn of the Lost Climbers', type: 'side', level: L(32), zone: 'misty', giver: 'npc_highcrag_brok', turnin: 'npc_highcrag_brok', prereq: [],
+      objectives: [
+        { type: 'explore', pos: { x: 1560, z: -620 }, radius: 18, label: 'Climb to the Frozen Falls where the climbers were lost' },
+        { type: 'kill', target: 'misty_bat', count: 6, label: 'Clear the ice-bats from the falls' },
+        { type: 'collect', item: 'mat_snow_lichen', count: 4, from: null, node: 'gn_misty_2', label: 'Gather snow-lichen from below the falls for the cairn-wreath' },
+      ],
+      rewards: R(L(32), ['food_cram', 'scroll_fortitude_50']),
+      summary: 'Brók is composing a lament for the dwarves lost on the Frozen Falls and wants the place seen, the bats that took them driven off, and lichen for a wreath on their cairn.',
+      hint: 'The Frozen Falls are north-west of the High Crag, up the ravine. The lichen grows on the rocks at the foot of the falls; the bats roost in the ice above.',
+      text: {
+        intro: "Seven dwarves went up to the Frozen Falls in the autumn to cut ice for the forge and came down as three. The bats took them — ice-bats, the size of eagles, that come out of the frozen curtain at dusk. There is a cairn for them here at the camp with no names on it yet, for I have not finished the lament, and I cannot finish it without seeing the place. Go up there for me. Drive off the bats, gather lichen from below the falls for the wreath, and tell me how the ice looks at that hour. I am a skald, not a climber; my songs must go where I cannot.",
+        accept: 'Up the ravine to the north-west. Go in daylight, come back before the bats do.',
+        progress: 'How does the ice look? Grey-green, they said, like old glass. And the lichen — four handfuls, for the wreath.',
+        complete: "Grey-green, like old glass, and the bats gone from it. Now I can hear the song: it starts with the ice and ends with the cairn, and the names go in the middle where they belong. The wreath will be laid tonight. Take bread for the road and a scroll for the heart; the mountain asks a great deal of both.",
+      } },
+
+    // ---- q033 L52 · The Misty Mountains · Ketil, goat-master of the High Crag
+    { id: 'q033', name: 'The Goat That Went Up', type: 'side', level: L(33), zone: 'misty', giver: 'npc_highcrag_stable', turnin: 'npc_highcrag_stable', prereq: [],
+      objectives: [
+        { type: 'explore', pos: { x: 1750, z: -300 }, radius: 20, label: "Search the Giant's Stair for Grettir the goat" },
+        { type: 'kill', target: 'snow_warg', count: 6, label: 'Hunt the snow-wargs that chased him up there' },
+      ],
+      rewards: R(L(33), ['pot_power_greater', 'food_cram']),
+      summary: 'Grettir, the best pack-goat on the High Crag, bolted up the Giant’s Stair with a pack of snow-wargs behind him. Ketil wants the goat back and the wargs fewer.',
+      hint: 'The Giant’s Stair is the great staircase of rock east of the camp, above the Rivendell path. The wargs hunt the slopes south of the camp and along the Stair.',
+      text: {
+        intro: "Grettir. Best goat I ever had — carries more than a pony, eats less, and has never once fallen off anything, which on this mountain is a talent. Last night the snow-wargs came down on the goat-lines and he went up the Giant's Stair like a thing possessed with six of them after him, and I have not seen him since. Goats go up when they are frightened; he will be somewhere on the Stair, if the wargs have not got him. Find him. And find the wargs.",
+        accept: 'The Stair is east, above the Rivendell path. Whistle twice and he will come, if he can.',
+        progress: 'Any sign of him? Look on the ledges — he likes ledges. And the wargs, how many?',
+        complete: "He was on a ledge! Of course he was on a ledge. Look at him — not a scratch, and eaten somebody's rope by the look of it. Six wargs fewer, you say? Then the goat-lines may sleep tonight, and so may I. Bread and a draught — it is all a goat-master has, but you are welcome to both.",
+      } },
+
+    // ---- q034 L53 · The Misty Mountains · Hannar, dwarf-smith of the High Crag
+    { id: 'q034', name: 'Drake-scale for the Forge', type: 'side', level: L(34), zone: 'misty', giver: 'npc_highcrag_smith', turnin: 'npc_highcrag_smith', prereq: [],
+      objectives: [
+        { type: 'collect', item: 'mat_drake_scale', count: 5, from: 'cold_drake', label: 'Take scales from the cold-drakes of the eastern roost' },
+        { type: 'collect', item: 'mat_mithril_flake', count: 2, from: null, node: 'gn_misty_1', label: 'Pick mithril flakes from the seam above the camp' },
+      ],
+      rewards: R(L(34), ['pot_heal_greater', 'scroll_battle_50']),
+      summary: 'Hannar has a commission from Glóin himself and needs drake-scale and mithril to fill it. Both are on the mountain; neither wants to be taken.',
+      hint: 'The drake-roost is far to the east of the camp, under the High Pass. The mithril seam is on the cliff a short way east of the camp, above the goat-lines.',
+      text: {
+        intro: "Glóin has asked me for a hauberk. Glóin, son of Gróin, who sat at Erebor with Thorin — he wants a mail-shirt of my making, and I will not make it of iron. Drake-scale for the plates, and mithril for the rings that bind them: five scales from the cold-drakes at the eastern roost and two flakes of true-silver from the seam above the camp. The drakes will not give up their scales and the seam is in a cold wind on a bad cliff, and I am too old for either. You are not.",
+        accept: 'Scales from the roost, flakes from the seam. Mind the wind on the cliff; it has a sense of humour.',
+        progress: 'Five scales and two flakes. Do not bend the scales; they do not forgive it.',
+        complete: "Ah. Ah, look at that — the blue in the scale, and the light in the flake. Glóin shall have his hauberk and it will turn a troll's club. I cannot pay you what this is worth, but a draught and a scroll from the war-chest are yours, and if Glóin ever hears my name spoken with respect, he will hear yours with it.",
+      } },
+
+    // ---- q035 L55 · The Misty Mountains · Vigdis, sentry of the High Crag (requires Book 6 to have begun)
+    { id: 'q035', name: "The Giants' Council", type: 'side', level: L(35), zone: 'misty', giver: 'npc_highcrag_guard', turnin: 'npc_highcrag_guard', prereq: ['s063'],
+      objectives: [
+        { type: 'kill', target: 'stone_giant', count: 4, label: 'Drive the stone-giants back from the Stair' },
+        { type: 'explore', pos: { x: 1950, z: -500 }, radius: 22, label: 'Scout the High Pass for the giants’ gathering' },
+      ],
+      rewards: R(L(35), ['n_pocket_giant', 'pot_heal_greater']),
+      summary: 'The stone-giants have been hurling rocks at the Stair for a week and gathering at the High Pass by night. Vigdis wants them pushed back and the Pass looked at.',
+      hint: 'The stone-giants haunt the Giant’s Stair east of the camp; the High Pass is beyond it, at the far eastern edge of the mountains.',
+      text: {
+        intro: "You hear that? That crash? That is a stone-giant throwing a rock the size of a wagon at the Stair, and it has been happening every hour for a week. They are gathering at the High Pass by night — I have seen their fires — and when giants gather, something is going to be thrown at something. Glóin says it is 'their business'. It becomes mine the day one of those rocks lands on the camp. Push them back from the Stair, and then go up to the Pass and see how many are there, and tell me true.",
+        accept: 'Four of them off the Stair. Then the Pass, and count the fires.',
+        progress: 'How many at the Pass? And are they still throwing?',
+        complete: "Eleven fires at the Pass and four fewer giants on the Stair. That is worse than I feared and better than I expected, which is the mountain all over. Take this — a giant dropped it on the Stair the first night, and I have carried it ever since for luck. It is heavier than luck should be. You have earned it, and a draught besides.",
+      } },
+
+    // ---- q036 L56 · Angmar · Aoife, hillman child of Aughaire
+    { id: 'q036', name: "Aoife's Charm", type: 'side', level: L(36), zone: 'angmar', giver: 'npc_aughaire_child', turnin: 'npc_aughaire_child', prereq: [],
+      objectives: [
+        { type: 'deliver', item: 'qc_aoife_charm', npc: 'npc_aughaire_breanna', label: 'Take the charm to Bréanna the wise-woman for a blessing' },
+        { type: 'fish', count: 4, spot: 'fs_hoarwell_angmar', label: 'Catch fish from the Hoarwell headwaters for the family pot' },
+        { type: 'kill', target: 'angmar_warg', count: 5, label: 'Chase the wargs from the western pastures' },
+      ],
+      rewards: R(L(36), ['food_waybread', 'pot_heal_greater']),
+      summary: 'Aoife has made a charm for her brother on the wall and needs a grown-up to get it blessed, a fish for the pot, and the wargs kept away from the goats. She has thought about it very carefully.',
+      hint: 'Bréanna keeps her tent at the north end of Aughaire. The Hoarwell headwaters are east of the camp, past Barad Gúlaran; the wargs range the pastures west of the walls.',
+      text: {
+        intro: "Are you a hero? You look like one. Good, because I have a lot of things and Mam says I am too small for all of them. This is a charm for my brother Cathal, who is on the wall, and it has to be blessed by Bréanna or it does not work, and she says I am too small to ask. And Mam wants fish from the river for the pot, and I am too small for the river. And the wargs keep eating the goats and I am too small for wargs. So. Charm, fish, wargs. I will wait here.",
+        accept: 'The charm first, please. Cathal is on the wall tonight.',
+        progress: 'Did Bréanna bless it? Did she say the words? And the fish — Mam wants four.',
+        complete: "She blessed it! And the fish, and the wargs, and — you did all of it. Cathal will be safe now. Here — Mam said to give you the elf-bread that the Ranger left, because it is too good for us, and this bottle I found. Do not tell her about the bottle.",
+      } },
+
+    // ---- q037 L58 · Angmar · Brónach, trader of Aughaire
+    { id: 'q037', name: 'Salt and Nightshade', type: 'side', level: L(37), zone: 'angmar', giver: 'npc_aughaire_bronach', turnin: 'npc_aughaire_bronach', prereq: [],
+      objectives: [
+        { type: 'collect', item: 'mat_nightshade', count: 5, from: null, node: 'gn_angmar_2', label: 'Gather nightshade from the western scree for the wise-woman' },
+        { type: 'collect', item: 'qc_salt_sack', count: 4, from: 'angmar_orc', label: 'Recover the salt-sacks from the orcs east of the camp' },
+      ],
+      rewards: R(L(37), ['scroll_warding_50', 'pot_power_celebrant']),
+      summary: 'The orcs took Brónach’s salt on the road from the pans, and Bréanna has run out of nightshade for her ointments. Both are outside the walls, where Brónach does not go.',
+      hint: 'Nightshade grows on the scree west of Aughaire, past the warg-pastures. The orcs who took the salt camp east of the walls, along the road to Barad Gúlaran.',
+      text: {
+        intro: "Two things a hillman camp cannot do without: salt, and Bréanna in a good temper. I have lost the first to the orcs — four sacks, taken off the cart east of the gate, and the carter with them — and the second to the first, because Bréanna's ointments want nightshade and her nightshade wants gathering and I am a trader, not a gatherer. The nightshade is on the scree to the west. The orcs are on the road to the east. Bring me the one and the other and I shall be the most grateful trader in Angmar, which is a small field but a real one.",
+        accept: 'Nightshade west, salt east. Do not eat the nightshade. Do not eat the salt either, come to that.',
+        progress: 'Five sprigs and four sacks. The orcs will have the sacks on their backs; they are too stupid to hide them.',
+        complete: "Salt! And the nightshade, and not a leaf bruised. Bréanna will be civil for a month and the whole camp will eat this winter. This scroll came in a trade I have never understood, and the bottle came from Rivendell by three hands; both are yours, and better in yours than in a crate.",
+      } },
+
+    // ---- q038 L59 · Angmar · Tadhg, hillman guard of Aughaire
+    { id: 'q038', name: 'The Acolytes of Malenhad', type: 'side', level: L(38), zone: 'angmar', giver: 'npc_aughaire_guard', turnin: 'npc_aughaire_guard', prereq: [],
+      objectives: [
+        { type: 'kill', target: 'angmar_acolyte', count: 5, label: 'Slay the acolytes of Carn Dûm on the road to the bogs' },
+        { type: 'collect', item: 'junk_dark_tome_scrap', count: 3, from: 'angmar_acolyte', label: 'Take pages of their dark tome for Bréanna to burn' },
+        { type: 'explore', pos: { x: 1000, z: -1400 }, radius: 22, label: 'Look upon the Bogs of Malenhad' },
+      ],
+      rewards: R(L(38), ['scroll_tactics_50', 'pot_heal_athelas']),
+      summary: 'Acolytes of Carn Dûm have been seen at the Bogs of Malenhad, chanting at something in the water. Tadhg wants them dead, their pages taken, and the bogs looked at by someone who will come back.',
+      hint: 'The acolytes walk the road north-east of Aughaire towards Carn Dûm and gather at the bogs north of it. Malenhad is the sunken marsh between Himbar and the citadel road.',
+      text: {
+        intro: "There are acolytes at Malenhad. Grey robes, black staves, chanting at the bog-water in the dead of night as if it could hear them — and perhaps it can. Two of our scouts went to look and one came back, and he has not spoken since. I am a guard of the Trév Gállorg and I do not fear orcs, but I fear that. Go and kill them. Take whatever pages they carry, for Bréanna wants to burn them properly, and look at the bog yourself, and come back, and speak.",
+        accept: 'North-east, past the tower. Kill them at their chanting; they are slow to turn.',
+        progress: 'Five of them, and three pages, and the bog seen. Have you seen it? What is in the water?',
+        complete: "You came back, and you are speaking. That is more than the last man managed. Five acolytes dead and their pages for the fire — Bréanna will burn them tonight with the right words, and perhaps the bog will go quiet. As for what is in the water — no. Keep it. I do not want to know. Take this, and this, and go and stand in the sun a while.",
+      } },
+
+    // ---- q039 L61 · Angmar · Lorcan, horse-thane of Aughaire
+    { id: 'q039', name: 'Horses of the Hillmen', type: 'side', level: L(39), zone: 'angmar', giver: 'npc_aughaire_stable', turnin: 'npc_aughaire_stable', prereq: [],
+      objectives: [
+        { type: 'kill', target: 'angmar_uruk', count: 6, label: 'Slay the Uruks of Carn Dûm who raided the horse-pens' },
+        { type: 'explore', pos: { x: 1150, z: -1050 }, radius: 22, label: 'Search Barad Gúlaran for the stolen horses' },
+      ],
+      rewards: R(L(39), ['scroll_swiftfoot_50', 'pot_heal_athelas']),
+      summary: 'Uruks of Carn Dûm broke the horse-pens at Aughaire and drove off six horses towards the tower of Barad Gúlaran. Lorcan wants the Uruks answered and the horses found.',
+      hint: 'The Uruks who raided the pens hold the ground east of Aughaire below Barad Gúlaran; the tower itself stands further east, above the road.',
+      text: {
+        intro: "Uruks. In the horse-pens, in the middle of the night, with torches — they broke the rails and drove off six of the best horses in Angmar towards that cursed tower, and speared the lad who tried to stop them. Hillmen do not lose horses; we are known for it. Go east, find the Uruks who did it, and answer them. Then search the tower-ground for the horses. If they are alive, they will come to a hillman's whistle; if they are not, I want to know.",
+        accept: 'East, below the tower. They will still have the smell of the pens on them.',
+        progress: 'Six Uruks, and the tower searched. Have you found the horses? Alive?',
+        complete: "Four alive, and back at the pens by your whistle — and the Uruks paid for the other two, six times over. That is a hillman's arithmetic and I am content with it. Take this scroll, for a rider needs fast feet as well as a fast horse, and a draught from the wise-woman's stores, and my thanks, which is a horse-thane's word and worth more than coin in this country.",
+      } },
+
+    // ---- q040 L62 · Tol Morwen · Old Sigwald, fisherman of Morwen Village
+    { id: 'q040', name: "The Grey Gull's Nets", type: 'side', level: L(40), zone: 'tolmorwen', giver: 'npc_morwenvillage_sigwald', turnin: 'npc_morwenvillage_sigwald', prereq: [],
+      objectives: [
+        { type: 'fish', count: 5, spot: 'fs_morwen_harbour', label: 'Fish the harbour to see what the wreck has stirred up' },
+        { type: 'explore', pos: { x: -1760, z: 760 }, radius: 18, label: 'Look over the wreck of the Grey Gull on the eastern shore' },
+        { type: 'kill', target: 'morwen_crawler', count: 5, label: 'Kill the tide-crawlers that have nested in the wreck' },
+      ],
+      rewards: R(L(40), ['bait_shrimp', 'pot_heal_athelas']),
+      summary: 'The Grey Gull went onto the rocks east of the village with Sigwald’s nets aboard, and the tide-crawlers have moved in. He wants to know what the sea has done to his fishing.',
+      hint: 'The harbour fishing-spot is off the pier east of the village. The wreck lies on the eastern shore south of the harbour; the crawlers nest in and around it.',
+      text: {
+        intro: "The Grey Gull was my boat, and my father's before me, and now she is a heap of ribs on the eastern rocks with my nets still in her. The wreckers' beacon led her onto the shore — you will hear about the wreckers, if you stay — and now the tide-crawlers have moved into her hull like it was built for them. I am too old to fight crawlers. I am not too old to want to know what the sea is doing. Fish the harbour and tell me what bites; go and look at the wreck; and kill what you find living in her.",
+        accept: 'The harbour first, then the wreck. The crawlers come out at the turn of the tide.',
+        progress: 'What bit? Herring? Bass? And is she — is there anything left of her?',
+        complete: "Herring and bass, and the crawlers gone from her ribs. Then the sea has not forgotten us, whatever the wreckers have done. Take my last shrimp, for there is no boat to use it on, and a draught the elves left with Hulda. And when you go up to the beacon — you will — think of the Gull.",
+      } },
+
+    // ---- q041 L64 · Tol Morwen · Widow Ashild, keeper of the Stone
+    { id: 'q041', name: "The Widow's Wolves", type: 'side', level: L(41), zone: 'tolmorwen', giver: 'npc_morwenvillage_ashild', turnin: 'npc_morwenvillage_ashild', prereq: [],
+      objectives: [
+        { type: 'kill', target: 'morwen_wolf', count: 6, label: 'Hunt the island wolves that howl about the Stone at night' },
+        { type: 'collect', item: 'mat_moonflower', count: 3, from: null, node: 'gn_tolmorwen_1', label: 'Gather moonflowers from the western headland to lay at the Stone' },
+      ],
+      rewards: R(L(41), ['n_ring_hapless', 'pot_heal_athelas']),
+      summary: 'Wolves have come down to the Stone of the Hapless every night since Ashild’s husband was laid there, and she will not have them howling over him. She would have flowers laid instead.',
+      hint: 'The wolves range the ground north of the village and west of the Stone. Moonflowers grow on the western headland beyond the Stone, above the cliffs.',
+      text: {
+        intro: "My husband is under the Stone of the Hapless with the old dead, since the wreck took him in the spring, and every night since the wolves have come down to howl over him. I keep the Stone. I keep it clean and I keep the lamp lit and I will not keep it for wolves. Hunt them — six at the least, for that is the size of the pack — and then go up onto the headland where the moonflowers grow and bring me three, for I would lay flowers where the wolves have been and I cannot climb the headland any more.",
+        accept: 'The wolves at dusk, the flowers at dawn. It is not far. Nothing on this island is far.',
+        progress: 'Are they quiet? I listen every night. And the flowers — three, white, from the headland.',
+        complete: "It was quiet last night. The first quiet night since the spring. And the flowers — oh, they are the ones, he used to bring them. This ring was found by the Stone the day after the wreck; I have never known whose it was, and I have never been able to wear it. Perhaps it was waiting. Take it, and my thanks, which are all I have that is not sorrow.",
+      } },
+
+    // ---- q042 L66 · Forochel · Onni, net-maker of Sûri-kylä
+    { id: 'q042', name: 'Ice-cod for the Long-house', type: 'side', level: L(42), zone: 'forochel', giver: 'npc_surikyla_onni', turnin: 'npc_surikyla_onni', prereq: [],
+      objectives: [
+        { type: 'fish', count: 5, spot: 'fs_forochel_bay', label: 'Fish the Ice-bay through the shore-ice' },
+        { type: 'kill', target: 'forochel_lynx', count: 5, label: 'Kill the snow-lynxes that raid the drying-racks' },
+      ],
+      rewards: R(L(42), ['bait_shrimp', 'food_fish_stew']),
+      summary: 'Onni’s fishers are out on the ice and the racks at Sûri-kylä are empty. Five ice-cod from the bay and fewer lynxes about the racks would see the long-house through the dark days.',
+      hint: 'The Ice-bay fishing-spot is on the shore below the dock, west of the village; cast from the ice-edge. The lynxes hunt the glacier-foot west of the village.',
+      text: {
+        intro: "The long-house eats what the racks hold and the racks hold nothing, because the fishers are three days out on the ice and the snow-lynxes have been at what little was drying. Ice-cod, that is the food of the Lossoth — five fat ones from the bay would feed the house tonight and shame the fishers when they come home. And the lynxes: five of them at least, coming down off the glacier at dusk with their ears flat. You have a rod, I see, and a blade. Use the one, then the other.",
+        accept: 'Cast from the ice-edge below the dock. If the ice cracks, do not argue with it.',
+        progress: 'Five cod, and the lynxes taught manners. The racks are waiting.',
+        complete: "Ice-cod! Five of them, and fat — the fishers will hear of this and be sour for a week, which is good for them. And the lynxes gone from the racks. Here is stew from the pot you have filled, and shrimp from the south that I keep for the great fish. You are Lossoth tonight, whatever you were this morning.",
+      } },
+
+    // ---- q043 L67 · Forochel · Pekka, trader of Sûri-kylä
+    { id: 'q043', name: "The Wreck of the Lost King's Ship", type: 'side', level: L(43), zone: 'forochel', giver: 'npc_surikyla_pekka', turnin: 'npc_surikyla_pekka', prereq: [],
+      objectives: [
+        { type: 'deliver', item: 'qc_trade_ledger', npc: 'npc_surikyla_boat', label: "Bring Pekka's ledger to Sampo the ice-pilot at the landing" },
+        { type: 'explore', pos: { x: 700, z: -1980 }, radius: 20, label: "Find the wreck of the Lost King's ship on the southern ice" },
+        { type: 'kill', target: 'gauredain', count: 6, label: 'Drive the Gauredain raiders from Hylje-leiri, beside the wreck' },
+      ],
+      rewards: R(L(43), ['pot_power_celebrant', 'scroll_battle_50']),
+      summary: 'Pekka’s ledger must reach the ice-pilot before the bay freezes, and the Gauredain have camped beside the wreck of the Lost King’s ship and are stripping it for firewood.',
+      hint: 'Sampo stands at the Ice-bay landing west of the village. The wreck lies on the southern ice, south-east of the village beyond the Gauredain camp at Hylje-leiri.',
+      text: {
+        intro: "Two matters, and a trader knows to put the dull one first. My ledger — every debt of Sûri-kylä, owed and owing — must be in Sampo's hands at the landing before the bay freezes, for he sails south with it to settle the year, and I do not leave the trading-hut. Now the other. The Gauredain have camped at Hylje-leiri, on the southern ice, and they are burning the wreck of the Lost King's ship for firewood — the King of the Dúnedain who died here a thousand years gone, and whose ship the Lossoth have kept as a holy thing since. Drive them off. And look at the wreck, and tell me what is left of her.",
+        accept: 'Sampo first, the ice second. Do not let the ledger get wet; the ink is not what it was.',
+        progress: 'Has Sampo the ledger? And the wreck — how much of her is burnt?',
+        complete: "The ledger sailed, and the Gauredain fled, and the ship — half her ribs, you say, and the stem still standing. Then the Lossoth will keep her another thousand years. You have done a trader a favour and a people a service, and I can only pay for the first: a bottle from the elves and a scroll from the south. The second is paid in another coin, and you will find it spent on your behalf in every hut in the village.",
+      } },
+
+    // ---- q044 L69 · Forochel · Väinö, hunter of Sûri-kylä (requires Book 7 to have begun)
+    { id: 'q044', name: 'The Ice-hunt', type: 'side', level: L(44), zone: 'forochel', giver: 'npc_surikyla_vaino', turnin: 'npc_surikyla_vaino', prereq: ['s076'],
+      objectives: [
+        { type: 'kill', target: 'elder_ice_bear', count: 3, label: 'Slay the elder ice-bears of the old den on the western glacier' },
+        { type: 'collect', item: 'mat_white_bear_pelt', count: 3, from: 'elder_ice_bear', label: 'Bring their white pelts to Väinö' },
+      ],
+      rewards: R(L(44), ['n_cloak_lossoth', 'pot_heal_athelas'], { title: 'Ice-hunter of the Lossoth' }),
+      summary: 'Every winter the Lossoth hunt the old den on the western glacier, and every winter fewer come back. Väinö would have a stranger prove the hunt can still be done — and bring back the pelts to show it.',
+      hint: 'The old den lies far to the west of Sûri-kylä on the glacier-edge, beyond the lynx-grounds of Jä-rannoc. The elder bears do not leave it; go to them.',
+      text: {
+        intro: "Among the Lossoth, a hunter is not a hunter until he has gone to the old den on the western glacier and come back with a white pelt. Last winter four went and two came back, and this winter the young ones look at the glacier and look away. If a stranger does it — a stranger who is not Lossoth, who has no reason to go — then the young ones will have no excuse, and I will have three pelts for the cloaks the long-house needs. Three elder bears. Three pelts. Come back.",
+        accept: 'West, past Jä-rannoc, to the glacier-edge. The bears are old and they are not slow.',
+        progress: 'Three bears, three pelts. The young ones are watching the glacier for you.',
+        complete: "Three pelts. White as the bay-ice, and every one from an elder. The young ones saw you come down off the glacier; there will be four of them at the den by the next moon, and they will come back, because they will be ashamed not to. This cloak is sealskin, the Lossoth make, and it is yours, Ice-hunter — that is the name, and it is not given twice.",
+      } },
+
+    // ---- q045 L70 · Forochel · Kalevi, rune-singer of the long-house
+    { id: 'q045', name: 'Songs of the Long Dark', type: 'side', level: L(45), zone: 'forochel', giver: 'npc_surikyla_kalevi', turnin: 'npc_surikyla_kalevi', prereq: [],
+      objectives: [
+        { type: 'talk', npc: 'npc_surikyla_lauri', label: 'Hear the reindeer-herder’s tale of the long dark' },
+        { type: 'talk', npc: 'npc_surikyla_eero', label: 'Hear the spearman’s tale of the long dark' },
+        { type: 'talk', npc: 'npc_surikyla_aila', label: 'Hear the child’s tale of the long dark' },
+      ],
+      rewards: R(L(45), ['drink_lossoth_tea', 'scroll_fortune_50']),
+      summary: 'The rune-singer of Sûri-kylä is making the song for the winter that has not yet come, and wants three tales of the last one: from a herder, a spearman and a child.',
+      hint: 'Lauri keeps the reindeer-pens south of the long-house, Eero stands watch on the north side of the village, and Aila plays by the long-house door.',
+      text: {
+        intro: "Every year before the long dark, the rune-singer makes the song that will carry the village through it — and the song is made of the last dark, of what people remember. Lauri remembers the reindeer. Eero remembers the wolves. Aila remembers — I do not know what a child remembers; that is why I need her. They will not speak of it to me, for the rune-singer is a thing you do not talk to in daylight. But you are a stranger, and a stranger is a thing you do talk to. Bring me their three tales, and I will make the song.",
+        accept: 'The herder, the spearman, the child. Let each finish; the ending is the part they hide.',
+        progress: 'Three tales. What did Aila say? A child says the true thing by accident.',
+        complete: "The reindeer that walked into the sea. The wolf at the door with a man's eyes. And the child — the child said the dark was warm, because everyone was inside it together. That is the song. That is the whole song; the rest is only tune. Drink this, for the cold you have walked through, and take this scroll, for the luck you have brought us.",
+      } },
+
+    // ---- q046 L72 · Tol Fuin · Berion, shipwrecked mariner of Ost Fuin (Book 8 must have sailed)
+    { id: 'q046', name: 'Lanterns of the Western Ruins', type: 'side', level: L(46), zone: 'tolfuin', giver: 'npc_ostfuin_berion', turnin: 'npc_ostfuin_berion', prereq: ['s089'],
+      objectives: [
+        { type: 'use', node: 'gn_tolfuin_1', count: 3, label: 'Relight the elven lanterns among the western ruins' },
+        { type: 'kill', target: 'fuin_spider', count: 5, label: 'Clear the Fuin spiders that have darkened the ruins' },
+      ],
+      rewards: R(L(46), ['pot_heal_athelas', 'scroll_warding_50']),
+      summary: 'Berion was wrecked on the western cliffs and would have died there but for a light in the ruins that has since gone out. He wants the lanterns lit again for the next poor sailor — and the spiders that put them out dealt with.',
+      hint: 'The western ruins lie on the far side of the island from the haven, west-north-west across the mallorn grove. The lanterns stand among the fallen walls; the spiders nest just south of them.',
+      text: {
+        intro: "I came ashore on the western cliffs in a storm that broke my ship like an egg, and I would have died on the rocks but for a light — a silver light among the old ruins, that showed me the path up. The elves say those lanterns have burned since Beleriand drowned. They are dark now. The spiders have come into the ruins and webbed them over, and the next sailor the sea throws onto those rocks will find no light at all. Relight them. Three of them, and kill the spiders that put them out. I owe the ruins a life; let me pay a little of it through you.",
+        accept: 'West across the island, past the mallorns. The lanterns will take a flame if you ask them right.',
+        progress: 'Three lanterns lit and the spiders gone. I stand on the sea-watch every night now, looking for the light.',
+        complete: "I saw it! Last night, from the sea-watch — three silver lights on the western cliffs, where there had been only dark. Some sailor will see that one day and live, as I lived. The elves gave me these when they found me; I have kept them for the day I could give something back. This is that day.",
+      } },
+
+    // ---- q047 L73 · Tol Fuin · Sírwen, net-mender of Ost Fuin (Book 8 must have sailed)
+    { id: 'q047', name: "The Serpent's Cove", type: 'side', level: L(47), zone: 'tolfuin', giver: 'npc_ostfuin_fishing', turnin: 'npc_ostfuin_fishing', prereq: ['s089'],
+      objectives: [
+        { type: 'fish', count: 5, spot: 'fs_tolfuin_cove', label: 'Fish the shallows of the Serpent’s Cove' },
+        { type: 'kill', target: 'fuin_orc_raider', count: 5, label: 'Drive the orc-raiders from the landing above the cove' },
+        { type: 'collect', item: 'mat_serpent_scale', count: 3, from: 'fuin_orc_raider', label: 'Take back the serpent-scales the raiders have gathered from the shingle' },
+      ],
+      rewards: R(L(47), ['n_ring_serpent', 'bait_shrimp'], { title: 'Serpent-fisher of Tol Fuin' }),
+      summary: 'The best sea-bass on Tol Fuin run in the Serpent’s Cove, and the orc-raiders camped above it have been stealing the catch — and the serpent-scales that wash up on the shingle. Sírwen wants the bass, the raiders gone, and three scales to weight her nets.',
+      hint: 'The Serpent’s Cove is on the south coast of the island, south of the haven. The raiders camp at their landing on the western cliffs above the cove; the cove itself is fished from the shingle. Stay out of the surf — the serpent’s brood lies in it.',
+      text: {
+        intro: "There are sea-bass in the Serpent's Cove as long as your arm, and no elf of Ost Fuin has cast a line there in a season, because the orc-raiders have made their landing on the cliffs above it and take whatever comes out of the water — fish, nets, and the serpent-scales that wash up on the shingle after a storm. I do not ask you to go into the surf; the serpent's brood lies there, and the great serpent herself beyond. I ask you to fish the shallows from the shingle — five bass, if the cove will give them — to drive the raiders from their landing, and to take back three of the scales they have gathered, for a net weighted with serpent-scale sinks true and never fouls.",
+        accept: 'South along the coast to the cove; the raiders are on the cliffs to the west of it. Stay on the shingle. Do not go into the surf.',
+        progress: 'Five bass and three scales. And do not look out to sea for too long; she looks back.',
+        complete: "Bass — and look at the size of them — and three scales that shine like the sea at evening, back from the raiders' sacks. The nets I weight with these will fish for my grandchildren. This ring was made from the first scale ever taken in that cove, long ago, by one who did not come back for it. It is fitting that a fisher of the cove should wear it. Serpent-fisher, the haven will call you; the name is older than you think.",
+      } },
+
+    // ---- q048 L75 · Himling · Osbeorn, wounded soldier of Ras Himling (Book 8 must have sailed)
+    { id: 'q048', name: "Osbeorn's Debt", type: 'side', level: L(48), zone: 'himling', giver: 'npc_rashimling_wounded', turnin: 'npc_rashimling_wounded', prereq: ['s089'],
+      objectives: [
+        { type: 'kill', target: 'himling_uruk', count: 6, label: 'Slay the Uruks of the Gaunt-lord who hold the southern lines' },
+        { type: 'explore', pos: { x: -1720, z: -560 }, radius: 20, label: 'Reach the Old Watchtower where Osbeorn’s company fell' },
+      ],
+      rewards: R(L(48), ['pot_heal_lostkingdom', 'food_isles_feast']),
+      summary: 'Osbeorn’s company held the Old Watchtower against the Uruks until only he came back. He cannot go back up; he would have someone go for him, and make the Uruks pay the difference.',
+      hint: 'The Uruk lines lie south-west of the camp across the heath. The Old Watchtower stands on the southern headland beyond them.',
+      text: {
+        intro: "Twelve of us went up to the Old Watchtower to hold it until the captain could bring the rest of the company, and the Uruks came up the headland in the dark, and I came back. Only I. I have a leg that will not carry me and a debt I cannot pay lying, and the captain will not hear of a wounded man on the lines. So I ask you. Go up to the tower — go all the way, to the top, where we held — and on the way, kill six of the Uruks who took it. One for every two of mine. I will settle the rest myself, when the leg is mended.",
+        accept: 'South-west across the heath, then up the headland. They hold the lines below the tower; you will have to go through.',
+        progress: 'Six of them, and the tower reached. Is the standard still there? Ours was blue.',
+        complete: "The standard was still there. Blue. Then they did not take it down, and the tower is still ours in the only way that matters. Six of them — one for two — and the rest are mine. Take these; the quartermaster gave them to me for the leg and I would rather they went to someone who used them on the headland. And thank you. I can sleep now.",
+      } },
+
+    // ---- q049 L76 · Himling · Hallam, quartermaster of Ras Himling (Book 8 must have sailed)
+    { id: 'q049', name: 'Driftwood for the Palisade', type: 'side', level: L(49), zone: 'himling', giver: 'npc_rashimling_quartermaster', turnin: 'npc_rashimling_quartermaster', prereq: ['s089'],
+      objectives: [
+        { type: 'collect', item: 'mat_yew_bough', count: 4, from: null, node: 'gn_himling_5', label: 'Gather yew driftwood from the southern strand' },
+        { type: 'kill', target: 'himling_warg', count: 5, label: 'Kill the wargs of Himling that hunt the strand' },
+      ],
+      rewards: R(L(49), ['pot_power_lostkingdom', 'food_isles_feast']),
+      summary: 'The palisade of Ras Himling is rotting and there is not a living tree on the island. The only timber is driftwood on the southern strand, and the wargs hunt there.',
+      hint: 'The driftwood lies on the strand south of the camp, below the Old Watchtower headland. The wargs come down onto it from the heath to the east.',
+      text: {
+        intro: "Do you see the palisade? Do you see the gap in the palisade? That gap was a wall last week, and next week the gap will be the whole south side, because the timber the ships brought was green and the sea-wind has rotted it. There is not a tree on Himling; there has not been since the Elder Days. But the strand south of the camp is full of yew driftwood — old, hard, salt-cured, better than anything we brought — and the wargs hunt it at dusk. Four good boughs and five dead wargs, and the wall stands.",
+        accept: 'South to the strand, below the headland. Yew, not pine — pine floats; yew is the stuff that does not.',
+        progress: 'Four boughs. Yew. And the wargs — five, or they will be at the gap before the wood is.',
+        complete: "Yew — and old, look at the grain; that came off a ship that sank before Bree was built. The gap will be closed by nightfall and the wargs will find nothing on the strand but their dead. This is the last of the good wine and the last of the feast the elves sent from Tol Fuin; the captain does not know I have them, and now neither do I.",
+      } },
+
+    // ---- q050 L78 · Himling · Brokk, field-smith of Ras Himling (Book 8 must have sailed)
+    { id: 'q050', name: 'Black Drake-scale', type: 'side', level: L(50), zone: 'himling', giver: 'npc_rashimling_smith', turnin: 'npc_rashimling_smith', prereq: ['s089'],
+      objectives: [
+        { type: 'collect', item: 'mat_drake_scale', count: 4, from: 'himling_drake', label: 'Take scales from the black drakes of the fallen towers' },
+        { type: 'kill', target: 'himling_sorcerer', count: 5, label: 'Slay the Gaunt-cultists who tend the drakes' },
+      ],
+      rewards: R(L(50), ['n_cloak_himring', 'pot_heal_lostkingdom'], { title: 'Drake-slayer of Himling' }),
+      summary: 'Brokk can forge armour that will turn the Gaunt-lord’s sorcery — but only from the scales of the black drakes the cultists breed among the fallen towers. Four scales, and the cultists dead.',
+      hint: 'The fallen towers are on the eastern side of the island, south-east of the fortress; the drakes roost among them, and the Gaunt-cultists gather on the headland north-east of the towers.',
+      text: {
+        intro: "The Gaunt-lord's sorcery goes through iron like it was linen; I have seen it. I have seen it go through mithril. But it does not go through drake-scale — black drake-scale, from the beasts the cultists breed in the fallen towers on the east of the island — and if I had four scales I could make the captain a shirt that would let him stand in front of Draugmar and not die at once. Four scales. And the cultists who tend the drakes: five of them dead, so there are no more drakes after these. Then we go up to the fortress with something better than hope.",
+        accept: 'East, past the barrows, to the fallen towers. The cultists are on the headland above; the drakes below. Take the cultists first, or the drakes will be fed.',
+        progress: 'Four scales, unbent, and five cultists. It is the whole island’s hope you are carrying; carry it carefully.',
+        complete: "Black as night and hard as the Gaunt-lord's heart, and four of them. The shirt will be done by dawn, and the captain will wear it to the gate. This cloak came out of the fortress with the last of the Himring guard, a thousand years ago, and I have carried it from forge to forge waiting for a back it fit. Drake-slayer — it fits. Wear it up the hill.",
+      } },
+  ];
+
+  G.Data.quests.push(...Q);
+  G.Data.questById = G.Data.questById || {};                     // mirror our ids (24_quests rebuilds the map at init)
+  for (const q of Q) G.Data.questById[q.id] = q;
+  if (typeof G.Data.registerQuests === 'function') G.Data.registerQuests(Q);
+})();
