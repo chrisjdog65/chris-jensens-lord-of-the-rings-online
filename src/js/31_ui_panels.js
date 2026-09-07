@@ -1021,3 +1021,847 @@
   Ch.rebuildPreview = function () { PV.needRebuild = true; if (Ch.isOpen()) _pvRebuild(); };
   Ch.onOpen = function (arg) { if (typeof arg === 'string') { Ch.tab = arg; Ch.refresh(); } PV.idleT = 9; const p = _player(); if (p && PV.lastEquipSig !== _equipSig(p)) PV.needRebuild = true; };
   definePanel('character', Ch, { title: 'Character', key: 'KeyC', width: 728, pos: 'left' });
+
+  // ================================================================================================ ABILITIES (K)
+  const Ab = { selected: null, _list: null, _scroll: 0 };
+  function _hasAbility(p, id) { if (!p || !p.abilities) return false; if (typeof p.abilities.has === 'function') return p.abilities.has(id); if (Array.isArray(p.abilities)) return p.abilities.indexOf(id) >= 0; return !!p.abilities[id]; }
+  function _hotbarSlotOf(p, id) { if (!p || !Array.isArray(p.hotbar)) return -1; for (let i = 0; i < p.hotbar.length; i++) if (p.hotbar[i] === id) return i; return -1; }
+  function _setHotbar(slot, id) {
+    const p = _player(); if (!p) return false;
+    if (_has(G.Progress, 'setHotbar')) return G.Progress.setHotbar(slot, id || null);
+    if (!Array.isArray(p.hotbar)) p.hotbar = new Array(20).fill(null);
+    if (id) for (let i = 0; i < p.hotbar.length; i++) if (p.hotbar[i] === id) p.hotbar[i] = null;
+    p.hotbar[slot] = id || null;
+    G.emit('hotbarChanged', slot);
+    if (_has(UI, 'hotbarRefresh')) UI.hotbarRefresh();
+    return true;
+  }
+  function _trainAbility(a) {
+    const p = _player(); if (!p || !a) return;
+    if (_has(G.Progress, 'trainAbility')) { const r = G.Progress.trainAbility(a.id); if (r && r.ok) Ab.mark(); return; }
+    // fallback when 21_combat is absent (harness / degraded build)
+    const cost = _has(G.Data, 'trainCost') ? G.Data.trainCost(a) : _num(a.cost);
+    if (_num(p.level, 1) < a.level) { _notify('Requires level ' + a.level, 'warning'); _sfx('ui_error'); return; }
+    if (_num(p.gold) < cost) { _notify('Not enough coin', 'warning'); _sfx('ui_error'); return; }
+    p.gold = _num(p.gold) - cost;
+    if (!p.abilities || typeof p.abilities.add !== 'function') p.abilities = new Set(Array.isArray(p.abilities) ? p.abilities : []);
+    p.abilities.add(a.id);
+    if (!Array.isArray(p.hotbar)) p.hotbar = new Array(20).fill(null);
+    if (_hotbarSlotOf(p, a.id) < 0) { const free = p.hotbar.indexOf(null); if (free >= 0) p.hotbar[free] = a.id; }
+    G.emit('goldChanged', p.gold); G.emit('abilityTrained', a.id);
+    _notify('You have learned ' + a.name, 'level'); _sfx('achievement');
+    Ab.mark();
+  }
+  function _abRow(a, p, L) {
+    const trained = _hasAbility(p, a.id);
+    const locked = !trained && L < a.level;
+    const cost = _has(G.Data, 'trainCost') ? G.Data.trainCost(a) : _num(a.cost);
+    const canAfford = _num(p.gold) >= cost;
+    const row = el('div', { class: 'ab-row' + (trained ? ' trained' : locked ? ' locked' : '') + (Ab.selected === a.id ? ' selected' : ''), draggable: trained, data: { id: a.id } });
+    row.appendChild(el('div', { class: 'ab-ico', text: a.icon || '✨' }));
+    const kindName = _title(a.kind || '');
+    row.appendChild(el('div', { class: 'ab-name' }, [el('span', { text: a.name }), _chip(kindName), _chip('Level ' + a.level, L >= a.level ? '' : 'side')]));
+    const act = el('div', { class: 'ab-act', style: 'grid-row: span 2; flex-direction: column; align-items: flex-end; gap: 4px;' });
+    if (trained) {
+      act.appendChild(el('span', { class: 'ab-status trained', text: '✓ Trained' }));
+      const sel = el('select', { title: 'Hotbar slot' });
+      sel.appendChild(el('option', { value: '', text: '— not on bar —' }));
+      const keys = C.HOTBAR_KEYS || [];
+      const cur = _hotbarSlotOf(p, a.id);
+      for (let i = 0; i < 20; i++) {
+        const occ = Array.isArray(p.hotbar) && p.hotbar[i] && p.hotbar[i] !== a.id ? _abil(p.hotbar[i]) : null;
+        sel.appendChild(el('option', { value: String(i), text: 'Slot ' + (i + 1) + ' [' + (keys[i] || '') + ']' + (occ ? ' · ' + occ.name : ''), selected: cur === i }));
+      }
+      sel.value = cur >= 0 ? String(cur) : '';
+      sel.addEventListener('change', function () { const v = sel.value; if (v === '') { const c = _hotbarSlotOf(p, a.id); if (c >= 0) _setHotbar(c, null); } else _setHotbar(parseInt(v, 10), a.id); _sfx('ui_click'); Ab.mark(); });
+      sel.addEventListener('mousedown', function (ev) { ev.stopPropagation(); });
+      sel.addEventListener('keydown', function (ev) { ev.stopPropagation(); });
+      _tip(sel, '<div class="tt-name">Set on hotbar</div><div class="tt-line">Choose the slot this ability sits in. You can also drag the row onto the hotbar.</div>');
+      act.appendChild(sel);
+    } else if (locked) {
+      act.appendChild(el('span', { class: 'ab-status locked', text: 'Requires level ' + a.level }));
+      const c = el('span', { class: 'pn-muted small' }); c.innerHTML = cost > 0 ? _money(cost) : 'Free'; act.appendChild(c);
+    } else {
+      const c = el('span', { class: 'small' + (canAfford ? '' : ' pn-muted') }); c.innerHTML = cost > 0 ? _money(cost) : '<span class="pn-gold">Free</span>'; act.appendChild(c);
+      const b = _btn('Train', function () { _trainAbility(a); }, 'primary small');
+      if (!canAfford) b.classList.add('disabled');
+      act.appendChild(b);
+    }
+    row.appendChild(act);
+    let desc = a.descPlain || a.desc || '';
+    if (_has(G.Data, 'abilityDesc')) { try { desc = G.Data.abilityDesc(a, p) || desc; } catch (_) { /* ignore */ } }
+    row.appendChild(el('div', { class: 'ab-desc', text: desc + '  ·  ' + _num(a.power) + ' power' + (a.cooldown > 0 ? ' · ' + a.cooldown + ' s cooldown' : '') }));
+    _tip(row, function () { let h = _has(G.Data, 'abilityTooltipHTML') ? G.Data.abilityTooltipHTML(a, p) : '<div class="tt-name">' + esc(a.name) + '</div>'; if (trained) h += '<div class="tt-sub">Drag onto the hotbar to place it</div>'; return h; });
+    row.addEventListener('click', function () { Ab.selected = a.id; row.parentNode && Array.prototype.forEach.call(row.parentNode.querySelectorAll('.ab-row'), function (r) { r.classList.toggle('selected', r === row); }); });
+    if (trained) {
+      row.addEventListener('dragstart', function (ev) { _dtSet(ev, 'text/ability', a.id); _dtSet(ev, 'text/plain', a.id); try { ev.dataTransfer.effectAllowed = 'copyMove'; } catch (_) { /* ignore */ } _tipHide(); });
+    }
+    return row;
+  }
+  function _traitCard(t, L, unlocked, isRace) {
+    const bonus = _has(G.Data, 'describeBonus') ? G.Data.describeBonus(t, unlocked ? L : 0) : '';
+    return el('div', { class: 'ab-trait' + (unlocked ? '' : ' locked') }, [
+      el('div', { class: 'ab-trait-lvl', text: isRace ? 'Race' : 'L' + t.level }),
+      el('div', { class: 'pn-grow' }, [
+        el('div', { class: 'ab-trait-name', text: t.name + (unlocked ? '' : '  —  unlocks at level ' + t.level) }),
+        bonus ? el('div', { class: 'ab-trait-bonus', text: bonus }) : null,
+        t.desc ? el('div', { class: 'ab-trait-desc', text: t.desc }) : null,
+      ]),
+    ]);
+  }
+  Ab.render = function () {
+    const body = Ab.body; if (!body) return;
+    if (Ab._list) Ab._scroll = Ab._list.scrollTop;
+    _clear(body);
+    const p = _player();
+    if (!p) { body.appendChild(el('div', { class: 'pn-empty', text: 'No character yet.' })); return; }
+    const cd = _cls(p.cls), rd = _race(p.race), L = _num(p.level, 1);
+    let list = [];
+    try { list = _has(G.Data, 'abilitiesFor') ? (G.Data.abilitiesFor(p.cls) || []) : []; } catch (err) { _report(err, 'abilitiesFor'); }
+    list = list.slice().sort(function (a, b) { return a.level - b.level; });
+    let trained = 0; list.forEach(function (a) { if (_hasAbility(p, a.id)) trained++; });
+    const top = el('div', { class: 'ab-top' });
+    const left = el('span'); left.innerHTML = '<span class="pn-head-name" style="font-size:16px">' + esc((cd && cd.name) || _title(p.cls || '')) + ' abilities</span> <span class="pn-muted">' + trained + ' of ' + list.length + ' trained</span>';
+    const right = el('span'); right.innerHTML = '<span class="pn-muted">Purse </span>' + _money(_num(p.gold));
+    top.appendChild(left); top.appendChild(right);
+    body.appendChild(top);
+    const wrap = el('div', { class: 'ab-list' });
+    wrap.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    Ab._list = wrap;
+    if (!list.length) wrap.appendChild(el('div', { class: 'pn-empty', text: 'No abilities are known for this class.' }));
+    list.forEach(function (a) { wrap.appendChild(_abRow(a, p, L)); });
+    const traits = el('div', { class: 'ab-traits' });
+    traits.appendChild(el('div', { class: 'section-title', text: 'Class traits' }));
+    const all = (G.Data && G.Data.classTraits && G.Data.classTraits[p.cls]) || [];
+    let shownNext = false;
+    if (!all.length) traits.appendChild(el('div', { class: 'pn-empty', text: 'No class traits.' }));
+    all.forEach(function (t) { if (L >= t.level) traits.appendChild(_traitCard(t, L, true)); else if (!shownNext) { shownNext = true; traits.appendChild(_traitCard(t, L, false)); } });
+    if (rd && rd.racialTrait) { traits.appendChild(el('div', { class: 'section-title', text: 'Racial trait — ' + rd.name })); traits.appendChild(_traitCard(rd.racialTrait, L, true, true)); }
+    wrap.appendChild(traits);
+    body.appendChild(wrap);
+    if (Ab._scroll) wrap.scrollTop = Ab._scroll;
+  };
+  Ab.select = function (id) { Ab.selected = id; if (Ab.isOpen()) { Ab.refresh(); const r = Ab.body && Ab.body.querySelector('.ab-row.selected'); if (r && typeof r.scrollIntoView === 'function') r.scrollIntoView({ block: 'nearest' }); } };
+  Ab.onOpen = function (arg) { if (typeof arg === 'string') Ab.select(arg); };
+  definePanel('abilities', Ab, { title: 'Abilities & Training', key: 'KeyK', width: 660, height: Math.min(640, Math.max(420, _vh() - 80)), pos: 'center' });
+
+  // ================================================================================================ JOURNAL (J)
+  const Jn = { tab: 'active', selected: null, _list: null, _scroll: 0 };
+  function _bookOf(d) { return d && d.book ? String(d.book) : (d && d.type === 'story' ? 'The Epic Story' : ''); }
+  function _chapterOf(d) {
+    if (!d || d.type !== 'story') return 0;
+    if (typeof d.chapter === 'number') return d.chapter;
+    const book = _bookOf(d);
+    const ids = _allQuests().filter(function (q) { return q.type === 'story' && _bookOf(q) === book; }).map(function (q) { return q.id; }).sort();
+    return ids.indexOf(d.id) + 1;
+  }
+  function _jnEntries(tab) {
+    const Q = G.Quests, p = _player(), L = p ? _num(p.level, 1) : 1;
+    const out = [];
+    if (tab === 'active') {
+      let act = []; try { act = (Q && _has(Q, 'active')) ? (Q.active() || []) : []; } catch (err) { _report(err, 'Quests.active'); }
+      act.forEach(function (q) { const d = _questData(q); if (d && out.indexOf(d) < 0) out.push(d); });
+      if (!act.length && Q && Q.state) for (const id in Q.state) { const s = Q.state[id]; if (s && (s.status === 'active' || s.status === 'complete')) { const d = _questData(id); if (d) out.push(d); } }
+    } else if (tab === 'available') {
+      _allQuests().forEach(function (d) {
+        const st = _qstatus(d.id);
+        if (st !== 'available') return;
+        if (_num(d.level, 1) > L + 5) return;
+        const pre = Array.isArray(d.prereq) ? d.prereq : (d.prereq ? [d.prereq] : []);
+        for (let i = 0; i < pre.length; i++) if (!_qdone(pre[i])) return;
+        out.push(d);
+      });
+    } else {
+      _allQuests().forEach(function (d) { if (_qstatus(d.id) === 'done') out.push(d); });
+    }
+    return out;
+  }
+  function _jnRow(d, tracked) {
+    const st = _qstatus(d.id);
+    const row = el('div', { class: 'jn-row' + (Jn.selected === d.id ? ' selected' : '') + (tracked ? ' tracked' : '') + (st === 'complete' ? ' ready' : ''), data: { id: d.id } });
+    const ch = _chapterOf(d);
+    row.appendChild(el('span', { class: 'jn-ch', text: ch ? String(ch) + '.' : '•' }));
+    const nm = el('span', { class: 'jn-nm', text: d.name || _title(d.id) });
+    row.appendChild(nm);
+    if (Jn.tab === 'available' && d.giver) row.appendChild(el('span', { class: 'jn-giver', text: _npcName(d.giver) }));
+    row.appendChild(el('span', { class: 'jn-lv', text: String(_num(d.level, 1)) }));
+    if (tracked) row.appendChild(el('span', { class: 'jn-star', text: '★' }));
+    row.addEventListener('click', function () { Jn.selected = d.id; _sfx('ui_click'); Jn.refresh(); });
+    _tip(row, function () { return '<div class="tt-name">' + esc(d.name || d.id) + '</div><div class="tt-line">' + esc((d.type === 'story' ? 'Story' : 'Side quest') + ' · Level ' + _num(d.level, 1) + ' · ' + _zoneName(d.zone)) + '</div>' + (st === 'complete' ? '<div class="tt-stat">Ready to turn in</div>' : '') + (d.giver ? '<div class="tt-sub">From ' + esc(_npcName(d.giver)) + '</div>' : ''); });
+    return row;
+  }
+  function _objProgress(d, i) {
+    const o = d.objectives[i], st = _qstate(d.id);
+    const count = Math.max(1, _num(o.count, 1) | 0);
+    let p = st && Array.isArray(st.progress) ? _num(st.progress[i]) | 0 : 0;
+    const status = _qstatus(d.id);
+    if (status === 'complete' || status === 'done') p = count;
+    p = clamp(p, 0, count);
+    return { count: count, p: p, done: p >= count, label: o.label || _title(o.type || 'objective') };
+  }
+  function _rewardChips(d, chosenIdx, onChoose) {
+    const r = d.rewards || {};
+    const box = el('div', { class: 'jn-rewards' });
+    if (r.xp) box.appendChild(el('span', { class: 'jn-reward' }, [el('span', { class: 'icon', text: '★', style: 'color:#cfa8ff' }), el('span', { text: _fmt(r.xp) + ' XP' })]));
+    if (r.gold) { const g = el('span', { class: 'jn-reward' }); g.innerHTML = '<span class="icon">●</span>' + _money(r.gold); box.appendChild(g); }
+    (Array.isArray(r.items) ? r.items : []).forEach(function (tid) { const inst = { tid: typeof tid === 'string' ? tid : tid.tid, count: (tid && tid.count) || 1 }; const c = el('span', { class: 'jn-reward' }); c.innerHTML = _iconHTML(inst, 28) + '<span class="rarity-' + _rarityOf(inst) + '">' + esc(_itemName(inst)) + (inst.count > 1 ? ' ×' + inst.count : '') + '</span>'; _tip(c, function () { return _itemTip(inst, _player()); }); box.appendChild(c); });
+    if (r.title) box.appendChild(el('span', { class: 'jn-reward' }, [el('span', { class: 'icon', text: '❖', style: 'color:var(--gold-bright)' }), el('span', { text: 'Title: ' + _titleText(r.title, _player()) })]));
+    if (r.mount) { const inst = { tid: r.mount, count: 1 }; const c = el('span', { class: 'jn-reward' }); c.innerHTML = _iconHTML(inst, 28) + '<span>Mount: ' + esc(_itemName(inst)) + '</span>'; _tip(c, function () { return _itemTip(inst, _player()); }); box.appendChild(c); }
+    if (r.abilityPoints) box.appendChild(el('span', { class: 'jn-reward' }, [el('span', { class: 'icon', text: '✦' }), el('span', { text: r.abilityPoints + ' ability point' + (r.abilityPoints > 1 ? 's' : '') })]));
+    const out = el('div');
+    out.appendChild(box);
+    if (Array.isArray(r.choose) && r.choose.length) {
+      out.appendChild(el('div', { class: 'pn-sub', text: 'Choose one:' }));
+      const ch = el('div', { class: 'dg-choose' });
+      r.choose.forEach(function (tid, i) {
+        const inst = { tid: typeof tid === 'string' ? tid : tid.tid, count: 1 };
+        const c = el('div', { class: 'dg-choice' + (chosenIdx === i ? ' on' : '') });
+        c.innerHTML = _iconHTML(inst, 30) + '<span class="rarity-' + _rarityOf(inst) + '">' + esc(_itemName(inst)) + '</span>';
+        _tip(c, function () { return _itemTip(inst, _player()); }, { keepOnClick: true });
+        if (onChoose) c.addEventListener('click', function () { onChoose(i); Array.prototype.forEach.call(ch.children, function (n, k) { n.classList.toggle('on', k === i); }); _sfx('ui_click'); });
+        ch.appendChild(c);
+      });
+      out.appendChild(ch);
+    }
+    return out;
+  }
+  function _questDetail(d, opts) {
+    opts = opts || {};
+    const box = el('div');
+    const st = _qstatus(d.id);
+    box.appendChild(el('div', { class: 'jn-qname', text: d.name || _title(d.id) }));
+    const chips = el('div', { class: 'jn-chips' }, [
+      _chip(d.type === 'story' ? 'Story' : 'Side quest', d.type === 'story' ? 'story' : 'side'),
+      _chip('Level ' + _num(d.level, 1)),
+      _chip(_zoneName(d.zone)),
+      d.type === 'story' && _bookOf(d) ? _chip(_bookOf(d) + (_chapterOf(d) ? ' · Chapter ' + _chapterOf(d) : '')) : null,
+      st === 'complete' ? _chip('Ready to turn in', 'story') : st === 'done' ? _chip('Completed') : st === 'active' ? _chip('In progress') : null,
+    ]);
+    box.appendChild(chips);
+    const who = el('div', { class: 'pn-sub' });
+    who.innerHTML = (d.giver ? 'Given by <b>' + esc(_npcName(d.giver)) + '</b>' : '') + (d.turnin && d.turnin !== d.giver ? ' · Return to <b>' + esc(_npcName(d.turnin)) + '</b>' : (d.turnin ? ' · Return to the same' : ''));
+    box.appendChild(who);
+    const T = d.text || {};
+    const mode = opts.mode || (st === 'complete' ? 'turnin' : st === 'done' ? 'done' : st === 'active' ? 'progress' : 'available');
+    let text = T.intro || d.desc || '';
+    if (mode === 'turnin' || mode === 'done') text = T.complete || text;
+    else if (mode === 'progress' && !opts.fullIntro) text = (T.intro || '') + (T.progress ? '\n\n' + T.progress : '');
+    if (text) { const t = el('div', { class: 'jn-text' }); text.split(/\n\n+/).forEach(function (para, i) { if (i) t.appendChild(el('br')); t.appendChild(document.createTextNode(para)); }); box.appendChild(t); }
+    if (Array.isArray(d.objectives) && d.objectives.length) {
+      box.appendChild(el('div', { class: 'section-title', text: 'Objectives' + (d.sequential ? ' (in order)' : '') }));
+      const ol = el('div', { class: 'jn-obj' });
+      d.objectives.forEach(function (o, i) {
+        const pr = _objProgress(d, i);
+        const showCount = pr.count > 1 || o.type === 'kill' || o.type === 'collect' || o.type === 'use' || o.type === 'fish';
+        ol.appendChild(el('div', { class: 'jn-obj-row' + (pr.done ? ' done' : '') }, [el('span', { class: 'jn-obj-lbl', text: pr.label }), _bar(pr.p / pr.count, pr.done ? 'green' : 'cast', showCount ? pr.p + ' / ' + pr.count : (pr.done ? 'Done' : '—'))]));
+      });
+      box.appendChild(ol);
+    }
+    if (d.rewards) { box.appendChild(el('div', { class: 'section-title', text: 'Rewards' })); box.appendChild(_rewardChips(d, opts.chosen, opts.onChoose)); }
+    return box;
+  }
+  function _jnDetail(d) {
+    const box = _questDetail(d);
+    const st = _qstatus(d.id), Q = G.Quests;
+    const acts = el('div', { class: 'jn-actions' });
+    if (st === 'active' || st === 'complete') {
+      const tracked = Q && Q.tracked === d.id;
+      acts.appendChild(_btn(tracked ? 'Untrack' : 'Track', function () { if (_has(Q, 'setTracked')) Q.setTracked(tracked ? null : d.id); else if (Q) Q.tracked = tracked ? null : d.id; if (_has(UI, 'tracker') && UI.tracker && _has(UI.tracker, 'refresh')) UI.tracker.refresh(); _sfx('ui_click'); Jn.refresh(); }, tracked ? '' : 'primary'));
+      acts.appendChild(_btn('Show on map', function () { let o = null; try { o = _has(Q, 'nextObjective') ? Q.nextObjective(d.id) : null; } catch (_) { o = null; } if (o && o.pos) { _open('map'); Mp.focus(o.pos.x, o.pos.z); } else _notify('No location is known for that objective.', 'info'); }));
+      acts.appendChild(_btn('Abandon', function () { _confirm('Abandon "' + (d.name || d.id) + '"? Your progress on it will be lost.', function () { if (_has(Q, 'abandon')) Q.abandon(d.id); _sfx('ui_click'); Jn.selected = null; Jn.refresh(); }, { title: 'Abandon quest', yes: 'Abandon' }); }, 'danger'));
+    } else if (st === 'available') {
+      const rec = _npcRec(d.giver);
+      acts.appendChild(_btn('Show giver on map', function () { if (rec && rec.pos) { _setWaypoint(rec.pos.x, rec.pos.z, rec.name || 'Quest giver'); _open('map'); Mp.focus(rec.pos.x, rec.pos.z); } else _notify('The quest giver cannot be found on the map.', 'info'); }));
+      if (rec && rec.town) acts.appendChild(el('span', { class: 'pn-sub', style: 'align-self:center', text: 'Found in ' + ((_town(rec.town) || {}).name || _title(rec.town)) }));
+    } else if (st === 'done') {
+      acts.appendChild(el('span', { class: 'pn-sub', style: 'align-self:center;color:#7fd47a', text: '✓ You have completed this quest.' }));
+    }
+    box.appendChild(acts);
+    return box;
+  }
+  Jn.render = function () {
+    const body = Jn.body; if (!body) return;
+    if (Jn._list) Jn._scroll = Jn._list.scrollTop;
+    _clear(body);
+    const Q = G.Quests;
+    const left = el('div', { class: 'jn-left' });
+    const tabs = el('div', { class: 'tabs' });
+    [['active', 'Active'], ['available', 'Available'], ['completed', 'Completed']].forEach(function (t) { tabs.appendChild(el('span', { class: 'tab' + (Jn.tab === t[0] ? ' active' : ''), text: t[1], onclick: function () { Jn.setTab(t[0]); } })); });
+    left.appendChild(tabs);
+    const list = el('div', { class: 'jn-list' });
+    list.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    Jn._list = list;
+    const entries = _jnEntries(Jn.tab);
+    const tracked = Q && Q.tracked;
+    if (Jn.selected && !entries.some(function (d) { return d.id === Jn.selected; })) { if (entries.length && Jn.tab !== 'available') Jn.selected = entries[0].id; else if (entries.length) Jn.selected = entries[0].id; else Jn.selected = null; }
+    if (!Jn.selected && entries.length) Jn.selected = entries[0].id;
+    if (!entries.length) list.appendChild(el('div', { class: 'pn-empty', text: Jn.tab === 'active' ? 'No active quests. Look for a golden ! above the folk of Middle-earth.' : Jn.tab === 'available' ? 'No quests are available at your level right now.' : 'You have not completed any quests yet.' }));
+    else {
+      const story = entries.filter(function (d) { return d.type === 'story'; }).sort(function (a, b) { return a.id < b.id ? -1 : 1; });
+      const side = entries.filter(function (d) { return d.type !== 'story'; }).sort(function (a, b) { return _num(a.level) - _num(b.level) || (a.id < b.id ? -1 : 1); });
+      let lastBook = null;
+      story.forEach(function (d) { const b = _bookOf(d); if (b !== lastBook) { lastBook = b; list.appendChild(el('div', { class: 'jn-group', text: b || 'Story' })); } list.appendChild(_jnRow(d, tracked === d.id)); });
+      const zones = {}; side.forEach(function (d) { (zones[d.zone || 'wild'] = zones[d.zone || 'wild'] || []).push(d); });
+      Object.keys(zones).sort(function (a, b) { const za = _zone(a), zb = _zone(b); return (_num(za && za.level && za.level[0], 99) - _num(zb && zb.level && zb.level[0], 99)); }).forEach(function (z) { list.appendChild(el('div', { class: 'jn-group', text: 'Side quests · ' + _zoneName(z) })); zones[z].forEach(function (d) { list.appendChild(_jnRow(d, tracked === d.id)); }); });
+    }
+    left.appendChild(list);
+    const detail = el('div', { class: 'jn-detail' });
+    detail.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    const sel = Jn.selected ? _questData(Jn.selected) : null;
+    if (sel) detail.appendChild(_jnDetail(sel));
+    else detail.appendChild(el('div', { class: 'pn-empty', text: 'Select a quest to read its story, objectives and rewards.' }));
+    body.appendChild(el('div', { class: 'jn-cols' }, [left, detail]));
+    // completion strip
+    let comp = { done: 0, total: 150, pct: 0 };
+    try { if (_has(Q, 'completion')) comp = Q.completion() || comp; } catch (_) { /* ignore */ }
+    let sDone = 0, sTot = 0, qDone = 0, qTot = 0;
+    _allQuests().forEach(function (d) { const done = _qdone(d.id); if (d.type === 'story') { sTot++; if (done) sDone++; } else { qTot++; if (done) qDone++; } });
+    if (!sTot && !qTot) { sTot = 100; qTot = 50; }
+    const pct = _num(comp.pct, comp.total ? comp.done / comp.total * 100 : 0);
+    const compEl = el('span', { class: 'jn-comp' });
+    compEl.innerHTML = 'Quests: <b>' + _num(comp.done) + '/' + _num(comp.total, 150) + '</b> (' + pct.toFixed(1) + '%) — Story ' + sDone + '/' + sTot + ' · Side ' + qDone + '/' + qTot;
+    const aqActive = !!(G.AutoQuest && G.AutoQuest.active);
+    const aqBtn = _btn(aqActive ? 'Stop auto-quest' : 'Start auto-quest', function () {
+      if (!G.AutoQuest) { _notify('Auto-quest is not available.', 'warning'); return; }
+      if (G.AutoQuest.active) { if (_has(G.AutoQuest, 'stop')) G.AutoQuest.stop(); _notify('Auto-quest stopped.', 'info'); }
+      else { if (_has(G.AutoQuest, 'start')) G.AutoQuest.start(); _notify('Auto-quest started — press B to stop.', 'quest'); }
+      Jn.refresh();
+    }, aqActive ? 'danger small' : 'small');
+    _tip(aqBtn, '<div class="tt-name">Auto-quest (B)</div><div class="tt-desc">Lets the bot accept, complete and turn in every quest in Middle-earth, all the way to 100%.</div>');
+    body.appendChild(el('div', { class: 'jn-bottom' }, [compEl, _bar(pct / 100, 'green'), aqBtn]));
+    if (Jn._scroll) list.scrollTop = Jn._scroll;
+  };
+  Jn.setTab = function (t) { Jn.tab = (t === 'available' || t === 'completed') ? t : 'active'; Jn._scroll = 0; _sfx('ui_click'); Jn.refresh(); };
+  Jn.select = function (id) {
+    if (!id) return;
+    const st = _qstatus(id);
+    Jn.tab = (st === 'active' || st === 'complete') ? 'active' : st === 'done' ? 'completed' : 'available';
+    Jn.selected = id;
+    Jn.refresh();
+    if (Jn.isOpen()) { const r = Jn.body && Jn.body.querySelector('.jn-row.selected'); if (r && typeof r.scrollIntoView === 'function') r.scrollIntoView({ block: 'nearest' }); }
+  };
+  Jn.onOpen = function (arg) { if (typeof arg === 'string') Jn.select(arg); };
+  definePanel('journal', Jn, { title: 'Quest Journal', key: 'KeyJ', width: 860, height: Math.min(600, Math.max(420, _vh() - 80)), pos: 'center' });
+
+  // ================================================================================================ MAP (M)
+  const MAP_SZ = 1024, MAP_MIN_ZOOM = 0.5, MAP_MAX_ZOOM = 6;
+  const MP = { canvas: null, ctx: null, W: 0, H: 0, dpr: 1, cx: MAP_SZ / 2, cy: MAP_SZ / 2, zoom: 2, drag: null, hits: [], hover: null, wpMode: false, showAI: true, showLegend: true, t: 0, pulse: 0, dirty: true, img: null, cursor: { x: 0, z: 0, sx: 0, sy: 0, inside: false }, coordsEl: null, legendEl: null, wpBtn: null, aiBtn: null, lgBtn: null, zoneEl: null, ro: null, aiList: [], aiT: 9, hostBody: null, _bound: false, _tipShown: false };
+  const Mp = {};
+  const TOWN_COLOR = { hobbit: '#a6e39f', man: '#ffd54a', elf: '#bfe6ff', dwarf: '#f0c080', ruin: '#d8c8a0', camp: '#e0b890', lossoth: '#d0f0ff' };
+  const POI_GLYPH = { ruin: '▲', landmark: '◆', cave: '●', camp: '▲', bridge: '═', tower: '♜', grave: '✝', lake: '≈', waterfall: '≈', shrine: '✦', dungeon: '☠' };
+  function _world_() { return C.WORLD_SIZE || 4096; }
+  function _w2mx(x) { const W = _world_(); return (x + W / 2) / W * MAP_SZ; }
+  function _m2wx(mx) { const W = _world_(); return mx / MAP_SZ * W - W / 2; }
+  function _mpSX(x) { return (_w2mx(x) - MP.cx) * MP.zoom + MP.W / 2; }
+  function _mpSY(z) { return (_w2mx(z) - MP.cy) * MP.zoom + MP.H / 2; }
+  function _mpWorldX(sx) { return _m2wx((sx - MP.W / 2) / MP.zoom + MP.cx); }
+  function _mpWorldZ(sy) { return _m2wx((sy - MP.H / 2) / MP.zoom + MP.cy); }
+  function _mpClampView() {
+    MP.zoom = clamp(MP.zoom, MAP_MIN_ZOOM, MAP_MAX_ZOOM);
+    const hw = MP.W / 2 / MP.zoom, hh = MP.H / 2 / MP.zoom;
+    MP.cx = clamp(MP.cx, Math.min(hw, MAP_SZ / 2), Math.max(MAP_SZ - hw, MAP_SZ / 2));
+    MP.cy = clamp(MP.cy, Math.min(hh, MAP_SZ / 2), Math.max(MAP_SZ - hh, MAP_SZ / 2));
+  }
+  function _mpResize() {
+    const host = MP.hostBody; if (!host || !MP.canvas) return;
+    const W = Math.max(200, host.clientWidth || 0), H = Math.max(160, host.clientHeight || 0), dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (W === MP.W && H === MP.H && dpr === MP.dpr) return;
+    MP.W = W; MP.H = H; MP.dpr = dpr;
+    MP.canvas.width = Math.round(W * dpr); MP.canvas.height = Math.round(H * dpr);
+    MP.dirty = true;
+  }
+  function _mpZoneAt(x, z) { if (_has(G.Terrain, 'zoneAt')) { try { return G.Terrain.zoneAt(x, z); } catch (_) { /* ignore */ } } const w = _world(); if (w && _has(w, 'zoneAt')) return w.zoneAt(x, z); return ''; }
+  function _mpHit(x, y, r, html, extra) { const h = { x: x, y: y, r: r, html: html }; if (extra) Object.assign(h, extra); MP.hits.push(h); return h; }
+  function _mpLabel(ctx, text, x, y, font, color, align) {
+    ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.75)'; ctx.lineJoin = 'round';
+    ctx.strokeText(text, x, y); ctx.fillText(text, x, y);
+  }
+  function _mpVisible(sx, sy, m) { m = m || 40; return sx > -m && sy > -m && sx < MP.W + m && sy < MP.H + m; }
+  function _mpDrawPin(ctx, x, y, color, n, big) {
+    const r = big ? 10 : 8;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,.8)'; ctx.shadowBlur = 4;
+    ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - r * 0.8, y - r * 1.3); ctx.arc(x, y - r * 1.6, r, Math.PI * 0.75, Math.PI * 0.25, false); ctx.lineTo(x, y); ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(40,25,5,.9)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = '#2a1a05'; ctx.font = 'bold ' + (big ? 11 : 10) + 'px Cinzel, Georgia, serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(n), x, y - r * 1.6 + 0.5);
+    ctx.restore();
+  }
+  function _mpDraw() {
+    const ctx = MP.ctx; if (!ctx || !MP.W) return;
+    const p = _player(), w = _world(), Q = G.Quests, zoom = MP.zoom, dpr = MP.dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, MP.W, MP.H);
+    ctx.fillStyle = '#0d1a26'; ctx.fillRect(0, 0, MP.W, MP.H);
+    const ox = MP.W / 2 - MP.cx * zoom, oy = MP.H / 2 - MP.cy * zoom, size = MAP_SZ * zoom;
+    if (!MP.img) { try { MP.img = _has(G.Terrain, 'mapCanvas') ? G.Terrain.mapCanvas(MAP_SZ) : null; } catch (_) { MP.img = null; } }
+    if (MP.img && MP.img.width) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = zoom > 2 ? 'low' : 'high'; ctx.drawImage(MP.img, 0, 0, MP.img.width, MP.img.height, ox, oy, size, size); }
+    else {
+      ctx.fillStyle = '#3d5a2e'; ctx.fillRect(ox, oy, size, size);
+      if (w && Array.isArray(w.zones)) w.zones.forEach(function (z) { if (!z.center) return; ctx.fillStyle = 'rgba(120,150,80,.35)'; ctx.beginPath(); ctx.arc(_mpSX(z.center.x), _mpSY(z.center.z), _num(z.radius, 200) / _world_() * size, 0, Math.PI * 2); ctx.fill(); });
+    }
+    // map edge / vignette
+    ctx.strokeStyle = 'rgba(212,175,90,.55)'; ctx.lineWidth = 2; ctx.strokeRect(ox, oy, size, size);
+    const vg = ctx.createRadialGradient(MP.W / 2, MP.H / 2, Math.min(MP.W, MP.H) * 0.45, MP.W / 2, MP.H / 2, Math.max(MP.W, MP.H) * 0.75);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.45)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, MP.W, MP.H);
+    MP.hits.length = 0;
+    // ---- zones
+    if (w && Array.isArray(w.zones)) {
+      const a = zoom < 2.5 ? 0.9 : Math.max(0.2, 0.9 - (zoom - 2.5) * 0.3);
+      w.zones.forEach(function (z) {
+        if (!z.center) return;
+        const sx = _mpSX(z.center.x), sy = _mpSY(z.center.z);
+        if (!_mpVisible(sx, sy, 120)) return;
+        ctx.globalAlpha = a;
+        const fs = clamp(9 + 7 * zoom, 13, 30);
+        _mpLabel(ctx, (z.name || z.id).toUpperCase(), sx, sy, 'bold ' + fs + 'px Cinzel, Georgia, serif', '#f3e6c2');
+        if (Array.isArray(z.level)) _mpLabel(ctx, 'Levels ' + z.level[0] + ' – ' + z.level[1], sx, sy + fs * 0.75, (fs * 0.5 + 4) + 'px "Crimson Pro", Georgia, serif', '#e0d4b0');
+        ctx.globalAlpha = 1;
+      });
+    }
+    // ---- POIs
+    if (w && Array.isArray(w.pois) && zoom >= 1.1) {
+      w.pois.forEach(function (o) {
+        if (!o.pos) return;
+        const sx = _mpSX(o.pos.x), sy = _mpSY(o.pos.z);
+        if (!_mpVisible(sx, sy)) return;
+        ctx.fillStyle = '#e8dcc0'; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(sx, sy - 5); ctx.lineTo(sx + 5, sy); ctx.lineTo(sx, sy + 5); ctx.lineTo(sx - 5, sy); ctx.closePath(); ctx.fill(); ctx.stroke();
+        if (zoom >= 2.4) _mpLabel(ctx, o.name, sx, sy + 12, '10px "Crimson Pro", Georgia, serif', '#e8dcc0');
+        _mpHit(sx, sy, 9, '<div class="tt-name">' + esc(o.name) + '</div><div class="tt-line">' + esc(_title(o.kind || 'landmark') + ' · ' + _zoneName(o.zone)) + '</div>' + (o.desc ? '<div class="tt-desc">' + esc(o.desc) + '</div>' : ''), { kind: 'poi', wx: o.pos.x, wz: o.pos.z, name: o.name });
+      });
+    }
+    // ---- fishing spots
+    if (w && Array.isArray(w.fishingSpots) && zoom >= 1.5) {
+      w.fishingSpots.forEach(function (s) {
+        if (!s.pos) return;
+        const sx = _mpSX(s.pos.x), sy = _mpSY(s.pos.z);
+        if (!_mpVisible(sx, sy)) return;
+        _mpLabel(ctx, '🐟', sx, sy, '11px sans-serif', '#8fd0ff');
+        const fish = Array.isArray(s.fish) ? s.fish.map(function (f) { return _itemName({ tid: f.tid, count: 1 }); }).slice(0, 4).join(', ') : '';
+        _mpHit(sx, sy, 8, '<div class="tt-name">' + esc(s.name) + '</div><div class="tt-line">Fishing spot · ' + esc(_zoneName(s.zone)) + '</div>' + (fish ? '<div class="tt-desc">' + esc(fish) + '</div>' : ''), { kind: 'fish', wx: s.pos.x, wz: s.pos.z, name: s.name });
+      });
+    }
+    // ---- docks
+    if (w && Array.isArray(w.docks)) {
+      w.docks.forEach(function (d) {
+        if (!d.pos) return;
+        const sx = _mpSX(d.pos.x), sy = _mpSY(d.pos.z);
+        if (!_mpVisible(sx, sy)) return;
+        _mpLabel(ctx, '⚓', sx, sy, 'bold 13px sans-serif', '#7fe0ff');
+        const routes = Array.isArray(d.routes) ? d.routes.map(function (id) { const t = _dock(id); return t ? t.name : id; }).join(', ') : '';
+        _mpHit(sx, sy, 9, '<div class="tt-name">' + esc(d.name) + '</div><div class="tt-line">Dock · ' + esc((_town(d.town) || {}).name || _title(d.town || '')) + '</div>' + (routes ? '<div class="tt-desc">Sails to: ' + esc(routes) + '</div>' : ''), { kind: 'dock', wx: d.pos.x, wz: d.pos.z, name: d.name });
+      });
+    }
+    // ---- towns
+    if (w && Array.isArray(w.towns)) {
+      w.towns.forEach(function (t) {
+        if (!t.pos) return;
+        const sx = _mpSX(t.pos.x), sy = _mpSY(t.pos.z);
+        if (!_mpVisible(sx, sy, 80)) return;
+        const col = TOWN_COLOR[t.style] || '#ffd54a';
+        ctx.fillStyle = col; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(sx, sy, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = col; ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(sx, sy, 7.5, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+        if (zoom >= 0.75) _mpLabel(ctx, t.name, sx, sy - 12, 'bold ' + clamp(9 + zoom * 1.5, 11, 14) + 'px Cinzel, Georgia, serif', '#fff3c4');
+        const feats = []; if (t.hasStable) feats.push('stable'); if (t.hasInn) feats.push('inn'); if (t.hasDock) feats.push('dock');
+        _mpHit(sx, sy, 11, '<div class="tt-name">' + esc(t.name) + '</div><div class="tt-line">' + esc(_title(t.style || 'town') + ' settlement · ' + _zoneName(t.zone)) + '</div>' + (feats.length ? '<div class="tt-stat">' + esc(feats.join(' · ')) + '</div>' : '') + '<div class="tt-sub">Shift-click to set a waypoint</div>', { kind: 'town', wx: t.pos.x, wz: t.pos.z, name: t.name });
+      });
+    }
+    // ---- custom places (admin)
+    const places = (G.state && Array.isArray(G.state.customPlaces)) ? G.state.customPlaces : (Array.isArray(UI.customPlaces) ? UI.customPlaces : null);
+    if (places) places.forEach(function (c) {
+      const cx = c.x != null ? c.x : (c.pos && c.pos.x), cz = c.z != null ? c.z : (c.pos && c.pos.z);
+      if (typeof cx !== 'number') return;
+      const sx = _mpSX(cx), sy = _mpSY(cz);
+      if (!_mpVisible(sx, sy)) return;
+      _mpLabel(ctx, '⚑', sx, sy - 6, 'bold 14px sans-serif', '#d08cff');
+      _mpLabel(ctx, c.name || 'Place', sx, sy + 9, '10px "Crimson Pro", Georgia, serif', '#e8d0ff');
+      _mpHit(sx, sy, 9, '<div class="tt-name">' + esc(c.name || 'Custom place') + '</div><div class="tt-line">' + Math.round(cx) + ', ' + Math.round(cz) + '</div><div class="tt-sub">Added through the admin panel</div>', { kind: 'place', wx: cx, wz: cz, name: c.name });
+    });
+    // ---- quest-giver NPCs
+    if (w && Array.isArray(w.npcs) && zoom >= 2.5) {
+      w.npcs.forEach(function (n) {
+        if (!n.pos || !Array.isArray(n.roles) || n.roles.indexOf('questgiver') < 0) return;
+        const sx = _mpSX(n.pos.x), sy = _mpSY(n.pos.z);
+        if (!_mpVisible(sx, sy)) return;
+        let mark = '';
+        try { if (Q && _has(Q, 'turnins') && (Q.turnins(n.id) || []).length) mark = '?'; else if (Q && _has(Q, 'available') && (Q.available(n.id) || []).length) mark = '!'; } catch (_) { mark = ''; }
+        ctx.fillStyle = '#ffe86b'; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(sx, sy, 2.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        if (mark) _mpLabel(ctx, mark, sx, sy - 9, 'bold 14px Cinzel, Georgia, serif', '#ffe86b');
+        _mpHit(sx, sy, 7, '<div class="tt-name">' + esc(n.name) + '</div>' + (n.title ? '<div class="tt-sub">' + esc(n.title) + '</div>' : '') + '<div class="tt-line">Quest-giver' + (mark === '!' ? ' · <span class="tt-key">has a quest for you</span>' : mark === '?' ? ' · <span class="tt-key">waiting for your report</span>' : '') + '</div>', { kind: 'npc', wx: n.pos.x, wz: n.pos.z, name: n.name });
+      });
+    }
+    // ---- AI players
+    if (MP.showAI && MP.aiList.length) {
+      ctx.fillStyle = '#5aa0ff'; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 0.8;
+      MP.aiList.forEach(function (a) {
+        const ap = a.pos; if (!ap || typeof ap.x !== 'number') return;
+        const sx = _mpSX(ap.x), sy = _mpSY(ap.z);
+        if (!_mpVisible(sx, sy, 6)) return;
+        ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        if (zoom >= 1.5) _mpHit(sx, sy, 5, '<div class="tt-name">' + esc(a.name || 'Adventurer') + '</div><div class="tt-line">Level ' + _num(a.level, 1) + ' ' + esc(((_race(a.race) || {}).name || _title(a.race || '')) + ' ' + ((_cls(a.cls) || {}).name || _title(a.cls || ''))) + '</div>' + (a.state ? '<div class="tt-sub">' + esc(_title(a.state)) + '</div>' : ''), { kind: 'ai', wx: ap.x, wz: ap.z, name: a.name, id: a.id });
+      });
+    }
+    // ---- quest objectives
+    const px = p && p.pos ? p.pos.x : 0, pz = p && p.pos ? p.pos.z : 0, psx = _mpSX(px), psy = _mpSY(pz);
+    if (Q && _has(Q, 'nextObjective')) {
+      let act = []; try { act = _has(Q, 'active') ? (Q.active() || []) : []; } catch (_) { act = []; }
+      const tracked = Q.tracked;
+      let n = 0;
+      const pins = [];
+      act.forEach(function (q) {
+        const id = _questId(q); if (!id) return;
+        let o = null; try { o = Q.nextObjective(id); } catch (_) { o = null; }
+        if (!o || !o.pos) return;
+        n++;
+        pins.push({ id: id, o: o, n: n, tracked: id === tracked });
+      });
+      pins.forEach(function (pin) {
+        const sx = _mpSX(pin.o.pos.x), sy = _mpSY(pin.o.pos.z);
+        const d = _questData(pin.id);
+        if (pin.tracked) {
+          ctx.save(); ctx.setLineDash([4, 5]); ctx.lineDashOffset = -(_now() * 20) % 9; ctx.strokeStyle = 'rgba(255,213,74,.85)'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(psx, psy); ctx.lineTo(sx, sy); ctx.stroke(); ctx.restore();
+          ctx.save(); ctx.globalAlpha = 0.6 * (1 - MP.pulse); ctx.strokeStyle = '#ffd54a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(sx, sy, 8 + MP.pulse * 16, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+        }
+        if (!_mpVisible(sx, sy)) return;
+        _mpDrawPin(ctx, sx, sy, pin.tracked ? '#ffe08a' : '#d4af5a', pin.n, pin.tracked);
+        const dist = Math.round(G.dist2 ? G.dist2(px, pz, pin.o.pos.x, pin.o.pos.z) : 0);
+        _mpHit(sx, sy - 12, 12, '<div class="tt-name">' + esc((d && d.name) || _title(pin.id)) + '</div><div class="tt-line">' + esc(pin.o.label || 'Next objective') + '</div><div class="tt-stat">' + (pin.tracked ? 'Tracked · ' : '') + dist + ' m away</div><div class="tt-sub">Click to track this quest</div>', { kind: 'quest', wx: pin.o.pos.x, wz: pin.o.pos.z, name: d && d.name, questId: pin.id });
+      });
+    }
+    // ---- waypoint
+    const wp = _waypoint();
+    if (wp) {
+      const sx = _mpSX(wp.x), sy = _mpSY(wp.z);
+      if (_mpVisible(sx, sy)) {
+        ctx.save(); ctx.setLineDash([2, 4]); ctx.strokeStyle = 'rgba(95,224,255,.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(psx, psy); ctx.lineTo(sx, sy); ctx.stroke(); ctx.restore();
+        _mpLabel(ctx, '⚑', sx + 1, sy - 7, 'bold 18px sans-serif', '#5fe0ff');
+        ctx.fillStyle = '#5fe0ff'; ctx.beginPath(); ctx.arc(sx, sy, 2.5, 0, Math.PI * 2); ctx.fill();
+        _mpHit(sx, sy - 6, 10, '<div class="tt-name">' + esc(wp.label || 'Waypoint') + '</div><div class="tt-line">' + Math.round(wp.x) + ', ' + Math.round(wp.z) + ' · ' + Math.round(G.dist2 ? G.dist2(px, pz, wp.x, wp.z) : 0) + ' m</div><div class="tt-sub">Right-click the map to clear</div>', { kind: 'wp', wx: wp.x, wz: wp.z, name: 'Waypoint' });
+      }
+    }
+    // ---- player arrow
+    if (p && p.pos) {
+      ctx.save(); ctx.translate(psx, psy); ctx.rotate(-_num(p.yaw, 0));
+      ctx.shadowColor = '#000'; ctx.shadowBlur = 5;
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(0, -11); ctx.lineTo(8, 8); ctx.lineTo(0, 4); ctx.lineTo(-8, 8); ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0; ctx.strokeStyle = '#3a2b14'; ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.restore();
+      ctx.save(); ctx.globalAlpha = 0.35 * (1 - MP.pulse) + 0.1; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(psx, psy, 12 + MP.pulse * 10, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+      _mpHit(psx, psy, 12, '<div class="tt-name">' + esc(p.name || 'You') + '</div><div class="tt-line">Level ' + _num(p.level, 1) + ' · ' + esc(_zoneName(G.state && G.state.zone)) + '</div><div class="tt-line">' + Math.round(px) + ', ' + Math.round(pz) + '</div>', { kind: 'me', wx: px, wz: pz, name: 'You' });
+    }
+    // ---- hover ring
+    if (MP.hover) { ctx.save(); ctx.strokeStyle = 'rgba(255,224,138,.9)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(MP.hover.x, MP.hover.y, MP.hover.r + 3, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); }
+    // ---- scale bar
+    const metres = zoom >= 4 ? 100 : zoom >= 2 ? 250 : zoom >= 1 ? 500 : 1000;
+    const barPx = metres / _world_() * MAP_SZ * zoom;
+    const bx = MP.W - 24 - barPx, by = MP.H - (MP.showLegend ? 118 : 26);
+    ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(bx - 6, by - 14, barPx + 12, 22);
+    ctx.fillStyle = '#e8dcc0'; ctx.fillRect(bx, by, barPx, 3);
+    ctx.fillRect(bx, by - 4, 1.5, 7); ctx.fillRect(bx + barPx - 1.5, by - 4, 1.5, 7);
+    _mpLabel(ctx, metres >= 1000 ? (metres / 1000) + ' km' : metres + ' m', bx + barPx / 2, by - 7, '10px "Crimson Pro", Georgia, serif', '#e8dcc0');
+    MP.dirty = false;
+  }
+  function _mpFindHit(sx, sy) {
+    let best = null, bd = 1e9;
+    for (let i = MP.hits.length - 1; i >= 0; i--) { const h = MP.hits[i]; const dx = h.x - sx, dy = h.y - sy, d = dx * dx + dy * dy; if (d <= (h.r + 2) * (h.r + 2) && d < bd) { bd = d; best = h; } }
+    return best;
+  }
+  function _mpUpdateCoords() {
+    if (!MP.coordsEl) return;
+    const p = _player();
+    let x, z, label;
+    if (MP.cursor.inside) { x = MP.cursor.x; z = MP.cursor.z; label = 'Cursor'; } else if (p && p.pos) { x = p.pos.x; z = p.pos.z; label = 'You'; } else { x = 0; z = 0; label = ''; }
+    const zn = _zoneName(_mpZoneAt(x, z));
+    MP.coordsEl.innerHTML = esc(label) + ' <b>' + Math.round(x) + ', ' + Math.round(z) + '</b> · ' + esc(zn) + ' · zoom ×' + MP.zoom.toFixed(1) + (MP.wpMode ? ' · <span class="pn-gold">click to place a waypoint</span>' : '');
+  }
+  function _mpSetWpMode(on) { MP.wpMode = !!on; if (MP.wpBtn) MP.wpBtn.classList.toggle('on', MP.wpMode); if (MP.canvas) MP.canvas.classList.toggle('wp', MP.wpMode); _mpUpdateCoords(); }
+  function _mpBind() {
+    if (MP._bound || !MP.canvas) return;
+    MP._bound = true;
+    const cv = MP.canvas;
+    const local = function (ev) { const r = cv.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; };
+    cv.addEventListener('pointerdown', function (ev) {
+      if (ev.button !== 0) return;
+      const l = local(ev);
+      MP.drag = { sx: l.x, sy: l.y, cx: MP.cx, cy: MP.cy, moved: false, shift: ev.shiftKey };
+      try { cv.setPointerCapture(ev.pointerId); } catch (_) { /* ignore */ }
+      cv.classList.add('panning');
+      ev.preventDefault();
+    });
+    cv.addEventListener('pointermove', function (ev) {
+      const l = local(ev);
+      MP.cursor.sx = l.x; MP.cursor.sy = l.y; MP.cursor.x = _mpWorldX(l.x); MP.cursor.z = _mpWorldZ(l.y); MP.cursor.inside = true;
+      if (MP.drag) {
+        const dx = l.x - MP.drag.sx, dy = l.y - MP.drag.sy;
+        if (!MP.drag.moved && dx * dx + dy * dy > 9) MP.drag.moved = true;
+        if (MP.drag.moved) { MP.cx = MP.drag.cx - dx / MP.zoom; MP.cy = MP.drag.cy - dy / MP.zoom; _mpClampView(); _tipHide(); MP._tipShown = false; MP.hover = null; }
+      } else {
+        const h = _mpFindHit(l.x, l.y);
+        if (h !== MP.hover) { MP.hover = h; if (h) { if (UI.tooltip) UI.tooltip.show(h.html, ev.clientX, ev.clientY); MP._tipShown = true; } else if (MP._tipShown) { _tipHide(); MP._tipShown = false; } }
+        else if (h && UI.tooltip && _has(UI.tooltip, 'move')) UI.tooltip.move(ev.clientX, ev.clientY);
+      }
+      _mpUpdateCoords();
+      MP.dirty = true;
+    });
+    const up = function (ev) {
+      if (!MP.drag) return;
+      const d = MP.drag; MP.drag = null; cv.classList.remove('panning');
+      if (!d.moved) {
+        const l = local(ev);
+        const h = _mpFindHit(l.x, l.y);
+        if (MP.wpMode || ev.shiftKey || d.shift) { const wx = _mpWorldX(l.x), wz = _mpWorldZ(l.y); _setWaypoint(wx, wz, h && h.name && h.kind !== 'me' ? h.name : 'Map waypoint'); _mpSetWpMode(false); _sfx('ui_click'); }
+        else if (h && h.kind === 'quest' && h.questId && _has(G.Quests, 'setTracked')) { G.Quests.setTracked(h.questId); if (UI.tracker && _has(UI.tracker, 'refresh')) UI.tracker.refresh(); _sfx('ui_click'); }
+        else if (h && h.kind === 'ai' && h.id) { Pl.select(h.id); }
+      }
+      MP.dirty = true;
+    };
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', function () { MP.drag = null; cv.classList.remove('panning'); });
+    cv.addEventListener('pointerleave', function () { MP.cursor.inside = false; if (!MP.drag) { MP.hover = null; if (MP._tipShown) { _tipHide(); MP._tipShown = false; } } _mpUpdateCoords(); MP.dirty = true; });
+    cv.addEventListener('wheel', function (ev) {
+      ev.preventDefault(); ev.stopPropagation();
+      const l = local(ev);
+      Mp.zoomAt(MP.zoom * (ev.deltaY < 0 ? 1.2 : 1 / 1.2), l.x, l.y);
+    }, { passive: false });
+    cv.addEventListener('dblclick', function (ev) { const l = local(ev); Mp.zoomAt(MP.zoom * 1.6, l.x, l.y); });
+    cv.addEventListener('contextmenu', function (ev) { ev.preventDefault(); ev.stopPropagation(); if (_waypoint()) { _clearWaypoint(); _notify('Waypoint cleared.', 'info'); MP.dirty = true; } });
+  }
+  Mp.zoomAt = function (z, sx, sy) {
+    z = clamp(_num(z, MP.zoom), MAP_MIN_ZOOM, MAP_MAX_ZOOM);
+    if (sx == null) { sx = MP.W / 2; sy = MP.H / 2; }
+    const mx = (sx - MP.W / 2) / MP.zoom + MP.cx, my = (sy - MP.H / 2) / MP.zoom + MP.cy;
+    MP.zoom = z;
+    MP.cx = mx - (sx - MP.W / 2) / z; MP.cy = my - (sy - MP.H / 2) / z;
+    _mpClampView(); MP.dirty = true; _mpUpdateCoords();
+  };
+  Mp.setZoom = function (z) { Mp.zoomAt(z); };
+  Object.defineProperty(Mp, 'zoom', { get: function () { return MP.zoom; }, set: function (z) { Mp.zoomAt(z); } });
+  Object.defineProperty(Mp, 'showAI', { get: function () { return MP.showAI; }, set: function (v) { MP.showAI = !!v; if (MP.aiBtn) MP.aiBtn.classList.toggle('on', MP.showAI); MP.dirty = true; } });
+  Object.defineProperty(Mp, 'showLegend', { get: function () { return MP.showLegend; }, set: function (v) { MP.showLegend = !!v; if (MP.legendEl) MP.legendEl.hidden = !MP.showLegend; if (MP.lgBtn) MP.lgBtn.classList.toggle('on', MP.showLegend); MP.dirty = true; } });
+  Mp.centerOn = function (x, z) { if (!isFinite(x) || !isFinite(z)) return; MP.cx = _w2mx(x); MP.cy = _w2mx(z); _mpClampView(); MP.dirty = true; };
+  Mp.focus = function (x, z, zoom) { Mp.centerOn(x, z); if (zoom != null) Mp.zoomAt(zoom); else if (MP.zoom < 2.5) Mp.zoomAt(3); Mp.centerOn(x, z); };
+  Mp.centerOnPlayer = function () { const p = _player(); if (p && p.pos) Mp.centerOn(p.pos.x, p.pos.z); };
+  Mp.setWaypointMode = function (on) { _mpSetWpMode(on); };
+  Mp.worldAt = function (clientX, clientY) { if (!MP.canvas) return null; const r = MP.canvas.getBoundingClientRect(); return { x: _mpWorldX(clientX - r.left), z: _mpWorldZ(clientY - r.top) }; };
+  Mp.render = function () {
+    const body = Mp.body; if (!body) return;
+    _clear(body);
+    MP.hostBody = body;
+    if (!MP.canvas) { MP.canvas = el('canvas', { class: 'map-canvas' }); MP.ctx = MP.canvas.getContext('2d'); }
+    body.appendChild(MP.canvas);
+    _mpBind();
+    const tools = el('div', { class: 'map-tools' });
+    const centre = _btn('⌖ Centre on me', function () { Mp.centerOnPlayer(); _sfx('ui_click'); });
+    MP.wpBtn = _btn('⚑ Set waypoint', function () { _mpSetWpMode(!MP.wpMode); _sfx('ui_click'); });
+    MP.wpBtn.classList.toggle('on', MP.wpMode);
+    _tip(MP.wpBtn, '<div class="tt-name">Custom waypoint</div><div class="tt-line">Click the map to place a marker that shows on your compass and minimap. Shift-click works any time; right-click clears it.</div>');
+    MP.aiBtn = _btn('● Players', function () { Mp.showAI = !MP.showAI; _sfx('ui_click'); });
+    MP.aiBtn.classList.toggle('on', MP.showAI);
+    _tip(MP.aiBtn, '<div class="tt-name">Other adventurers</div><div class="tt-line">Show the blue dots of every player in Middle-earth.</div>');
+    MP.lgBtn = _btn('☰ Legend', function () { Mp.showLegend = !MP.showLegend; _sfx('ui_click'); });
+    MP.lgBtn.classList.toggle('on', MP.showLegend);
+    tools.appendChild(centre); tools.appendChild(MP.wpBtn); tools.appendChild(MP.aiBtn); tools.appendChild(MP.lgBtn);
+    body.appendChild(tools);
+    body.appendChild(el('div', { class: 'map-zoom' }, [_btn('+', function () { Mp.zoomAt(MP.zoom * 1.4); }), _btn('−', function () { Mp.zoomAt(MP.zoom / 1.4); })]));
+    MP.coordsEl = el('div', { class: 'map-coords' }); body.appendChild(MP.coordsEl);
+    const lg = el('div', { class: 'map-legend' });
+    lg.appendChild(el('div', { class: 'lg-title', text: 'Legend' }));
+    [['<i style="color:#fff">▲</i>', 'You'], ['<i style="color:#ffd54a">●</i>', 'Town / village'], ['<i style="color:#e8dcc0">◆</i>', 'Point of interest'], ['<i style="color:#7fe0ff">⚓</i>', 'Dock'], ['<i style="color:#8fd0ff">🐟</i>', 'Fishing spot'],
+      ['<i style="color:#ffe08a">❶</i>', 'Quest objective'], ['<i style="color:#ffe86b;font-weight:700">!</i>', 'Quest available'], ['<i style="color:#5fe0ff">⚑</i>', 'Waypoint'], ['<i style="color:#5aa0ff">●</i>', 'Other players'], ['<i style="color:#d08cff">⚑</i>', 'Custom place']].forEach(function (r) { const d = el('div', { class: 'lg' }); d.innerHTML = r[0] + ' ' + esc(r[1]); lg.appendChild(d); });
+    lg.hidden = !MP.showLegend;
+    MP.legendEl = lg; body.appendChild(lg);
+    MP.zoneEl = el('div', { class: 'map-title-zone', text: 'Middle-earth' }); body.appendChild(MP.zoneEl);
+    if (!MP.ro && typeof ResizeObserver === 'function') { MP.ro = new ResizeObserver(function () { _mpResize(); }); MP.ro.observe(body); }
+    _mpResize();
+    _mpUpdateCoords();
+    MP.dirty = true;
+  };
+  Mp.update = function (dt) {
+    if (!Mp.isOpen()) return;
+    _mpResize();
+    MP.t += dt; MP.aiT += dt;
+    MP.pulse = (Math.sin(_now() * 3.2) + 1) * 0.5;
+    if (MP.aiT >= 1) { MP.aiT = 0; let l = []; try { l = (MP.showAI && _has(G.AIPlayers, 'list')) ? (G.AIPlayers.list() || []) : []; } catch (_) { l = []; } MP.aiList = l; }
+    if (MP.zoneEl) { const p = _player(); const zn = _zoneName((G.state && G.state.zone) || (p && p.pos ? _mpZoneAt(p.pos.x, p.pos.z) : '')); if (MP.zoneEl.textContent !== zn) MP.zoneEl.textContent = zn; }
+    if (MP.dirty || MP.t >= 0.08) { MP.t = 0; _mpDraw(); if (!MP.cursor.inside) _mpUpdateCoords(); }
+  };
+  Mp.onOpen = function () {
+    MP.aiT = 9; MP.t = 9;
+    setTimeout(function () { _mpResize(); Mp.centerOnPlayer(); MP.dirty = true; if (Mp.isOpen()) _mpDraw(); }, 0);
+    _mpResize(); Mp.centerOnPlayer(); _mpDraw();
+  };
+  Mp.onClose = function () { MP.drag = null; MP.hover = null; if (MP._tipShown) { _tipHide(); MP._tipShown = false; } _mpSetWpMode(false); };
+  definePanel('map', Mp, { title: 'Map of Middle-earth', key: 'KeyM', width: '90vw', height: '85vh', pos: 'center', remember: false });
+
+  // ================================================================================================ PLAYERS (P)
+  const PL = { sort: 'level', dir: -1, query: '', selected: null, rows: new Map(), tbody: null, detailEl: null, countEl: null, searchEl: null, t: 0, list: [], detailSig: '', ths: {} };
+  const Pl = {};
+  const PL_COLS = [['name', 'Name'], ['race', 'Race'], ['cls', 'Class'], ['level', 'Level'], ['zone', 'Zone'], ['state', 'State']];
+  function _plEntries() {
+    const out = [], p = _player();
+    if (p) out.push({ id: p.id || 'player', name: p.name || 'You', race: p.race, cls: p.cls, gender: p.gender, level: _num(p.level, 1), zone: (G.state && G.state.zone) || '', state: 'you', pos: p.pos, me: true });
+    let list = [];
+    try { list = _has(G.AIPlayers, 'list') ? (G.AIPlayers.list() || []) : []; } catch (err) { _report(err, 'AIPlayers.list'); }
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i]; if (!a) continue;
+      const st = a.state || a.activity || (a.ai && a.ai.state) || 'idle';
+      out.push({ id: a.id || ('ai_' + a.name), name: a.name || 'Adventurer', race: a.race, cls: a.cls, gender: a.gender, level: _num(a.level, 1), zone: a.zone || (a.pos && _mpZoneAt(a.pos.x, a.pos.z)) || '', state: typeof st === 'string' ? st : _str(st), pos: a.pos, me: false, src: a });
+    }
+    return out;
+  }
+  function _plCells(e) {
+    return { name: e.name, race: (_race(e.race) || {}).name || _title(e.race || ''), cls: (_cls(e.cls) || {}).name || _title(e.cls || ''), level: String(e.level), zone: _zoneName(e.zone), state: e.me ? 'You' : _title(e.state || '') };
+  }
+  function _plSorted(list) {
+    const col = PL.sort, dir = PL.dir;
+    const q = PL.query.trim().toLowerCase();
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i]; e.cells = _plCells(e);
+      if (q) { const c = e.cells; if ((c.name + ' ' + c.race + ' ' + c.cls + ' ' + c.zone + ' ' + c.state).toLowerCase().indexOf(q) < 0) continue; }
+      out.push(e);
+    }
+    out.sort(function (a, b) {
+      let r;
+      if (col === 'level') r = a.level - b.level; else r = String(a.cells[col] || '').localeCompare(String(b.cells[col] || ''));
+      if (r === 0) r = a.name.localeCompare(b.name);
+      return r * dir;
+    });
+    return out;
+  }
+  function _plFill() {
+    if (!PL.tbody) return;
+    PL.list = _plEntries();
+    const sorted = _plSorted(PL.list);
+    const seen = new Set();
+    let frag = document.createDocumentFragment();
+    sorted.forEach(function (e) {
+      seen.add(e.id);
+      let r = PL.rows.get(e.id);
+      if (!r) {
+        r = { tr: el('tr', { data: { id: e.id } }), tds: {} };
+        PL_COLS.forEach(function (c) { const td = el('td', { class: c[0] === 'level' ? 'lv' : c[0] === 'state' ? 'st' : '' }); r.tds[c[0]] = td; r.tr.appendChild(td); });
+        if (e.me) r.tr.classList.add('me');
+        (function (id) { r.tr.addEventListener('click', function () { Pl.select(id); }); })(e.id);
+        PL.rows.set(e.id, r);
+      }
+      PL_COLS.forEach(function (c) { const v = e.cells[c[0]]; if (r.tds[c[0]].textContent !== v) r.tds[c[0]].textContent = v; });
+      r.tr.classList.toggle('selected', PL.selected === e.id);
+      frag.appendChild(r.tr);
+    });
+    PL.rows.forEach(function (r, id) { if (!seen.has(id)) { if (r.tr.parentNode) r.tr.parentNode.removeChild(r.tr); PL.rows.delete(id); } });
+    PL.tbody.appendChild(frag);
+    if (PL.countEl) PL.countEl.textContent = sorted.length + ' of ' + PL.list.length + ' adventurers';
+    for (const k in PL.ths) { const th = PL.ths[k]; th.classList.toggle('sorted', PL.sort === k); const arr = th.querySelector('.arr'); if (arr) arr.textContent = PL.sort === k ? (PL.dir > 0 ? '▲' : '▼') : ''; }
+  }
+  function _plInspect(id) {
+    const e = PL.list.find(function (x) { return x.id === id; }) || null;
+    if (e && e.me) {
+      const p = _player();
+      return { me: true, id: id, name: p.name, race: p.race, cls: p.cls, gender: p.gender, level: p.level, xp: p.xp, zone: G.state.zone, pos: p.pos, state: 'you', stats: p.stats, equipment: p.equipment, fellowship: [], kills: G.state.stats && G.state.stats.kills };
+    }
+    let d = null;
+    if (_has(G.AIPlayers, 'inspect')) { try { d = G.AIPlayers.inspect(id); } catch (err) { _report(err, 'AIPlayers.inspect'); } }
+    if (!d && e) d = Object.assign({}, e.src || {}, { name: e.name, race: e.race, cls: e.cls, gender: e.gender, level: e.level, zone: e.zone, pos: e.pos, state: e.state });
+    return d;
+  }
+  function _plDetail(force) {
+    const box = PL.detailEl; if (!box) return;
+    const id = PL.selected;
+    if (!id) { if (PL.detailSig !== 'none') { PL.detailSig = 'none'; _clear(box); box.appendChild(el('div', { class: 'pn-empty', text: 'Select an adventurer to inspect them.' })); } return; }
+    const d = _plInspect(id);
+    if (!d) { if (PL.detailSig !== 'gone') { PL.detailSig = 'gone'; _clear(box); box.appendChild(el('div', { class: 'pn-empty', text: 'That adventurer has wandered off.' })); } return; }
+    let eqSig = ''; if (d.equipment) for (const k in d.equipment) eqSig += d.equipment[k] ? (d.equipment[k].uid || d.equipment[k].tid) : '-';
+    const sig = id + '|' + d.level + '|' + d.zone + '|' + d.state + '|' + (d.pos ? Math.round(_num(d.pos.x) / 5) + ',' + Math.round(_num(d.pos.z) / 5) : '') + '|' + Math.round(_num(d.xp) / 50) + '|' + eqSig + '|' + (Array.isArray(d.fellowship) ? d.fellowship.length : 0) + '|' + _adminMode();
+    if (!force && sig === PL.detailSig) return;
+    PL.detailSig = sig;
+    _clear(box);
+    const cd = _cls(d.cls), rd = _race(d.race);
+    box.appendChild(el('div', { class: 'pl-dhead' }, [
+      el('div', { class: 'pl-glyph', text: (cd && cd.icon) || '🧝', style: { borderColor: cd ? _hex(cd.color) : '', color: cd ? _hex(cd.color) : '' } }),
+      el('div', { class: 'pn-grow' }, [el('div', { class: 'pl-dname', text: d.name || 'Adventurer' }), el('div', { class: 'pl-dsub', text: 'Level ' + _num(d.level, 1) + ' ' + (d.gender === 'female' ? 'Female ' : d.gender === 'male' ? 'Male ' : '') + ((rd && rd.name) || _title(d.race || '')) + ' ' + ((cd && cd.name) || _title(d.cls || '')) })]),
+    ]));
+    let prog = null;
+    if (d.xp != null && G.Data && G.Data.xp && _has(G.Data.xp, 'progress')) { try { prog = G.Data.xp.progress(d.xp); } catch (_) { prog = null; } }
+    if (prog) box.appendChild(el('div', { class: 'ch-xp' }, [el('span', { text: 'XP' }), _bar(prog.capped ? 1 : _num(prog.pct) / 100, 'xp', prog.capped ? 'Level cap' : _fmt(Math.round(prog.into)) + ' / ' + _fmt(Math.round(prog.need)))]));
+    const loc = el('div', { class: 'pn-sub', style: 'margin:4px 0' });
+    loc.innerHTML = '<b>' + esc(_zoneName(d.zone)) + '</b>' + (d.pos && typeof d.pos.x === 'number' ? ' · ' + Math.round(d.pos.x) + ', ' + Math.round(d.pos.z) : '') + ' · ' + esc(d.me ? 'That is you' : _title(d.state || 'idle'));
+    box.appendChild(loc);
+    const fel = Array.isArray(d.fellowship) ? d.fellowship : [];
+    box.appendChild(el('div', { class: 'section-title', text: 'Fellowship' }));
+    if (!fel.length) box.appendChild(el('div', { class: 'pn-sub', text: d.me ? 'You travel alone.' : 'Travelling alone.' }));
+    else { const f = el('div', { class: 'pl-fellow' }); fel.forEach(function (m) { let nm = typeof m === 'string' ? m : (m && m.name); if (typeof m === 'string' && _has(G.AIPlayers, 'get')) { const g = G.AIPlayers.get(m); if (g && g.name) nm = g.name; } f.appendChild(_chip(nm || 'Adventurer')); }); box.appendChild(f); }
+    const s = d.stats || {};
+    box.appendChild(el('div', { class: 'section-title', text: 'Stats' }));
+    const sg = el('div', { class: 'pl-stats' });
+    [['might', 'Might'], ['agility', 'Agility'], ['vitality', 'Vitality'], ['will', 'Will'], ['fate', 'Fate'], ['maxMorale', 'Morale'], ['maxPower', 'Power'], ['armour', 'Armour'], ['physMastery', 'Phys. Mastery'], ['tactMastery', 'Tact. Mastery'], ['crit', 'Critical'], ['finesse', 'Finesse']].forEach(function (k) { const sp = el('span'); sp.innerHTML = esc(k[1]) + ' <b>' + _fmt(Math.round(_num(s[k[0]]))) + '</b>'; _tip(sp, '<div class="tt-name">' + esc(_statName(k[0])) + '</div><div class="tt-desc">' + esc(_statDesc(k[0])) + '</div>'); sg.appendChild(sp); });
+    box.appendChild(sg);
+    if (d.kills != null) { const k = el('div', { class: 'pn-sub' }); k.innerHTML = 'Enemies defeated: <b>' + _fmt(_num(d.kills)) + '</b>'; box.appendChild(k); }
+    box.appendChild(el('div', { class: 'section-title', text: 'Equipment' }));
+    const grid = el('div', { class: 'pl-grid' });
+    const slots = C.EQUIP_SLOTS || [];
+    slots.forEach(function (slot) {
+      const inst = d.equipment ? d.equipment[slot] : null;
+      const sl = el('div', { class: 'slot' + (inst ? ' border-' + _rarityOf(inst) : ' empty') });
+      if (inst) sl.innerHTML = _iconHTML(inst, 38); else sl.appendChild(el('span', { class: 'empty-label', text: _slotLabel(slot) }));
+      _tip(sl, function () { return inst ? _itemTip(inst, null) : '<div class="tt-name">' + esc(_slotLabel(slot)) + '</div><div class="tt-line">Nothing equipped</div>'; });
+      grid.appendChild(sl);
+    });
+    box.appendChild(grid);
+    const acts = el('div', { class: 'pl-actions' });
+    if (!d.me) {
+      acts.appendChild(_btn('Whisper', function () { Pl.whisper(d.name); }));
+      acts.appendChild(_btn('Locate', function () { if (d.pos && typeof d.pos.x === 'number') { _setWaypoint(d.pos.x, d.pos.z, d.name); _open('map'); Mp.focus(d.pos.x, d.pos.z); } else _notify('Nobody knows where ' + d.name + ' is right now.', 'info'); }));
+      if (_adminMode()) acts.appendChild(_btn('Teleport to', function () { if (_has(G.AIPlayers, 'teleportTo')) G.AIPlayers.teleportTo(id); else if (d.pos && _has(G.Player, 'teleport')) G.Player.teleport(d.pos.x, d.pos.z); _sfx('spell_cast'); }, 'danger'));
+    } else {
+      acts.appendChild(_btn('Character sheet', function () { _open('character'); }));
+      acts.appendChild(_btn('Show on map', function () { _open('map'); Mp.centerOnPlayer(); }));
+    }
+    box.appendChild(acts);
+  }
+  Pl.whisper = function (name) {
+    if (!name) return;
+    if (_has(UI, 'chatInput')) UI.chatInput();
+    const input = UI.chatState && UI.chatState.input;
+    if (input) { input.value = '/w ' + name + ' '; try { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } catch (_) { /* ignore */ } }
+    else _notify('Press Enter and type /w ' + name + ' <message>', 'info');
+  };
+  Pl.render = function () {
+    const body = Pl.body; if (!body) return;
+    _clear(body); PL.rows.clear(); PL.detailSig = '';
+    const search = el('input', { type: 'text', placeholder: 'Search name, class, zone…', value: PL.query, spellcheck: false });
+    search.addEventListener('input', function () { PL.query = search.value; _plFill(); });
+    search.addEventListener('keydown', function (ev) { ev.stopPropagation(); if (ev.key === 'Escape') { search.value = ''; PL.query = ''; _plFill(); search.blur(); } });
+    PL.searchEl = search;
+    PL.countEl = el('span', { class: 'pl-count' });
+    const live = el('span', { class: 'pl-live' }, [el('i'), document.createTextNode('LIVE')]);
+    _tip(live, '<div class="tt-name">Live roster</div><div class="tt-line">Every adventurer in Middle-earth, refreshed each second as they travel, fight and level.</div>');
+    body.appendChild(el('div', { class: 'pl-top' }, [search, PL.countEl, el('span', { class: 'pn-grow' }), live]));
+    const table = el('table', { class: 'pl-table' });
+    const thead = el('thead'); const trh = el('tr');
+    PL.ths = {};
+    PL_COLS.forEach(function (c) {
+      const th = el('th', {}, [document.createTextNode(c[1]), el('span', { class: 'arr' })]);
+      th.addEventListener('click', function () { Pl.sortBy(c[0]); });
+      PL.ths[c[0]] = th; trh.appendChild(th);
+    });
+    thead.appendChild(trh); table.appendChild(thead);
+    PL.tbody = el('tbody'); table.appendChild(PL.tbody);
+    const wrap = el('div', { class: 'pl-tablewrap' }, [table]);
+    wrap.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    PL.detailEl = el('div', { class: 'pl-detail' });
+    PL.detailEl.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    body.appendChild(el('div', { class: 'pl-cols' }, [wrap, PL.detailEl]));
+    _plFill();
+    _plDetail(true);
+  };
+  Pl.sortBy = function (col) { if (PL.sort === col) PL.dir = -PL.dir; else { PL.sort = col; PL.dir = col === 'level' ? -1 : 1; } _sfx('ui_click'); _plFill(); };
+  Pl.search = function (q) { PL.query = _str(q); if (PL.searchEl) PL.searchEl.value = PL.query; _plFill(); };
+  Pl.select = function (id) { PL.selected = id || null; if (!Pl.isOpen()) { _open('players'); } _plFill(); _plDetail(true); const tr = PL.tbody && PL.tbody.querySelector('tr.selected'); if (tr && typeof tr.scrollIntoView === 'function') tr.scrollIntoView({ block: 'nearest' }); };
+  Pl.update = function (dt) { if (!Pl.isOpen()) return; PL.t += dt; if (PL.t < 1) return; PL.t = 0; _plFill(); _plDetail(false); };
+  Pl.onOpen = function (arg) { PL.t = 0; if (typeof arg === 'string') Pl.select(arg); };
+  definePanel('players', Pl, { title: 'Players of Middle-earth', key: 'KeyP', width: 920, height: Math.min(600, Math.max(420, _vh() - 80)), pos: 'center' });

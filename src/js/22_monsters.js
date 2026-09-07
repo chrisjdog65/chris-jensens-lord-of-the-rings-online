@@ -7,7 +7,11 @@
    calls), attack (basic attacks every 1.8 s ± 10 %, 35 % ability use, elites/bosses telegraph big abilities,
    strafing/circling between swings, ranged opportunists and casters), flee (cowardly families at < 20 % morale),
    leash (1.3× speed home, healing, untouchable) and dead (corpse 20 s, group respawn timer, boss respawn).
-   Bosses: ×4 morale, ×1.8 damage, stun/knockback immune, ability rotation, boss music while the player fights
+   Combat numbers (morale / dmg / armour / power) come from the hero damage curve — G.Combat.suggestMonsterStats(level,
+   {elite, boss}) — which folds the elite (×2.5 morale, ×1.5 dmg) and boss (×8 morale, ×2 dmg) multipliers in; the
+   registry's speed, aggroRange, size, abilities, loot and flags are kept. Without Combat the registry's own numbers
+   are used (05 pre-scales boss/elite types; only opts-flagged ones get ×4 / ×1.8 boss, ×2 / ×1.3 elite here).
+   Bosses: stun/knockback immune, ability rotation, boss music while the player fights
    them, "… has awoken!" announcement, crown nameplate. Rigs are built lazily (≤ 60 nearest within 220 m);
    nameplates show name + level coloured by difficulty vs the player and hide beyond 60 m.
 
@@ -188,6 +192,17 @@
     const exp = 0.7 + 0.8 * clamp((diff - 2) / 6, 0, 1);
     return Math.pow(Math.max(1, level) / mid, exp);
   }
+  /** Hero-curve combat numbers from Combat (null when Combat is absent or returns nonsense → registry fallback). */
+  function suggestStats(level, elite, boss) {
+    const Cb = G.Combat;
+    if (!Cb || typeof Cb.suggestMonsterStats !== 'function') return null;
+    let s = null;
+    _sugOpts.elite = !!elite; _sugOpts.boss = !!boss;
+    try { s = Cb.suggestMonsterStats(level, _sugOpts); } catch (e) { if (G.reportError) G.reportError(e, 'Monsters suggestMonsterStats'); return null; }
+    if (!s || !(s.morale > 0) || !(s.dmg > 0) || !(s.armour >= 0)) return null;
+    return s;
+  }
+  const _sugOpts = { elite: false, boss: false };
   function loadRegistry() {
     const w = world();
     for (const k in types) delete types[k];
@@ -427,13 +442,18 @@
     const size = clamp(num(type.size, 1), 0.25, 6);
     const radius = clamp(0.5 * size, 0.3, 2.5);
     const height = clamp(1.6 * size, 0.6, 9);
-    const scale = levelScale(level, type);
-    // boss ×4 morale / ×1.8 dmg, elite ×2 / ×1.3 — unless the registry type already carries the flag (its numbers are pre-scaled)
-    const moraleMult = boss ? (type.boss ? 1 : 4) : elite ? (type.elite ? 1 : 2) : 1;
-    const dmgMult = boss ? (type.boss ? 1 : 1.8) : elite ? (type.elite ? 1 : 1.3) : 1;
-    const baseMorale = num(type.morale, 30 + 12 * level);
-    const baseDmg = num(type.dmg, 3 + level * 1.2);
-    const baseArmour = num(type.armour, level * 5);
+    // Combat numbers: the hero damage curve (G.Combat.suggestMonsterStats already folds the elite/boss multipliers
+    // in, so they are NOT applied again here); fallback = registry numbers (05 pre-scales boss/elite types, so the
+    // ×4 morale / ×1.8 dmg boss and ×2 / ×1.3 elite multipliers only apply when the flag comes from opts).
+    const sug = suggestStats(level, elite, boss);
+    const scale = sug ? 1 : levelScale(level, type);
+    const moraleMult = sug ? 1 : boss ? (type.boss ? 1 : 4) : elite ? (type.elite ? 1 : 2) : 1;
+    const dmgMult = sug ? 1 : boss ? (type.boss ? 1 : 1.8) : elite ? (type.elite ? 1 : 1.3) : 1;
+    const baseMorale = sug ? sug.morale : num(type.morale, 30 + 12 * level);
+    const baseDmg = sug ? sug.dmg : num(type.dmg, 3 + level * 1.2);
+    const baseArmour = sug ? sug.armour : num(type.armour, level * 5);
+    const basePower = sug && sug.power >= 0 ? sug.power : 60 + 10 * level;
+    const attackInterval = sug && sug.attackSpeed > 0 ? sug.attackSpeed : ATTACK_INTERVAL;
     const speed = clamp(num(type.speed, F.speed), 0.5, MAX_SPEED);
 
     const ent = {
@@ -447,7 +467,7 @@
       dmg: Math.max(1, Math.round(baseDmg * scale * dmgMult)), armour: Math.max(0, Math.round(baseArmour * scale)),
       speed: speed, aggroRange: Math.max(3, num(type.aggroRange, C.AGGRO_RANGE || 14)),
       abilities: Array.isArray(type.abilities) ? type.abilities.slice() : [], lootTable: type.loot || null,
-      xpMult: boss ? 5 : elite ? 2 : 1, attackInterval: ATTACK_INTERVAL,
+      xpMult: boss ? 5 : elite ? 2 : 1, attackInterval: attackInterval,
       home: new THREE.Vector3(x, 0, z), group: null, bossRec: null, extra: !!opts.extra, noRig: !!opts.noRig,
       leashing: false, invulnerable: false, engagedBy: null, interact: undefined,
       ai: null, _d2: 0, _k: (serial++) & 3, despawned: false, color: type.color,
@@ -457,7 +477,7 @@
     ent.baseStats = {
       might: Math.round((8 + 4 * level) * dmgMult), agility: 8 + 3 * level, vitality: Math.round((8 + 4 * level) * moraleMult * 0.5 + 8),
       will: Math.round((6 + 2 * level) * dmgMult), fate: 4 + level,
-      maxMorale: Math.max(5, Math.round(baseMorale * scale * moraleMult)), maxPower: 60 + 10 * level, armour: ent.armour,
+      maxMorale: Math.max(5, Math.round(baseMorale * scale * moraleMult)), maxPower: basePower, armour: ent.armour,
     };
     ent.stats.maxMorale = ent.baseStats.maxMorale; ent.stats.armour = ent.armour; ent.stats.maxPower = ent.baseStats.maxPower; ent.stats.speed = 1;
     if (G.Data && G.Data.stats && typeof G.Data.stats.compute === 'function') {

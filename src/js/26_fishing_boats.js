@@ -228,7 +228,14 @@
     if (itemExists('fish_' + tid)) return 'fish_' + tid;
     return null;
   }
-  function fishLevelOf(tid) { const t = G.Data && G.Data.items && G.Data.items[tid]; return t ? num(t.fishLevel, num(t.level, 1)) : 1; }
+  const FISH_LEVEL = { fish_brandywine_trout: 1, fish_bywater_perch: 1, fish_midgewater_eel: 12, fish_lune_herring: 8, fish_hoarwell_grayling: 25, fish_nenuial_pike: 38, fish_evendim_salmon: 40, fish_golden_carp: 45, fish_forochel_icecod: 62, fish_tolfuin_seabass: 68, fish_himling_sturgeon: 74, fish_silver_trout: 20 };
+  function fishLevelOf(tid) {
+    const t = G.Data && G.Data.items && G.Data.items[tid]; if (!t) return 1;
+    if (typeof t.fishLevel === 'number') return t.fishLevel;
+    if (FISH_LEVEL[tid] != null) return FISH_LEVEL[tid];
+    if (typeof t.value === 'number' && t.type === 'fish') return clamp(Math.round(t.value * 0.5), 1, 80);   // vendor value tracks difficulty
+    return num(t.level, 1);
+  }
   function itemName(inst) { if (!inst) return 'something'; const v = isFn(G.Items, 'get') ? G.Items.get(inst) : null; return (v && v.name) || (G.Data && G.Data.items && G.Data.items[inst.tid] && G.Data.items[inst.tid].name) || inst.tid || 'something'; }
 
   function nearestSpot(x, z, maxR) {
@@ -298,10 +305,10 @@
     const g = new THREE.Group(); g.name = 'bobber';
     const red = new THREE.MeshStandardMaterial({ color: 0xd8262a, roughness: 0.45, metalness: 0.05 });
     const white = new THREE.MeshStandardMaterial({ color: 0xf4f0e4, roughness: 0.5, metalness: 0.02 });
-    const top = new THREE.SphereGeometry(0.09, 14, 8, 0, TAU, 0, PI / 2);
-    const tip = new THREE.SphereGeometry(0.022, 8, 6); tip.translate(0, 0.25, 0);
-    const bot = new THREE.SphereGeometry(0.09, 14, 8, 0, TAU, PI / 2, PI / 2);
-    const stem = new THREE.CylinderGeometry(0.011, 0.014, 0.2, 6); stem.translate(0, 0.14, 0);
+    const top = new THREE.SphereGeometry(0.115, 14, 8, 0, TAU, 0, PI / 2);
+    const tip = new THREE.SphereGeometry(0.028, 8, 6); tip.translate(0, 0.3, 0);
+    const bot = new THREE.SphereGeometry(0.115, 14, 8, 0, TAU, PI / 2, PI / 2);
+    const stem = new THREE.CylinderGeometry(0.012, 0.016, 0.22, 6); stem.translate(0, 0.18, 0);
     let redGeo, whiteGeo;
     if (isFn(G, 'mergeGeometries')) { try { redGeo = G.mergeGeometries([top, tip]); whiteGeo = G.mergeGeometries([bot, stem]); } catch (e) { redGeo = null; } }
     if (redGeo && whiteGeo) { g.add(new THREE.Mesh(redGeo, red)); g.add(new THREE.Mesh(whiteGeo, white)); }
@@ -481,7 +488,7 @@
     FS.baitBonus = baitBonus;
     FS.waitT = waitTime(pl, baitBonus);
     FS.nibbleN = rand() < 0.55 ? (rand() < 0.4 ? 2 : 1) : 0;
-    FS.nibbleAt[0] = 0.6 + rand() * Math.max(0.2, FS.waitT - 1.2); FS.nibbleAt[1] = 0.6 + rand() * Math.max(0.2, FS.waitT - 1.2);
+    FS.nibbleAt[0] = CAST_TIME + 0.7 + rand() * Math.max(0.2, FS.waitT - 1.2); FS.nibbleAt[1] = CAST_TIME + 0.7 + rand() * Math.max(0.2, FS.waitT - 1.2);
     if (FS.nibbleAt[1] < FS.nibbleAt[0] + 0.6) FS.nibbleAt[1] = FS.nibbleAt[0] + 0.6;
     FS.nibbleT = 0; FS.rippleT = 0.8; FS.landed = false; FS.flight = 0; FS.dive = 0; FS.wobble = 0; FS.catchRes = null; FS.caughtItem = null; FS.failed = false; FS.retractT = 0;
     FS.spot = nearestSpot(Fishing.castPoint.x, Fishing.castPoint.z, 40);
@@ -697,7 +704,7 @@
           if (FS.rippleT <= 0) { FS.rippleT = RIPPLE_EVERY; fx('water_ring', FS.bobPos, { scale: 0.45, duration: 1.4 }); }
           FS.bobPos.set(Fishing.castPoint.x, surfaceY - dip, Fishing.castPoint.z);
           bob.rotation.z = 0.16 * Math.sin(t * 2.3); bob.rotation.x = 0.1 * Math.sin(t * 1.7 + 1);
-          if (FS.t >= FS.waitT) bite();
+          if (FS.t >= CAST_TIME + FS.waitT) bite();
         }
         break;
       }
@@ -1033,9 +1040,13 @@
     const w = waterSide(rec), a = w.dir, rx = Math.cos(a), rz = -Math.sin(a);
     let side = 1;
     if (depth(w.x - rx * 2.4, w.z - rz * 2.4) > depth(w.x + rx * 2.4, w.z + rz * 2.4)) side = -1;
-    let x = w.x + rx * 2.4 * side, z = w.z + rz * 2.4 * side;
-    if (depth(x, z) < 1.3) { x = w.x; z = w.z; }
-    return { x: x, z: z, yaw: wrapA(a + PI) };
+    const yaw = wrapA(a + PI), sx = Math.sin(a), cz = Math.cos(a);
+    for (let r = 0; r <= 16; r += 1) {
+      const x = w.x + sx * r + rx * 2.4 * side, z = w.z + cz * r + rz * 2.4 * side;
+      if (hullFits(x, z, yaw, 'rowboat')) return { x: x, z: z, yaw: yaw };
+      if (hullFits(w.x + sx * r, w.z + cz * r, yaw, 'rowboat')) return { x: w.x + sx * r, z: w.z + cz * r, yaw: yaw };
+    }
+    return { x: w.x + sx * 6, z: w.z + cz * 6, yaw: yaw };
   }
 
   // ---- free sailing
@@ -1142,16 +1153,18 @@
     const fx_ = -Math.sin(ent.yaw), fz = -Math.cos(ent.yaw), rx = Math.cos(ent.yaw), rz = -Math.sin(ent.yaw);
     const nx = ent.pos.x + fx_ * v * dt, nz = ent.pos.z + fz * v * dt;
     const L = HULL_L[ent.boatKind] || 2.1, Wd = HULL_W[ent.boatKind] || 0.95;
-    const blocked = outOfWorld(nx, nz) || depth(nx + fx_ * L, nz + fz * L) < 1.0 || depth(nx - fx_ * L * 0.9, nz - fz * L * 0.9) < 1.0 || depth(nx + rx * Wd, nz + rz * Wd) < 1.0 || depth(nx - rx * Wd, nz - rz * Wd) < 1.0;
+    let blocked = outOfWorld(nx, nz);
+    if (!blocked && v !== 0) {
+      const dNew = hullDepth(nx, nz, fx_, fz, rx, rz, L, Wd);
+      if (dNew < 1.0) { const dOld = hullDepth(ent.pos.x, ent.pos.z, fx_, fz, rx, rz, L, Wd); blocked = !(dNew > dOld + 1e-4); }   // escaping the shallows is allowed
+    }
     if (blocked) {
       if (Math.abs(v) > 1.2) {
         sfx('boat_creak', { pos: ent.pos, vol: 0.9, pitch: 1.1 });
         _v2.set(ent.pos.x + fx_ * L * (v > 0 ? 1 : -1), SEA() + 0.05, ent.pos.z + fz * L * (v > 0 ? 1 : -1));
         fx('splash', _v2, { scale: 0.45 });
       }
-      const dir = v > 0 ? 1 : v < 0 ? -1 : 0;
-      v = -v * 0.35;
-      if (dir) { const bx = ent.pos.x - fx_ * dir * 0.15, bz = ent.pos.z - fz * dir * 0.15; if (depth(bx, bz) >= 1.0 && !outOfWorld(bx, bz)) { ent.pos.x = bx; ent.pos.z = bz; } }
+      v = -v * 0.35;                                                           // bump back off the shallows
     } else { ent.pos.x = nx; ent.pos.z = nz; }
     ent.speed = v; Boats.speed = v; ent.vel.set(fx_ * v, 0, fz * v);
     placeBoat(ent, dt); seatPlayer(ent);
@@ -1170,13 +1183,19 @@
     if (BS.shoreT <= 0) { BS.shoreT = 0.25; BS.shoreNear = !!nearShore(ent.pos, DISEMBARK_R); }
     showHint(BS.shoreNear ? 'Press <b>E</b> to go ashore' : '<b>W</b>/<b>S</b> row &middot; <b>A</b>/<b>D</b> steer &middot; <b>E</b> near the shore to land');
   }
+  function hullDepth(x, z, fx_, fz, rx, rz, L, Wd) {                       // shallowest of the bow / stern / port / starboard probes
+    let d = depth(x + fx_ * L, z + fz * L), e = depth(x - fx_ * L * 0.9, z - fz * L * 0.9); if (e < d) d = e;
+    e = depth(x + rx * Wd, z + rz * Wd); if (e < d) d = e; e = depth(x - rx * Wd, z - rz * Wd); if (e < d) d = e;
+    return d;
+  }
+  function hullFits(x, z, yaw, kind) { const L = HULL_L[kind] || 2.1, Wd = HULL_W[kind] || 0.95; return depth(x, z) >= 1.2 && hullDepth(x, z, -Math.sin(yaw), -Math.cos(yaw), Math.cos(yaw), -Math.sin(yaw), L, Wd) >= 1.05; }
   function wakeFX(ent, dt, fx_, fz, L) {
     const v = ent.speed;
     BS.wakeT -= dt; BS.splashT -= dt;
     if (Math.abs(v) > 1.5 && BS.wakeT <= 0) {
       BS.wakeT = ent.boatKind === 'elfship' ? 0.16 : 0.22;
       _v2.set(ent.pos.x - fx_ * L * 0.85 * (v > 0 ? 1 : -1), SEA() + 0.02 + wave.h * 0.5, ent.pos.z - fz * L * 0.85 * (v > 0 ? 1 : -1));
-      fx('water_ring', _v2, { scale: 0.7 + Math.min(1.2, Math.abs(v) / 12), duration: 1.4 });
+      fx('water_ring', _v2, { scale: ent.boatKind === 'elfship' ? 0.9 + Math.min(1.0, Math.abs(v) / 40) : 0.45 + Math.min(0.5, Math.abs(v) / 18), duration: 1.3 });
     }
     if (v > 5 && BS.splashT <= 0) {
       BS.splashT = 0.4;
@@ -1446,7 +1465,9 @@
     tv.route = buildRoute(seaPath(w0, w1));
     routePoint(tv.route, Math.min(4, tv.route.len), _v2); routePoint(tv.route, 0, _v1);
     const yaw0 = (tv.route.len > 0.5) ? yawTo(_v2.x - _v1.x, _v2.z - _v1.z) : wrapA(w0.dir + PI);
-    const ent = spawnBoat('elfship', w0.x, w0.z, yaw0);
+    let sx0 = w0.x, sz0 = w0.z;
+    for (let r = 0; r <= 24; r += 2) { const x = w0.x + Math.sin(w0.dir) * r, z = w0.z + Math.cos(w0.dir) * r; if (hullFits(x, z, yaw0, 'elfship')) { sx0 = x; sz0 = z; break; } }
+    const ent = spawnBoat('elfship', sx0, sz0, yaw0);
     tv.ent = ent; BS.cur = { ent: ent, rec: tv.from, kind: 'elfship' }; Boats.boat = ent; if (pl) pl.onBoat = ent;
     rigAnim('sit', true);
     placeBoat(ent, 0); seatPlayer(ent);

@@ -245,14 +245,14 @@
 .adm-stat .v { font-size: 18px; color: #fff; line-height: 1.2; }
 .adm-stat .v small { font-size: 11px; color: var(--parch-dim); }
 .adm-stat input { width: 100%; margin-top: 4px; text-align: center; }
-.adm-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; }
-.adm-eq .adm-item { cursor: pointer; border: 1px solid transparent; border-radius: 3px; }
+.adm-eq { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2px 10px; }
+.adm-eq .adm-item { cursor: pointer; border: 1px solid transparent; border-radius: 3px; min-width: 0; }
 .adm-eq .adm-item.selected { border-color: var(--gold); background: rgba(212,175,90,.15); }
 .adm-eq .slot { width: 70px; flex: 0 0 70px; color: var(--parch-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-family: var(--font-ui); }
 .adm-editor { margin-top: 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; }
-.adm-editor .sgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 10px; margin: 6px 0; }
+.adm-editor .sgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 14px; margin: 6px 0; }
 .adm-editor .sgrid label { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; font-family: var(--font-ui); }
-.adm-editor .sgrid input { width: 72px; }
+.adm-editor .sgrid input { width: 80px; flex: 0 0 auto; }
 table.data.adm-table td { vertical-align: middle; }
 table.data.adm-table .acts { white-space: nowrap; text-align: right; }
 table.data.adm-table .acts .btn { margin-left: 2px; padding: 2px 6px; font-size: 10px; }
@@ -553,8 +553,8 @@ textarea.adm-ta { width: 100%; height: 150px; font-family: Consolas, Menlo, mono
     const copperOf = function () { return num(gIn.value) * M.GOLD + num(sIn.value) * M.SILVER + num(cIn.value); };
     root.appendChild(section('Purse', [
       row([lbl('Gold'), gIn, el('span', { class: 'adm-unit', text: 'g' }), sIn, el('span', { class: 'adm-unit', text: 's' }), cIn, el('span', { class: 'adm-unit', text: 'c' }),
-        btn('Set', function () { setGold(copperOf()); }, 'primary'), btn('Add', function () { addGold(copperOf()); }), btn('Take', function () { addGold(-copperOf()); }),
-        el('span', { class: 'sep' }), btn('+100g', function () { addGold(100 * M.GOLD); }), btn('+1,000g', function () { addGold(1000 * M.GOLD); }), btn('Empty purse', function () { setGold(0); }, 'danger')]),
+        btn('Set', function () { setGold(copperOf()); }, 'primary'), btn('Add', function () { addGold(copperOf()); }), btn('Take', function () { addGold(-copperOf()); })]),
+      row([lbl('Quick'), btn('+10g', function () { addGold(10 * M.GOLD); }), btn('+100g', function () { addGold(100 * M.GOLD); }), btn('+1,000g', function () { addGold(1000 * M.GOLD); }), btn('+10,000g', function () { addGold(10000 * M.GOLD); }), el('span', { class: 'sep' }), btn('Empty purse', function () { setGold(0); }, 'danger')]),
     ]));
 
     // ---- primary stats
@@ -585,13 +585,15 @@ textarea.adm-ta { width: 100%; height: 150px; font-family: Consolas, Menlo, mono
     const dmgIn = numIn(num(st.damageMult, 1), 0, 1000, 0.1, 70), spdIn = numIn(num(st.speedMult, 1), 0.1, 20, 0.1, 70), fishIn = numIn(num(st.fishingSkill, 1), 1, 100, 1, 64);
     root.appendChild(section('Vitals & overrides', [
       row([btn('Full morale & power', fullHeal, 'primary'), btn('Reset cooldowns', resetCooldowns), btn('Set morale to 10%', function () { computeStats(p); p.morale = Math.max(1, Math.round(num(p.stats && p.stats.maxMorale, 100) * 0.1)); toast('Morale set to 10%'); })]),
-      row([
+      row([lbl('Cheats'),
         toggle('God mode', function () { return !!st.godMode; }, function (v) { setOverride('godMode', v); toast('God mode ' + (v ? 'ON' : 'off')); }, 'Immune to all damage (G.state.godMode)'),
         toggle('No cooldowns', function () { return !!st.noCooldowns; }, function (v) { setOverride('noCooldowns', v); if (v) resetCooldowns(); toast('Cooldowns ' + (v ? 'disabled' : 'enabled')); }, 'G.state.noCooldowns'),
-        el('span', { class: 'sep' }),
-        lbl('Damage ×', 66), dmgIn, btn('Apply', function () { const v = clamp(num(dmgIn.value, 1), 0, 1000); dmgIn.value = v; setOverride('damageMult', v); toast('Damage multiplier ×' + v); }),
-        lbl('Speed ×', 58), spdIn, btn('Apply', function () { const v = clamp(num(spdIn.value, 1), 0.1, 20); spdIn.value = v; setOverride('speedMult', v); toast('Speed multiplier ×' + v); }),
-      ]),
+        toggle('Noclip', function () { return !!st.noclip; }, function (v) { setOverride('noclip', v); toast('Noclip ' + (v ? 'on' : 'off')); }),
+        toggle('Free-fly', function () { return !!st.flyCam; }, function (v) { setOverride('flyCam', v); toast('Free-fly ' + (v ? 'on' : 'off')); })]),
+      row([lbl('Damage ×'), dmgIn, btn('Apply', function () { const v = clamp(num(dmgIn.value, 1), 0, 1000); dmgIn.value = v; setOverride('damageMult', v); toast('Damage multiplier ×' + v); }),
+        btn('×1', function () { dmgIn.value = 1; setOverride('damageMult', 1); toast('Damage multiplier ×1'); }, 'small'), btn('×10', function () { dmgIn.value = 10; setOverride('damageMult', 10); toast('Damage multiplier ×10'); }, 'small'),
+        el('span', { class: 'sep' }), lbl('Speed ×', 58), spdIn, btn('Apply', function () { const v = clamp(num(spdIn.value, 1), 0.1, 20); spdIn.value = v; setOverride('speedMult', v); toast('Speed multiplier ×' + v); }),
+        btn('×1', function () { spdIn.value = 1; setOverride('speedMult', 1); toast('Speed multiplier ×1'); }, 'small'), btn('×3', function () { spdIn.value = 3; setOverride('speedMult', 3); toast('Speed multiplier ×3'); }, 'small')]),
       row([lbl('Fishing skill'), fishIn, btn('Set', function () { st.fishingSkill = Math.round(clamp(num(fishIn.value, 1), 1, 100)); fishIn.value = st.fishingSkill; toast('Fishing skill ' + st.fishingSkill); }), btn('Max (100)', function () { st.fishingSkill = 100; fishIn.value = 100; toast('Fishing skill 100'); })]),
       hint('Speed × is stored as G.state.speedMult and mirrored onto player.speedMult (which the controller reads). Damage × scales the damage you deal.'),
     ]));

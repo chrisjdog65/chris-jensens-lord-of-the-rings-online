@@ -280,3 +280,527 @@
   };
   const DUNGEONS = ['Great Barrow', 'Fornost', 'Carn Dûm', 'Goblin-town', 'Annúminas', 'the Barrow-downs', 'Sambrog\'s crypt', 'Weathertop', 'Himring', 'the Rift'];
   const HOUR_WORD = () => { const h = dayTime(); return h < 5 ? 'night' : h < 12 ? 'morning' : h < 18 ? 'afternoon' : h < 22 ? 'evening' : 'night'; };
+
+  // ------------------------------------------------------------------------------------------------ module state
+  let inited = false;
+  let scene = null;
+  const root = THREE ? new THREE.Group() : null;
+  if (root) root.name = 'aiplayers';
+  const all = [];                 // every AI entity (index order = id order)
+  const byId = {};
+  const byNameLower = {};
+  const fellowships = [];         // { id, name, leaderId, members: [ids] }
+  const fellowshipById = {};
+  const counters = { farTicks: 0, nearTicks: 0, rigsBuilt: 0, rigsDisposed: 0, chats: 0, replies: 0, levelUps: 0, kills: 0, deaths: 0, quests: 0, fish: 0, fights: 0, abilities: 0, attacks: 0, heals: 0, emotes: 0, travels: 0, sailings: 0 };
+  const chatLog = [];             // last 60 lines {from, channel, text, at}
+  let cursor = 0;                 // far-tick round robin
+  let scanT = 0;
+  let rigCount = 0;
+  let frame = 0;
+  const nearList = [];            // entities within RENDER_DROP (rebuilt every scan, sorted by distance)
+  const rigList = [];             // entities that currently own a rig
+  const pending = [];             // scheduled chat lines {at, ent, text, channel, to}
+  let nextWorldChat = 0;
+  let lastWorldLine = '';
+  let lastWorldCat = '';
+  let lastWorldFrom = null;
+  let lastWorldAt = -1e9;
+  let heroLastSeen = -1e9;
+  const _v = THREE ? new THREE.Vector3() : { x: 0, y: 0, z: 0, set() { return this; } };
+  const _v2 = THREE ? new THREE.Vector3() : { x: 0, y: 0, z: 0, set() { return this; } };
+  const _qbuf = [];
+  const _tmp = [];
+  const _spot = { x: 0, z: 0, kind: '', name: '' };
+
+  // ------------------------------------------------------------------------------------------------ road / dock graph
+  const graph = { nodes: {}, list: [], edges: [] };
+  function addNode(id, x, z) {
+    let n = graph.nodes[id];
+    if (!n) { n = { id: id, x: x, z: z, adj: [] }; graph.nodes[id] = n; graph.list.push(n); }
+    return n;
+  }
+  function polyLen(pts) { let l = 0; for (let i = 1; i < pts.length; i++) l += Math.sqrt(_dist2sq(pts[i - 1].x, pts[i - 1].z, pts[i].x, pts[i].z)); return l; }
+  function buildGraph(W) {
+    graph.nodes = {}; graph.list.length = 0; graph.edges.length = 0;
+    const towns = W.towns || [], roads = W.roads || [], docks = W.docks || [];
+    for (let i = 0; i < towns.length; i++) { const t = towns[i]; if (t && t.id && t.pos) addNode(t.id, num(t.pos.x), num(t.pos.z)); }
+    for (let i = 0; i < roads.length; i++) {
+      const r = roads[i]; if (!r || !r.from || !r.to || !Array.isArray(r.points) || r.points.length < 2) continue;
+      const pts = r.points.map((p) => ({ x: num(p.x), z: num(p.z), boat: false }));
+      const a = graph.nodes[r.from] || addNode(r.from, pts[0].x, pts[0].z);
+      const b = graph.nodes[r.to] || addNode(r.to, pts[pts.length - 1].x, pts[pts.length - 1].z);
+      const e = { a: a.id, b: b.id, pts: pts, len: polyLen(pts), boat: false };
+      const idx = graph.edges.push(e) - 1;
+      a.adj.push(idx); b.adj.push(idx);
+    }
+    const seen = {};
+    for (let i = 0; i < docks.length; i++) {
+      const d = docks[i]; if (!d || !d.town || !d.pos || !Array.isArray(d.routes)) continue;
+      for (let k = 0; k < d.routes.length; k++) {
+        const o = (W.dockById && W.dockById[d.routes[k]]) || docks.find((x) => x && x.id === d.routes[k]);
+        if (!o || !o.town || !o.pos || o.town === d.town) continue;
+        const key = d.town < o.town ? d.town + '|' + o.town : o.town + '|' + d.town;
+        if (seen[key]) continue; seen[key] = true;
+        const a = graph.nodes[d.town], b = graph.nodes[o.town]; if (!a || !b) continue;
+        const pts = [{ x: a.x, z: a.z, boat: false }, { x: num(d.pos.x), z: num(d.pos.z), boat: false }, { x: num(o.pos.x), z: num(o.pos.z), boat: true }, { x: b.x, z: b.z, boat: false }];
+        const e = { a: a.id, b: b.id, pts: pts, len: polyLen(pts) * 1.2 + 60, boat: true };
+        const idx = graph.edges.push(e) - 1;
+        a.adj.push(idx); b.adj.push(idx);
+      }
+    }
+  }
+  function nearestNode(x, z, preferId) {
+    if (preferId && graph.nodes[preferId]) { const n = graph.nodes[preferId]; if (_dist2sq(x, z, n.x, n.z) < 200 * 200) return n; }
+    let best = null, bd = Infinity;
+    for (let i = 0; i < graph.list.length; i++) { const n = graph.list[i]; const d = _dist2sq(x, z, n.x, n.z); if (d < bd) { bd = d; best = n; } }
+    return best;
+  }
+  // Dijkstra over ≤ 30 nodes: returns [{edge, reverse}] or null
+  function routeNodes(fromId, toId) {
+    if (fromId === toId) return [];
+    const dist = {}, prev = {}, done = {};
+    const list = graph.list;
+    for (let i = 0; i < list.length; i++) dist[list[i].id] = Infinity;
+    if (!(fromId in dist) || !(toId in dist)) return null;
+    dist[fromId] = 0;
+    for (let iter = 0; iter < list.length; iter++) {
+      let u = null, ud = Infinity;
+      for (let i = 0; i < list.length; i++) { const id = list[i].id; if (!done[id] && dist[id] < ud) { ud = dist[id]; u = id; } }
+      if (u === null) break;
+      if (u === toId) break;
+      done[u] = true;
+      const n = graph.nodes[u];
+      for (let k = 0; k < n.adj.length; k++) {
+        const e = graph.edges[n.adj[k]]; const v = e.a === u ? e.b : e.a;
+        const nd = ud + e.len;
+        if (nd < dist[v]) { dist[v] = nd; prev[v] = { from: u, edge: e }; }
+      }
+    }
+    if (dist[toId] === Infinity) return null;
+    const out = [];
+    let cur = toId;
+    while (cur !== fromId) { const p = prev[cur]; if (!p) return null; out.push({ edge: p.edge, reverse: p.edge.b !== cur }); cur = p.from; }
+    out.reverse();
+    return out;
+  }
+  // Full polyline from a world position to a town: straight leg to the entry node, roads/boats, final leg to the town centre.
+  function routeTo(x, z, toTownId, fromTownId) {
+    const target = townData(toTownId);
+    if (!target || !target.pos) return null;
+    const start = nearestNode(x, z, fromTownId);
+    const end = graph.nodes[toTownId] || nearestNode(target.pos.x, target.pos.z, null);
+    const path = [];
+    if (!start || !end) { path.push({ x: num(target.pos.x), z: num(target.pos.z), boat: false }); return path; }
+    if (_dist2sq(x, z, start.x, start.z) > 4) path.push({ x: start.x, z: start.z, boat: false });
+    const legs = routeNodes(start.id, end.id);
+    if (legs) {
+      for (let i = 0; i < legs.length; i++) {
+        const e = legs[i].edge, pts = e.pts;
+        if (!legs[i].reverse) { for (let k = 1; k < pts.length; k++) path.push(pts[k]); }
+        else { for (let k = pts.length - 2; k >= 0; k--) path.push({ x: pts[k].x, z: pts[k].z, boat: !!pts[k + 1].boat }); }
+      }
+    }
+    if (_dist2sq(end.x, end.z, target.pos.x, target.pos.z) > 4) path.push({ x: num(target.pos.x), z: num(target.pos.z), boat: false });
+    return path;
+  }
+  function pathRemaining(path, idx, x, z) {
+    if (!path || idx >= path.length) return 0;
+    let l = Math.sqrt(_dist2sq(x, z, path[idx].x, path[idx].z));
+    for (let i = idx + 1; i < path.length; i++) l += Math.sqrt(_dist2sq(path[i - 1].x, path[i - 1].z, path[i].x, path[i].z));
+    return l;
+  }
+  // Walled towns: leave/enter through the gate nearest to the direction of travel.
+  function gatesOf(town) {
+    if (!town) return null;
+    if (town._aiGates !== undefined) return town._aiGates;
+    let gates = null;
+    if (town.walls || town.id === 'bree') {
+      gates = [];
+      const R = num(town.wallRadius, num(town.radius, 60) * 0.85);
+      if (Array.isArray(town.gates) && town.gates.length) {
+        for (let i = 0; i < town.gates.length; i++) { const g = town.gates[i]; const ang = typeof g === 'number' ? g : Math.atan2(num(g.x) - town.pos.x, num(g.z) - town.pos.z); gates.push({ x: town.pos.x + Math.sin(ang) * R, z: town.pos.z + Math.cos(ang) * R }); }
+      } else {
+        const W = world(); const roads = (W && W.roads) || [];
+        for (let i = 0; i < roads.length; i++) {
+          const r = roads[i]; if (!r || (r.from !== town.id && r.to !== town.id) || !r.points) continue;
+          const pts = r.from === town.id ? r.points : r.points.slice().reverse();
+          for (let k = 1; k < pts.length; k++) {
+            const a = pts[k - 1], b = pts[k]; const da = Math.sqrt(_dist2sq(a.x, a.z, town.pos.x, town.pos.z)), db = Math.sqrt(_dist2sq(b.x, b.z, town.pos.x, town.pos.z));
+            if (da <= R && db >= R) { const t = (R - da) / Math.max(1e-6, db - da); gates.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t }); break; }
+          }
+        }
+      }
+      if (!gates.length) gates = null;
+    }
+    town._aiGates = gates;
+    return gates;
+  }
+  function insertGates(path, x, z, townId) {
+    const town = townData(townId); const gates = gatesOf(town);
+    if (!gates || !path || !path.length) return path;
+    const R = num(town.wallRadius, num(town.radius, 60) * 0.85);
+    const out = []; let px = x, pz = z;
+    for (let i = 0; i < path.length; i++) {
+      const p = path[i];
+      const inA = _dist2sq(px, pz, town.pos.x, town.pos.z) < R * R, inB = _dist2sq(p.x, p.z, town.pos.x, town.pos.z) < R * R;
+      if (inA !== inB && !p.boat) {
+        const mx = inA ? p.x : px, mz = inA ? p.z : pz;   // point outside: pick the gate nearest to it
+        let g = gates[0], gd = Infinity;
+        for (let k = 0; k < gates.length; k++) { const d = _dist2sq(gates[k].x, gates[k].z, mx, mz); if (d < gd) { gd = d; g = gates[k]; } }
+        const dx = g.x - town.pos.x, dz = g.z - town.pos.z, l = Math.sqrt(dx * dx + dz * dz) || 1;
+        const inner = { x: g.x - dx / l * 7, z: g.z - dz / l * 7, boat: false }, outer = { x: g.x + dx / l * 7, z: g.z + dz / l * 7, boat: false };
+        if (inA) { out.push(inner); out.push(outer); } else { out.push(outer); out.push(inner); }
+      }
+      out.push(p); px = p.x; pz = p.z;
+    }
+    return out;
+  }
+
+  // ------------------------------------------------------------------------------------------------ world lookups
+  function zonesForLevel(L) {
+    const W = world(); const out = [];
+    const zs = (W && W.zones) || [];
+    for (let i = 0; i < zs.length; i++) { const z = zs[i]; const lv = z.level || [1, 80]; if (L >= lv[0] && L <= lv[1]) out.push(z); }
+    if (!out.length) { let best = null, bd = Infinity; for (let i = 0; i < zs.length; i++) { const z = zs[i]; const lv = z.level || [1, 80]; const d = L < lv[0] ? lv[0] - L : L - lv[1]; if (d < bd) { bd = d; best = z; } } if (best) out.push(best); }
+    return out;
+  }
+  function townsInZone(zoneId) { const W = world(); const ts = (W && W.towns) || []; const out = []; for (let i = 0; i < ts.length; i++) if (ts[i].zone === zoneId) out.push(ts[i]); return out; }
+  function pickTown(zoneId, rnd) {
+    const ts = townsInZone(zoneId);
+    if (!ts.length) { const W = world(); return (W && W.towns && W.towns[0]) || null; }
+    return G.weightedPick(ts, (t) => (t.hasInn ? 2.2 : 1) + (t.style === 'ruin' ? -0.4 : 0) + (t.hasStable ? 0.4 : 0) + (t.id === 'bree' ? 1.5 : 0), rnd) || ts[0];
+  }
+  function spawnsInZone(zoneId) {
+    const W = world(); if (!W) return _tmp;
+    if (hasFn(W, 'spawnsInZone')) { try { return W.spawnsInZone(zoneId) || []; } catch (e) { /* fall through */ } }
+    const out = []; const sp = W.spawns || [];
+    for (let i = 0; i < sp.length; i++) { const s = sp[i]; if (s.zone === zoneId || (!s.zone && s.center && zoneAtPos(s.center.x, s.center.z) === zoneId)) out.push(s); }
+    return out;
+  }
+  function monsterType(id) { const W = world(); if (!W) return null; if (W.monsterById && W.monsterById[id]) return W.monsterById[id]; const mt = W.monsterTypes || []; for (let i = 0; i < mt.length; i++) if (mt[i].id === id) return mt[i]; return null; }
+  function pickSpawn(zoneId, L) {
+    const sp = spawnsInZone(zoneId); if (!sp.length) return null;
+    let best = null, n = 0;
+    for (let i = 0; i < sp.length; i++) {
+      const s = sp[i]; const mt = monsterType(s.type); if (!mt || !s.center) continue;
+      const lv = mt.level || [1, 80]; const lo = Array.isArray(lv) ? lv[0] : lv, hi = Array.isArray(lv) ? lv[1] : lv;
+      if (hi < L - 7 || lo > L + 4) continue;
+      n++; if (schance(1 / n)) best = s;                    // reservoir pick among suitable groups
+    }
+    return best || spick(sp);
+  }
+  function spawnName(s) { if (!s) return ''; if (s.name) return s.name; const mt = monsterType(s.type); return mt ? 'the ' + mt.name + ' grounds' : 'the wilds'; }
+  function fishSpotsIn(zoneId) { const W = world(); const fs = (W && W.fishingSpots) || []; const out = []; for (let i = 0; i < fs.length; i++) if (fs[i].zone === zoneId && fs[i].pos) out.push(fs[i]); return out; }
+  function poisIn(zoneId) { const W = world(); const ps = (W && W.pois) || []; const out = []; for (let i = 0; i < ps.length; i++) if (ps[i].zone === zoneId && ps[i].pos) out.push(ps[i]); return out; }
+  function innOf(town) {
+    if (!town) return null;
+    if (town._aiInn !== undefined) return town._aiInn;
+    let inn = null;
+    const bl = town.buildings || [];
+    for (let i = 0; i < bl.length; i++) if (bl[i] && bl[i].recipe === 'inn') { inn = { x: num(bl[i].x), z: num(bl[i].z), yaw: num(bl[i].yaw), name: bl[i].name || (town.name + ' inn') }; break; }
+    town._aiInn = inn;
+    return inn;
+  }
+  function innName(town) { const inn = innOf(town); return inn ? inn.name : (town ? 'the ' + town.name + ' inn' : 'the inn'); }
+  function propsOf(town, kind) { const out = []; const ps = (town && town.props) || []; for (let i = 0; i < ps.length; i++) if (ps[i] && ps[i].kind === kind) out.push(ps[i]); return out; }
+  // Runtime building lookups (G.Buildings) with data fallbacks
+  function buildingsNear(x, z, r, recipe) {
+    _tmp.length = 0;
+    const B = G.Buildings; const list = (B && Array.isArray(B.all)) ? B.all : null;
+    if (!list) return _tmp;
+    const r2 = r * r;
+    for (let i = 0; i < list.length; i++) { const b = list[i]; if (!b || (recipe && b.recipe !== recipe)) continue; if (_dist2sq(x, z, num(b.x), num(b.z)) <= r2) _tmp.push(b); }
+    return _tmp;
+  }
+  function doorFront(b, dist, out) {
+    if (b && b.door && b.door.pos) { const yaw = num(b.door.yaw); out.x = b.door.pos.x - Math.sin(yaw) * dist; out.z = b.door.pos.z - Math.cos(yaw) * dist; return out; }
+    return null;
+  }
+  // A spot in town for a given purpose: 'inn' | 'vendor' | 'well' | 'campfire' | 'market' | 'stable' | 'any'
+  function townSpot(town, kind, out) {
+    out = out || _spot;
+    out.kind = kind; out.name = town ? town.name : '';
+    if (!town || !town.pos) { out.x = 0; out.z = 0; return out; }
+    const cx = num(town.pos.x), cz = num(town.pos.z), R = Math.max(12, num(town.radius, 40));
+    const jitter = () => { const a = S() * TAU, d = sr(1.5, 4); out.x += Math.sin(a) * d; out.z += Math.cos(a) * d; };
+    const fromBuilding = (recipe, dataList) => {
+      const bl = buildingsNear(cx, cz, R * 1.3, recipe);
+      if (bl.length) { const b = spick(bl); if (doorFront(b, sr(2.5, 4.5), out)) { out.name = b.name || out.name; jitter(); return true; } }
+      if (dataList && dataList.length) { const d = spick(dataList); const dx = cx - num(d.x), dz = cz - num(d.z), l = Math.sqrt(dx * dx + dz * dz) || 1; out.x = num(d.x) + dx / l * 8; out.z = num(d.z) + dz / l * 8; out.name = d.name || out.name; jitter(); return true; }
+      return false;
+    };
+    const dataBuildings = (recipe) => { const bl = town.buildings || []; const o = []; for (let i = 0; i < bl.length; i++) if (bl[i] && bl[i].recipe === recipe) o.push(bl[i]); return o; };
+    const fromProp = (pk) => { const ps = propsOf(town, pk); if (!ps.length) return false; const p = spick(ps); out.x = num(p.x); out.z = num(p.z); const a = S() * TAU, d = sr(2, 3.2); out.x += Math.sin(a) * d; out.z += Math.cos(a) * d; return true; };
+    let ok = false;
+    switch (kind) {
+      case 'inn': ok = fromBuilding('inn', dataBuildings('inn')); if (ok) out.name = innName(town); break;
+      case 'vendor': ok = fromBuilding('shop', dataBuildings('shop')) || fromProp('market_stall'); break;
+      case 'market': ok = fromProp('market_stall') || fromBuilding('shop', dataBuildings('shop')); break;
+      case 'well': ok = fromProp('well'); break;
+      case 'campfire': ok = fromProp('campfire'); break;
+      case 'stable': ok = fromBuilding('stable', dataBuildings('stable')); break;
+      default: ok = false;
+    }
+    if (!ok) {
+      // somewhere on the town square, away from the very centre
+      for (let k = 0; k < 6; k++) { const a = S() * TAU, d = sr(R * 0.15, R * 0.5); out.x = cx + Math.sin(a) * d; out.z = cz + Math.cos(a) * d; if (!isWaterAt(out.x, out.z)) break; }
+      out.kind = 'square';
+    }
+    return out;
+  }
+  function campfireNear(x, z, r) {
+    const W = world(); const ts = (W && W.towns) || [];
+    for (let i = 0; i < ts.length; i++) { const t = ts[i]; if (!t.pos || _dist2sq(x, z, t.pos.x, t.pos.z) > (num(t.radius, 40) + r) * (num(t.radius, 40) + r)) continue; const ps = propsOf(t, 'campfire'); for (let k = 0; k < ps.length; k++) if (_dist2sq(x, z, ps[k].x, ps[k].z) <= r * r) return ps[k]; }
+    return null;
+  }
+  function rallyOf(town) { if (!town) return { x: 0, z: 0 }; const rp = town.rallyPoint || town.pos; return { x: num(rp.x), z: num(rp.z) }; }
+
+  // ------------------------------------------------------------------------------------------------ gear / stats / abilities
+  function armourTypeOf(cls) { const c = classOf(cls); return (c && c.armourType) || 'medium'; }
+  function rarityFor(L, rnd) {
+    const w = RARITY_W[L < 10 ? 0 : L < 30 ? 1 : L < 60 ? 2 : L < 80 ? 3 : 4];
+    let total = 0; for (let i = 0; i < w.length; i++) total += w[i];
+    let r = rnd() * total;
+    for (let i = 0; i < w.length; i++) { r -= w[i]; if (r < 0) return RARITIES[i] || 'common'; }
+    return 'common';
+  }
+  function gearTier(L) { return Math.floor(L / 5); }
+  function equipFor(e) {
+    const eq = {};
+    for (let i = 0; i < EQUIP_SLOTS.length; i++) eq[EQUIP_SLOTS[i]] = null;
+    const I = G.Items;
+    if (!I) { e.equipment = eq; return eq; }
+    if (e.lostKingdom && hasFn(I, 'bestSet')) {
+      try { const set = I.bestSet(LEVEL_CAP, e.cls) || []; for (let i = 0; i < EQUIP_SLOTS.length; i++) eq[EQUIP_SLOTS[i]] = set[i] || null; e.equipment = eq; e.gearTier = gearTier(e.level); return eq; } catch (err) { report(err, 'bestSet'); }
+    }
+    if (!hasFn(I, 'generate')) { e.equipment = eq; return eq; }
+    const tier = gearTier(e.level);
+    const rnd = hasFn(G, 'rng') ? G.rng('ai-gear:' + e.id + ':' + tier) : S;
+    const L = e.level, at = armourTypeOf(e.cls);
+    const twoHanded = (e.cls === 'champion' || e.cls === 'captain') && rnd() < 0.25;
+    for (let i = 0; i < EQUIP_SLOTS.length; i++) {
+      const slot = EQUIP_SLOTS[i];
+      // low levels have gaps in their kit, like real fresh characters
+      if (L < 12 && (slot === 'shoulder' || slot === 'head' || slot === 'ear2' || slot === 'wrist2' || slot === 'ring2' || slot === 'pocket' || slot === 'neck') && rnd() < 0.55) continue;
+      if (L < 25 && (slot === 'pocket' || slot === 'ear2') && rnd() < 0.3) continue;
+      if (slot === 'offhand' && eq.mainhand && hasFn(I, 'isTwoHanded') && I.isTwoHanded(eq.mainhand)) continue;
+      let inst = null;
+      try {
+        inst = I.generate({ level: L, slot: slot, cls: e.cls, seed: 'ai:' + e.id + ':' + slot + ':' + tier, rarity: rarityFor(L, rnd), armourType: (slot === 'back') ? 'light' : at, noTwoHanded: slot === 'mainhand' ? !twoHanded : true });
+      } catch (err) { report(err, 'generate'); inst = null; }
+      eq[slot] = inst || null;
+    }
+    e.equipment = eq; e.gearTier = tier;
+    return eq;
+  }
+  function abilitiesForLevel(cls, L) {
+    const set = new Set();
+    const D = G.Data; if (!D || !hasFn(D, 'abilitiesFor')) return set;
+    let list = []; try { list = D.abilitiesFor(cls) || []; } catch (e) { list = []; }
+    for (let i = 0; i < list.length; i++) if (num(list[i].level, 1) <= L) set.add(list[i].id);
+    return set;
+  }
+  function buildRotation(e) {
+    const D = G.Data; const rot = { attack: [], heal: [], buff: [], selfHeal: [] };
+    e.rotation = rot;
+    if (!D || !hasFn(D, 'abilitiesFor')) return rot;
+    let list = []; try { list = D.abilitiesFor(e.cls) || []; } catch (err) { list = []; }
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i]; if (num(a.level, 1) > e.level) continue;
+      if (a.kind === 'heal') { if (a.target === 'self') rot.selfHeal.push(a.id); else rot.heal.push(a.id); }
+      else if (a.kind === 'buff' || a.kind === 'stance') rot.buff.push(a.id);
+      else if (a.target === 'enemy' || a.kind === 'melee' || a.kind === 'ranged' || a.kind === 'tactical' || a.kind === 'aoe' || a.kind === 'debuff' || a.kind === 'taunt') { if (a.target !== 'self' && a.target !== 'party') rot.attack.push(a.id); }
+    }
+    rot.attack.reverse();      // strongest (highest unlock) first
+    return rot;
+  }
+  function computeStats(e) {
+    const D = G.Data;
+    if (D && D.stats && hasFn(D.stats, 'compute')) { try { D.stats.compute(e); } catch (err) { report(err, 'stats.compute'); } }
+    if (!e.stats || typeof e.stats !== 'object') e.stats = {};
+    if (!(e.stats.maxMorale > 0)) e.stats.maxMorale = 100 + e.level * 40;
+    if (!(e.stats.maxPower > 0)) e.stats.maxPower = 80 + e.level * 15;
+    return e.stats;
+  }
+  function fullHeal(e) { computeStats(e); e.morale = e.stats.maxMorale; e.power = e.stats.maxPower; }
+  function titleFor(e) {
+    const D = G.Data; const titles = (D && D.titles) || [];
+    if (e.lostKingdom) { for (let i = 0; i < titles.length; i++) if (titles[i].id === 'lord_lost_kingdom') return hasFn(D, 'titleName') ? D.titleName(titles[i].id, e.gender) : titles[i].name; }
+    let best = null;
+    for (let i = 0; i < titles.length; i++) { const t = titles[i]; if (t.kind !== 'level' || !t.req || !(t.req.level <= e.level)) continue; if (!best || t.req.level > best.req.level) best = t; }
+    if (!best) return '';
+    return hasFn(D, 'titleName') ? D.titleName(best.id, e.gender) : best.name;
+  }
+  function xpForLevel(L) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'forLevel')) ? num(X.forLevel(L), 0) : (L - 1) * 500; }
+  function needFor(L) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'needFor')) ? num(X.needFor(L), 500) : 500; }
+  function killXP(mobL, L, mult) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'killXP')) ? num(X.killXP(mobL, L, mult), 5) : 5; }
+  function questXP(L, type) { const X = G.Data && G.Data.xp; return (X && hasFn(X, 'questXP')) ? num(X.questXP(L, type), 100) : 100; }
+  function xpPace(L) { return 1 / (1 + L / 40); }     // 1.0 at L1 → 0.5 at L40 → 0.33 at L80 (levels slow down)
+
+  // ------------------------------------------------------------------------------------------------ population
+  function uniqueName(race, gender, rng, used) {
+    const D = G.Data;
+    for (let k = 0; k < 40; k++) {
+      let n = hasFn(D, 'randomName') ? D.randomName(race, gender, rng) : ('Wanderer' + Math.floor(rng() * 9999));
+      if (!n) continue;
+      const key = n.toLowerCase();
+      if (!used.has(key)) { used.add(key); return n; }
+    }
+    let base = hasFn(D, 'randomName') ? D.randomName(race, gender, rng) : 'Wanderer';
+    let n = 2; while (used.has((base + n).toLowerCase())) n++;
+    used.add((base + n).toLowerCase());
+    return base + n;
+  }
+  function newAiState() {
+    return { state: 'town', phase: '', timer: 5, goal: { x: 0, z: 0 }, path: null, pathIdx: 0, spawn: null, spot: null, spotKind: '', fightTarget: null,
+      nextScan: 0, nextCast: 0, rot: 0, fightUntil: 0, killsThisFight: 0, hadTarget: false, stuckT: 0, lastX: 0, lastZ: 0, moveT: 0, avoidSide: 1, avoidUntil: 0,
+      probeT: 0, probeYaw: 0, sit: false, eatUntil: 0, retreatUntil: 0, travelTo: null, arrive: 'town', inInn: false, innSpot: null, outside: null, explore: null,
+      waveT: 0, emoteUntil: 0, fishCastT: 0, abstractT: 0, arriveDist: 2.5, sailFrom: null, lastActivityT: 0, deathAt: 0, nudges: 0, wander: 0 };
+  }
+  function makeRecord(i, rng, ctx) {
+    const race = ctx.race, cls = ctx.cls, L = ctx.level, gender = ctx.gender;
+    const rd = raceOf(race);
+    const name = uniqueName(race, gender, rng, ctx.used);
+    const surname = hasFn(G.Data, 'randomSurname') ? (G.Data.randomSurname(race, rng) || '') : '';
+    const style = G.weightedPick(STYLES, (s) => s[1], rng)[0];
+    let ps = G.weightedPick(PLAYSTYLES, (s) => s[1] * ((s[0] === 'fisher' && (race === 'hobbit' || race === 'riverhobbit')) ? 2.5 : 1) * ((s[0] === 'social' && cls === 'minstrel') ? 2 : 1) * ((s[0] === 'grinder' && (cls === 'hunter' || cls === 'champion')) ? 1.6 : 1), rng)[0];
+    let chatty = Math.pow(rng(), 1.25);
+    if (style === 'quiet') chatty *= 0.3; else if (style === 'jokester' || style === 'trader') chatty = Math.max(chatty, 0.45);
+    const friendly = clamp(0.2 + 0.8 * rng() + (style === 'helper' ? 0.2 : 0) + (style === 'roleplay' ? 0.1 : 0), 0, 1);
+    const e = {
+      id: 'ai' + pad3(i + 1), kind: 'aiplayer', name: name, surname: surname, fullName: surname ? name + ' ' + surname : name,
+      race: race, gender: gender, cls: cls, level: L, xp: 0, title: '', faction: 'free', hostile: false, online: true,
+      pos: THREE ? new THREE.Vector3() : { x: 0, y: 0, z: 0 }, vel: THREE ? new THREE.Vector3() : { x: 0, y: 0, z: 0 }, yaw: rng() * TAU,
+      radius: 0.4, height: 1.8 * (rd ? num(rd.height, 1) : 1), onGround: true, inWater: false, swimming: false,
+      stats: {}, morale: 0, power: 0, alive: true, dead: false, deathTime: 0,
+      effects: [], cooldowns: {}, target: null, threat: {}, knockback: THREE ? new THREE.Vector3() : { x: 0, y: 0, z: 0 },
+      mesh: null, rig: null, anim: 'idle', animTime: 0,
+      equipment: {}, abilities: null, rotation: null, lostKingdom: !!ctx.lostKingdom,
+      persona: { chatty: chatty, friendly: friendly, style: style, playstyle: ps },
+      fellowshipId: null, fellowshipRole: '', formation: 0,
+      kills: Math.round(L * L * 2.2 + L * 8 * rng()), questsDone: Math.min(150, Math.round(L * 1.8 + rng() * 3)), deaths: Math.round(L / 7 * (0.4 + rng())),
+      fish: ps === 'fisher' ? Math.round(L * 4 + rng() * 40) : Math.round(rng() * L * 0.4), playTime: Math.round(L * L * 40 + rng() * L * 1200 + 600),
+      zone: ctx.zone, townId: ctx.townId, activity: '', mounted: false, mountRig: null, sailing: false, inCombat: false,
+      chatTimer: sr(20, 200), lastLine: '', lastChatAt: -1e9, lastWave: -1e9, lastBow: -1e9, lastDing: -1e9,
+      look: null, gearTier: 0, seed: hasFn(G, 'hashStr') ? G.hashStr('ai:' + name) : i * 7919,
+      ai: newAiState(), _lastTick: 0, _d2: Infinity, _near: false, _rank: 999, interact: undefined,
+    };
+    e.xp = xpForLevel(L) + Math.floor(rng() * needFor(L) * 0.9);
+    e.abilities = abilitiesForLevel(cls, L);
+    equipFor(e);
+    buildRotation(e);
+    fullHeal(e);
+    e.title = titleFor(e);
+    e.chatTimer = sr(20, 200) / Math.max(0.05, chatty);
+    return e;
+  }
+  function placeAt(e, x, z, yaw) {
+    e.pos.x = x; e.pos.z = z; e.pos.y = coarseY(x, z);
+    if (typeof yaw === 'number') e.yaw = yaw;
+    e.vel.x = 0; e.vel.y = 0; e.vel.z = 0;
+    e.ai.lastX = x; e.ai.lastZ = z; e.ai.stuckT = 0;
+    if (e.rig) { e.pos.y = terrainY(x, z); syncRig(e); }
+    if (G.Spatial && hasFn(G.Spatial, 'update')) G.Spatial.update(e);
+  }
+  function buildPopulation(W) {
+    const rng = hasFn(G, 'rng') ? G.rng('aiplayers') : S;
+    const races = G.Data.races || [], classes = G.Data.classes || [];
+    const raceIds = races.map((r) => r.id), classIds = classes.map((c) => c.id);
+    if (!raceIds.length || !classIds.length) return;
+    const levels = [];
+    for (let b = 0; b < LEVEL_BANDS.length; b++) for (let i = 0; i < LEVEL_BANDS[b][2]; i++) levels.push(rng.int(LEVEL_BANDS[b][0], LEVEL_BANDS[b][1]));
+    while (levels.length < POP) levels.push(rng.int(1, 20));
+    rng.shuffle(levels);
+    const firstRaces = rng.shuffle(raceIds.slice()), firstClasses = rng.shuffle(classIds.slice());
+    const used = new Set();
+    let lk = 0;
+    for (let i = 0; i < POP; i++) {
+      const race = i < raceIds.length ? firstRaces[i] : (G.weightedPick(raceIds, (id) => RACE_W[id] || 1, rng) || raceIds[0]);
+      const cls = i < classIds.length ? firstClasses[i] : (G.weightedPick(classIds, (id) => CLASS_W[id] || 1, rng) || classIds[0]);
+      const gender = rng() < 0.55 ? 'male' : 'female';
+      const L = levels[i];
+      const rd = raceOf(race);
+      const zones = zonesForLevel(L);
+      const zone = G.weightedPick(zones, (z) => { const lv = z.level || [1, 80]; const mid = (lv[0] + lv[1]) / 2, span = Math.max(1, (lv[1] - lv[0]) / 2); return 0.4 + (1 - Math.min(1, Math.abs(L - mid) / span)) + (rd && rd.homeZone === z.id ? 3 : 0); }, rng) || zones[0];
+      const town = pickTown(zone.id, rng);
+      const lostKingdom = L >= LEVEL_CAP && lk < 2; if (lostKingdom) lk++;
+      let e;
+      try { e = makeRecord(i, rng, { race: race, cls: cls, gender: gender, level: L, zone: zone.id, townId: town ? town.id : null, used: used, lostKingdom: lostKingdom }); }
+      catch (err) { report(err, 'makeRecord'); continue; }
+      all.push(e); byId[e.id] = e; byNameLower[e.name.toLowerCase()] = e;
+    }
+    // fellowships: 25 groups of 2–5 with similar levels (consecutive in level order, one group per 6 players)
+    const order = all.slice().sort((a, b) => a.level - b.level);
+    const stride = Math.max(2, Math.floor(order.length / 25));
+    const names = rng.shuffle(FELLOWSHIP_NAMES.slice());
+    for (let g = 0; g < 25; g++) {
+      const size = rng.int(2, 5), members = [];
+      for (let j = 0; j < size; j++) { const m = order[g * stride + j]; if (m && !m.fellowshipId) members.push(m); }
+      if (members.length < 2) continue;
+      const leader = members[members.length - 1];
+      const f = { id: 'f' + (g + 1), name: names[g % names.length], leaderId: leader.id, members: members.map((m) => m.id) };
+      fellowships.push(f); fellowshipById[f.id] = f;
+      for (let j = 0; j < members.length; j++) { const m = members[j]; m.fellowshipId = f.id; m.fellowshipRole = m === leader ? 'leader' : 'member'; m.formation = j; m.zone = leader.zone; m.townId = leader.townId; }
+    }
+    // initial placement: on the town square, fellowships together
+    for (let i = 0; i < all.length; i++) {
+      const e = all[i]; const town = townData(e.townId);
+      if (town) { const sp = townSpot(town, spick(['well', 'market', 'vendor', 'inn', 'any']), _spot); placeAt(e, sp.x, sp.z, e.yaw); e.ai.spot = { x: sp.x, z: sp.z }; e.ai.spotKind = sp.kind; }
+      else placeAt(e, 0, 0, e.yaw);
+      e.ai.timer = sr(5, 60);
+      e.activity = fillActivity(e, TOWN_ACTIVITIES);
+      if (hasFn(G, 'addEntity')) G.addEntity(e); else if (G.state) { G.state.entities.push(e); G.state.byId[e.id] = e; }
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------ progression
+  function refreshGear(e) { equipFor(e); computeStats(e); if (e.rig && hasFn(e.rig, 'setEquipment')) { try { e.rig.setEquipment(e.equipment); } catch (err) { report(err, 'rig.setEquipment'); } } }
+  function zoneMaxLevel(zoneId) { const z = zoneData(zoneId); return z && z.level ? num(z.level[1], LEVEL_CAP) : LEVEL_CAP; }
+  function promoteZone(e) {
+    if (e.level <= zoneMaxLevel(e.zone)) return false;
+    const zones = zonesForLevel(e.level); if (!zones.length) return false;
+    const rd = raceOf(e.race);
+    const z = G.weightedPick(zones, (zz) => { const lv = zz.level || [1, 80]; return 0.5 + (e.level - lv[0]) / Math.max(1, lv[1] - lv[0]) + (rd && rd.homeZone === zz.id ? 0.5 : 0); }, S) || zones[0];
+    if (z.id === e.zone) return false;
+    const town = pickTown(z.id, S);
+    e.zone = z.id;
+    e.ai.travelTo = town ? town.id : null;
+    // fellowship members move with their leader
+    if (e.fellowshipRole === 'leader') { const f = fellowshipById[e.fellowshipId]; if (f) for (let i = 0; i < f.members.length; i++) { const m = byId[f.members[i]]; if (m && m !== e) { m.zone = z.id; m.ai.travelTo = e.ai.travelTo; } } }
+    return true;
+  }
+  function levelUp(e, quiet) {
+    if (e.level >= LEVEL_CAP) { e.level = LEVEL_CAP; e.xp = Math.max(e.xp, xpForLevel(LEVEL_CAP)); return false; }
+    e.level++;
+    counters.levelUps++;
+    e.abilities = abilitiesForLevel(e.cls, e.level);
+    buildRotation(e);
+    if (gearTier(e.level) !== e.gearTier || e.level === LEVEL_CAP) refreshGear(e); else computeStats(e);
+    e.morale = e.stats.maxMorale; e.power = e.stats.maxPower;
+    e.title = titleFor(e) || e.title;
+    if (e.rig && e.rig.nameplate) refreshNameplate(e);
+    if (e.level >= LEVEL_CAP) e.xp = xpForLevel(LEVEL_CAP);
+    const t = now();
+    if (!quiet) {
+      if (e.pos && nearHero(e.pos.x, e.pos.z, 60)) {
+        _v.set(e.pos.x, e.pos.y, e.pos.z); fx('levelup', _v, { scale: 0.9 });
+        sfx('level_up', e.pos, 0.45);
+      }
+      if (e.persona.chatty > 0.35 && schance(e.persona.chatty * 0.9) && t - e.lastDing > 30 && chatEnabled()) {
+        e.lastDing = t;
+        const line = pickLine(e, 'ding', null);
+        schedule(e, line, 'world', sr(0.5, 3));
+        followUp('ding_reply', e, sr(2, 7), si(0, 2));
+      }
+    }
+    promoteZone(e);
+    emit('aiLevelUp', e);
+    return true;
+  }
+  function addXP(e, n) {
+    if (!(n > 0) || e.level >= LEVEL_CAP) return 0;
+    e.xp += n;
+    let guard = 0;
+    while (e.level < LEVEL_CAP && e.xp >= xpForLevel(e.level + 1) && guard++ < 10) levelUp(e, false);
+    return n;
+  }

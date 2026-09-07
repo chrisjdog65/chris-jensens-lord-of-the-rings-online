@@ -115,3 +115,6 @@
 - Extras: `canUse/abilityReady/cooldownLeft/cooldownFrac`, `cancelCast/interrupt/isCasting/castProgress`, `hostilesNear/friendliesNear/nearestHostile`, `addThreat/topThreat/taunt`, `lootBags/tryAutoLoot/autoLootEnabled`, `revive(ent, frac)`, `suggestMonsterStats(level,{elite,boss})`, `heroDPSEstimate`; Progress `setLevel`, `canTrain`, `untrainedAvailable`, `hotbarSlotOf/firstFreeHotbar`, `ensurePlayerShape`, `awardTitle`.
 - Loot bag mesh needs `G.Game.scene`. Combat/boss music with zone restore via `G.Game.zoneMusic?.()`.
 - **BALANCE ACTION (integration phase):** 05's monsterTypes are ~0.25× morale and ~0.04× dmg of the hero curve → 22_monsters should derive `maxMorale`/`dmg`/`armour` from `G.Combat.suggestMonsterStats(level, {elite, boss})` (or 05 scales morale ×4, dmg ×25, armour ×2.5). Target TTK 4–8 s 1v1; a same-level duel should cost ~25% morale.
+
+## 32_ui_admin.js
+- Opens on typed `chris` and `G.UI.Admin.open()`; panel id `admin`. Owns on `G.state`: `godMode, damageMult, speedMult (mirrored to player.speedMult), noCooldowns, noclip, flyCam, freeTraining, customPlaces, clockPaused, wireframe, topDown`. Events: `customPlacesChanged`, `townRenamed`, `adminOverride`. Uses `G.UI.Map.pickOnce` if panels provide it. Town renames not persisted by save (TODO polish).

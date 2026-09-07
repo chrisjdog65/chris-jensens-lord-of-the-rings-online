@@ -621,7 +621,7 @@
     const cam = Menu.getCamera();
     M.t = 0;
     _camPos.set(CAM_CENTER.x - 70, 0, CAM_CENTER.z + 40);
-    _camPos.y = Math.max(_groundY(_camPos.x, _camPos.z), _groundY(CAM_CENTER.x, CAM_CENTER.z)) + 16;
+    _camPos.y = Math.max(_groundY(_camPos.x, _camPos.z), _groundY(CAM_CENTER.x, CAM_CENTER.z)) + 19;
     _camLook.set(CAM_FOCUS.x, _groundY(CAM_FOCUS.x, CAM_FOCUS.z) + 4, CAM_FOCUS.z);
     cam.position.copy(_camPos); cam.up.copy(_camUp); cam.lookAt(_camLook);
     M.camInit = true;
@@ -749,7 +749,7 @@
       const a = t * 0.028;
       _camWant.set(CAM_CENTER.x + Math.cos(a) * 70, 0, CAM_CENTER.z + Math.sin(a * 2) * 45);
       const gy = Math.max(_groundY(_camWant.x, _camWant.z), _groundY(_camWant.x + 25, _camWant.z), _groundY(_camWant.x + 50, _camWant.z - 10), _groundY(_camWant.x, _camWant.z + 25));
-      _camWant.y = gy + 15 + Math.sin(t * 0.21) * 1.6;
+      _camWant.y = gy + 19 + Math.sin(t * 0.21) * 1.6;
       const k = 1 - Math.exp(-dt * 0.9);
       _camPos.lerp(_camWant, k);
       const fx = CAM_FOCUS.x + Math.sin(t * 0.05) * 30, fz = CAM_FOCUS.z + Math.cos(t * 0.037) * 40;
