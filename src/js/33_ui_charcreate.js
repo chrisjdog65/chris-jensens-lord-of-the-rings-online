@@ -152,16 +152,16 @@
   const ZONE_NAMES = { shire: 'The Shire', breeland: 'Bree-land', eredluin: 'Ered Luin', oldforest: 'Old Forest', lonelands: 'The Lone-lands' };
   // tiny SVG glyphs per race (viewBox 0 0 32 32)
   const RACE_META = {
-    man: { tag: 'Stout-hearted folk of Bree-land', glyph: 'M16 2l2.4 3.2V19h-4.8V5.2zM9 19h14v3H9zm5.4 3h3.2v8h-3.2z' },
-    elf: { tag: 'Swift and ageless Firstborn', glyph: 'M16 2C7 7 4 18 16 30 28 18 25 7 16 2zm-.9 6.5l1.8-.1-.1 18h-1.6z' },
-    dwarf: { tag: "Durin's folk, masters of the forge", glyph: 'M14.5 10h3v20h-3zM16 3c-5 0-8 3-9 8 3-1 6-1 9-1s6 0 9 1c-1-5-4-8-9-8z' },
-    hobbit: { tag: 'Quiet, clever halflings of the Shire', glyph: 'M16 3a13 13 0 100 26 13 13 0 000-26zm0 3.2a9.8 9.8 0 110 19.6 9.8 9.8 0 010-19.6zM19 15a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z' },
-    highelf: { tag: 'Noble Eldar who beheld the Light', glyph: 'M16 2l2.6 9.4L28 8l-6.4 8 6.4 8-9.4-3.4L16 30l-2.6-9.4L4 24l6.4-8L4 8l9.4 3.4z' },
-    beorning: { tag: 'Skin-changers of the Vales of Anduin', glyph: 'M16 14c-4.5 0-8 4-8 8.5 0 3.5 2.5 6 5 6 1.5 0 2-.5 3-.5s1.5.5 3 .5c2.5 0 5-2.5 5-6 0-4.5-3.5-8.5-8-8.5zM8 8a3 3 0 100 6 3 3 0 000-6zm16 0a3 3 0 100 6 3 3 0 000-6zM12.5 3a3 3 0 100 6 3 3 0 000-6zm7 0a3 3 0 100 6 3 3 0 000-6z' },
-    stoutaxe: { tag: 'Exiled dwarves of the far East', glyph: 'M14.6 12h2.8v18h-2.8zM4 11c3-5 8-8 12-8s9 3 12 8c-3-1-7-1.5-12-1.5S7 10 4 11z' },
-    riverhobbit: { tag: 'Boat-loving hobbits of the Brandywine', glyph: 'M4 16c4-7 10-9 16-9l6-5-1.5 7.5L29 17l-4.5 7.5L26 30l-6-5c-6 0-12-2-16-9zm9-2a1.6 1.6 0 100 3.2 1.6 1.6 0 000-3.2z' },
-    dunedain: { tag: 'Rangers of the North, heirs of Arnor', glyph: 'M16 2l3.1 8.6 8.9-1.6-5.2 7.4 6.4 6.4-9-.3 1.4 9-5.6-7-5.6 7 1.4-9-9 .3 6.4-6.4L4 9l8.9 1.6z' },
-    rohirrim: { tag: 'Horse-lords of the Riddermark', glyph: 'M7 30V19c0-7 5-12 12-12l4-5 1 7 3 4-5 1c-3 0-5 3-5 6v10h-3v-8c-1-1-2-1-3-1v9z' },
+    man: { tag: 'Stout-hearted folk of Bree', long: 'Stout-hearted folk of Bree-land', glyph: 'M16 2l2.4 3.2V19h-4.8V5.2zM9 19h14v3H9zm5.4 3h3.2v8h-3.2z' },
+    elf: { tag: 'Swift, ageless Firstborn', long: 'Swift and ageless Firstborn of Lindon', glyph: 'M16 2C7 7 4 18 16 30 28 18 25 7 16 2zm-.9 6.5l1.8-.1-.1 18h-1.6z' },
+    dwarf: { tag: "Durin's folk of the forge", long: "Durin's folk, masters of stone and forge", glyph: 'M14.5 10h3v20h-3zM16 3c-5 0-8 3-9 8 3-1 6-1 9-1s6 0 9 1c-1-5-4-8-9-8z' },
+    hobbit: { tag: 'Halflings of the Shire', long: 'Quiet, clever halflings of the Shire', glyph: 'M16 3a13 13 0 100 26 13 13 0 000-26zm0 3.2a9.8 9.8 0 110 19.6 9.8 9.8 0 010-19.6zM19 15a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z' },
+    highelf: { tag: 'Eldar who beheld the Light', long: 'Noble Eldar who beheld the Light of the Trees', glyph: 'M16 2l2.6 9.4L28 8l-6.4 8 6.4 8-9.4-3.4L16 30l-2.6-9.4L4 24l6.4-8L4 8l9.4 3.4z' },
+    beorning: { tag: 'Skin-changers of Anduin', long: 'Skin-changers of the Vales of Anduin', glyph: 'M16 14c-4.5 0-8 4-8 8.5 0 3.5 2.5 6 5 6 1.5 0 2-.5 3-.5s1.5.5 3 .5c2.5 0 5-2.5 5-6 0-4.5-3.5-8.5-8-8.5zM8 8a3 3 0 100 6 3 3 0 000-6zm16 0a3 3 0 100 6 3 3 0 000-6zM12.5 3a3 3 0 100 6 3 3 0 000-6zm7 0a3 3 0 100 6 3 3 0 000-6z' },
+    stoutaxe: { tag: 'Exiled dwarves of the East', long: 'Exiled dwarves of the far East, come west at last', glyph: 'M14.6 12h2.8v18h-2.8zM4 11c3-5 8-8 12-8s9 3 12 8c-3-1-7-1.5-12-1.5S7 10 4 11z' },
+    riverhobbit: { tag: 'Boat-folk of the Brandywine', long: 'Boat-loving hobbits of the Brandywine', glyph: 'M4 16c4-7 10-9 16-9l6-5-1.5 7.5L29 17l-4.5 7.5L26 30l-6-5c-6 0-12-2-16-9zm9-2a1.6 1.6 0 100 3.2 1.6 1.6 0 000-3.2z' },
+    dunedain: { tag: 'Rangers of the North', long: 'Rangers of the North, heirs of lost Arnor', glyph: 'M16 2l3.1 8.6 8.9-1.6-5.2 7.4 6.4 6.4-9-.3 1.4 9-5.6-7-5.6 7 1.4-9-9 .3 6.4-6.4L4 9l8.9 1.6z' },
+    rohirrim: { tag: 'Horse-lords of the Mark', long: 'Horse-lords of the Riddermark, far from home', glyph: 'M7 30V19c0-7 5-12 12-12l4-5 1 7 3 4-5 1c-3 0-5 3-5 6v10h-3v-8c-1-1-2-1-3-1v9z' },
   };
   const ROLE_COLOR = { tank: '#5aa0ff', dps: '#ff6a5a', support: '#ffd54a', healer: '#7fd47a' };
 
@@ -208,19 +208,21 @@
 .ld-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,0,.55) 100%); pointer-events: none; }
 .ld-center { position: absolute; left: 0; right: 0; top: 7%; display: flex; flex-direction: column; align-items: center; text-align: center; pointer-events: none; }
 .ld-ring { position: relative; width: 210px; height: 210px; margin-bottom: 14px; }
-.ld-ring-band { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 20deg, #f6dd95, #b9862f 18%, #ffefb8 30%, #8a5f1c 46%, #f0c96e 60%, #c99a3b 74%, #fff1c0 86%, #f6dd95);
-  -webkit-mask: radial-gradient(circle at center, transparent 62%, #000 63.5%, #000 99%, transparent 100%); mask: radial-gradient(circle at center, transparent 62%, #000 63.5%, #000 99%, transparent 100%);
-  animation: ldRingSpin 48s linear infinite; box-shadow: 0 0 0 1px rgba(255,220,140,.15); }
-.ld-ring-shade { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.35) 0%, rgba(255,255,255,0) 30%, rgba(0,0,0,0) 60%, rgba(0,0,0,.45) 100%);
-  -webkit-mask: radial-gradient(circle at center, transparent 62%, #000 63.5%, #000 99%, transparent 100%); mask: radial-gradient(circle at center, transparent 62%, #000 63.5%, #000 99%, transparent 100%); }
-.ld-ring-glow { position: absolute; inset: -30px; border-radius: 50%; background: radial-gradient(circle, rgba(255,190,90,.30) 30%, rgba(255,150,60,.12) 50%, rgba(255,120,40,0) 70%); animation: ldGlow 4s ease-in-out infinite; }
-@keyframes ldGlow { 0%, 100% { opacity: .75; transform: scale(1); } 50% { opacity: 1; transform: scale(1.06); } }
+.ld-ring-band { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 20deg, #f6dd95, #c9963a 16%, #ffefb8 30%, #a8792a 46%, #f4d07a 60%, #d4a648 74%, #fff1c0 86%, #f6dd95);
+  -webkit-mask: radial-gradient(circle at center, transparent 57%, #000 58.5%, #000 99%, transparent 100%); mask: radial-gradient(circle at center, transparent 57%, #000 58.5%, #000 99%, transparent 100%);
+  animation: ldRingSpin 48s linear infinite; }
+.ld-ring-shade { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.38) 0%, rgba(255,255,255,0) 32%, rgba(0,0,0,0) 62%, rgba(0,0,0,.32) 100%);
+  -webkit-mask: radial-gradient(circle at center, transparent 57%, #000 58.5%, #000 99%, transparent 100%); mask: radial-gradient(circle at center, transparent 57%, #000 58.5%, #000 99%, transparent 100%); }
+.ld-ring-edge { position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,225,150,.25), inset 0 0 0 1px rgba(90,55,10,.35); -webkit-mask: radial-gradient(circle at center, transparent 56%, #000 57%, #000 100%); mask: radial-gradient(circle at center, transparent 56%, #000 57%, #000 100%); }
+.ld-ring-glow { position: absolute; inset: -26%; border-radius: 50%; background: radial-gradient(circle, rgba(255,190,90,0) 0%, rgba(255,190,90,0) 33%, rgba(255,190,90,.30) 48%, rgba(255,150,60,.13) 60%, rgba(255,120,40,0) 74%); animation: ldGlow 4s ease-in-out infinite; }
+@keyframes ldGlow { 0%, 100% { opacity: .7; transform: scale(1); } 50% { opacity: 1; transform: scale(1.05); } }
 @keyframes ldRingSpin { to { transform: rotate(360deg); } }
-.ld-inscr { position: absolute; inset: 0; width: 100%; height: 100%; animation: ldRingSpin 48s linear infinite; }
-.ld-inscr text { font-family: var(--font-head); font-size: 9.2px; letter-spacing: 1.6px; font-weight: 700; fill: #4a2c08; }
-.ld-inscr-fire text { fill: #ff8a2a; opacity: .55; animation: ldFire 3s ease-in-out infinite; }
-@keyframes ldFire { 0%, 100% { opacity: .35; } 50% { opacity: .8; } }
-.ld-ring-core { position: absolute; left: 50%; top: 50%; width: 118px; height: 118px; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, rgba(255,200,120,.12), rgba(0,0,0,0) 70%); }
+.ld-inscr { position: absolute; inset: 0; width: 100%; height: 100%; animation: ldRingSpin 48s linear infinite; overflow: visible; }
+.ld-inscr text { font-family: var(--font-head); font-size: 9.4px; letter-spacing: 1.5px; font-weight: 700; fill: #5a3408; opacity: .9; }
+.ld-inscr-fire text { fill: #ffb347; opacity: .9; filter: drop-shadow(0 0 1.5px rgba(255,110,20,.95)); animation: ldFire 3s ease-in-out infinite; }
+.ld-inscr-fire { transform: translate(0.4px, 0.4px); }
+@keyframes ldFire { 0%, 100% { opacity: .62; } 50% { opacity: 1; } }
+.ld-ring.mini .ld-inscr, .ld-ring.mini .ld-ring-glow { display: none; }
 .ld-t1 { font-family: var(--font-head); font-size: 15px; letter-spacing: .42em; text-transform: uppercase; color: var(--gold-dim); text-shadow: 0 1px 2px #000; margin-left: .42em; }
 .ld-t2 { font-family: var(--font-head); font-weight: 700; font-size: 56px; line-height: 1.05; letter-spacing: .08em; text-transform: uppercase; margin: 6px 0 2px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.9)) drop-shadow(0 0 18px rgba(255,200,90,.28)); }
 .ld-t3 { font-family: var(--font-head); font-size: 22px; letter-spacing: .62em; text-transform: uppercase; color: var(--gold-bright); text-shadow: 0 0 12px rgba(255,220,140,.45), 0 1px 2px #000; margin-left: .62em; }
@@ -245,15 +247,15 @@
 /* ===== main menu ===== */
 .mm-fallback { position: absolute; inset: 0; }
 .mm-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(4,3,2,.92) 0%, rgba(4,3,2,.82) 26%, rgba(4,3,2,.35) 46%, rgba(4,3,2,0) 66%), linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,0) 30%, rgba(0,0,0,0) 70%, rgba(0,0,0,.55)); pointer-events: none; }
-.mm-column { position: absolute; left: 6vw; top: 0; bottom: 0; width: 440px; max-width: 46vw; display: flex; flex-direction: column; justify-content: center; gap: 22px; }
+.mm-column { position: absolute; left: 6vw; top: 0; bottom: 0; width: 600px; max-width: 54vw; display: flex; flex-direction: column; justify-content: center; gap: 22px; }
 .mm-title { display: flex; flex-direction: column; align-items: flex-start; }
 .mm-title .ld-t1 { font-size: 13px; }
-.mm-title .ld-t2 { font-size: 44px; margin: 4px 0 0; }
+.mm-title .ld-t2 { font-size: 34px; margin: 4px 0 0; white-space: nowrap; }
+@media (max-width: 1400px) { .mm-title .ld-t2 { font-size: 30px; } }
 .mm-title .ld-t3 { font-size: 17px; margin: 2px 0 0; }
 .mm-title-row { display: flex; align-items: center; gap: 16px; }
-.mm-ring { position: relative; width: 84px; height: 84px; flex: none; }
-.mm-ring .ld-ring-glow { inset: -14px; }
-.mm-ring .ld-inscr text { font-size: 9.6px; letter-spacing: .8px; }
+.mm-title .ld-ring { margin: 0; flex: none; }
+.mm-buttons { max-width: 460px; }
 .mm-buttons { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 .mm-btn { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 18px 10px 26px; cursor: pointer; border: 1px solid transparent; border-radius: 4px;
   font-family: var(--font-head); font-size: 20px; letter-spacing: .12em; text-transform: uppercase; color: var(--parch); text-shadow: 0 2px 3px #000; transition: background .15s, color .15s, padding-left .15s, border-color .15s; user-select: none; }
@@ -289,7 +291,8 @@
 /* ===== character creation ===== */
 #charCreate { display: flex; flex-direction: column; }
 .cc-top { flex: none; display: flex; align-items: center; gap: 18px; padding: 10px 22px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, rgba(120,90,40,.28), rgba(20,14,7,.5)); }
-.cc-top .cc-ring { width: 40px; height: 40px; position: relative; flex: none; }
+.cc-top .cc-ring { width: 44px; height: 44px; position: relative; flex: none; }
+.cc-top .cc-ring .ld-ring { margin: 0; }
 .cc-top h1 { font-size: 24px; letter-spacing: .12em; text-transform: uppercase; }
 .cc-top .cc-sub { font-style: italic; color: var(--parch-dim); font-size: 14px; }
 .cc-top .grow { flex: 1; }
@@ -411,9 +414,9 @@
   }
   const INSCRIPTION = 'ASH NAZG DURBATULÛK · ASH NAZG GIMBATUL · ASH NAZG THRAKATULÛK · AGH BURZUM-ISHI KRIMPATUL · ';
   let _ringSeq = 0;
-  function _ringArt(size, small) {
+  function _ringArt(size, small, mini) {
     const id = 'cjRingPath' + (++_ringSeq);
-    const r = small ? 78 : 80;
+    const r = 79;
     const path = 'M100,100 m-' + r + ',0 a' + r + ',' + r + ' 0 1,1 ' + (r * 2) + ',0 a' + r + ',' + r + ' 0 1,1 -' + (r * 2) + ',0';
     const inscr = function (cls) {
       return _svg('svg', { class: 'ld-inscr ' + (cls || ''), viewBox: '0 0 200 200' }, [
@@ -421,8 +424,8 @@
         _svg('text', {}, [_svg('textPath', { href: '#' + id + (cls ? 'b' : 'a'), startOffset: '0' }, [INSCRIPTION])]),
       ]);
     };
-    const ring = el('div', { class: 'ld-ring', style: size ? { width: size + 'px', height: size + 'px' } : null }, [
-      el('div', { class: 'ld-ring-glow' }), el('div', { class: 'ld-ring-band' }), el('div', { class: 'ld-ring-shade' }), inscr('ld-inscr-fire'), inscr(''), el('div', { class: 'ld-ring-core' }),
+    const ring = el('div', { class: 'ld-ring' + (mini ? ' mini' : ''), style: size ? { width: size + 'px', height: size + 'px' } : null }, [
+      el('div', { class: 'ld-ring-glow' }), el('div', { class: 'ld-ring-band' }), el('div', { class: 'ld-ring-shade' }), el('div', { class: 'ld-ring-edge' }), inscr(''), inscr('ld-inscr-fire'),
     ]);
     return ring;
   }
@@ -850,7 +853,7 @@
     const e = CC.els;
     // ---- top bar
     const top = el('div', { class: 'cc-top' }, [
-      el('div', { class: 'cc-ring' }, [_ringArt(40, true)]),
+      el('div', { class: 'cc-ring' }, [_ringArt(44, true, true)]),
       el('div', {}, [el('h1', { text: 'Create your hero' }), el('div', { class: 'cc-sub', text: 'Choose a people, a calling and a face — then step into Middle-earth.' })]),
       el('div', { class: 'grow' }),
       el('button', { class: 'btn', text: '✧ Surprise me', onclick: function () { _sfx('ui_click'); CharCreate.randomise(); } }),
@@ -999,7 +1002,7 @@
     const trait = r.racialTrait || {};
     let traitFx = '';
     try { if (_has(G.Data, 'describeBonus')) traitFx = G.Data.describeBonus(trait, 1); } catch (_) { traitFx = ''; }
-    box.appendChild(el('div', { class: 'hd' }, [el('h3', { text: r.name }), el('span', { class: 'muted', text: (RACE_META[r.id] || {}).tag || r.plural || '' })]));
+    box.appendChild(el('div', { class: 'hd' }, [el('h3', { text: r.name }), el('span', { class: 'muted', text: (RACE_META[r.id] || {}).long || (RACE_META[r.id] || {}).tag || r.plural || '' })]));
     box.append.apply(box, _descBlock(r.desc, 'race'));
     box.appendChild(chips);
     if (trait.name) box.appendChild(el('div', { class: 'cc-trait', html: '<b>' + esc(trait.name) + '</b> — ' + esc(trait.desc || '') + (traitFx ? ' <span class="muted">(' + esc(traitFx) + ')</span>' : '') }));
@@ -1081,7 +1084,7 @@
   function _refreshPreviewLabels() {
     const e = CC.els, s = CC.spec, r = _raceById(s.race), c = _classById(s.cls);
     e.pvName.textContent = s.name ? _cap(s.name.trim()) : 'Nameless hero';
-    e.pvSub.textContent = (s.gender === 'female' ? 'Female ' : 'Male ') + (r ? r.name : '') + ' ' + (c ? c.name : '');
+    e.pvSub.textContent = (s.gender === 'female' ? '\u2640 ' : '\u2642 ') + (r ? r.name : '') + ' \u00b7 ' + (c ? c.name : '');
     let home = null;
     try { home = r && _has(G.Data, 'startPosFor') ? G.Data.startPosFor(r.id) : (r ? { town: r.startTown, zone: r.homeZone } : null); } catch (_) { home = null; }
     e.pvHome.innerHTML = home ? '<b>Starts in</b> ' + esc(_townName(home.town)) + ', ' + esc(_zoneName(home.zone)) : '';
@@ -1101,10 +1104,10 @@
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(30, PV_W / PV_H, 0.1, 60);
       // three-point rig: warm key (casts the shadow), cool rim, soft fill, plus a faint hemisphere
-      const key = new THREE.DirectionalLight(0xffd9b0, 3.2); key.position.set(2.6, 4.4, 3.2); key.castShadow = true;
+      const key = new THREE.DirectionalLight(0xffd9b0, 3.9); key.position.set(2.6, 4.4, 3.2); key.castShadow = true;
       key.shadow.mapSize.set(1024, 1024); key.shadow.camera.left = -2.2; key.shadow.camera.right = 2.2; key.shadow.camera.top = 3.4; key.shadow.camera.bottom = -1; key.shadow.camera.near = 0.5; key.shadow.camera.far = 14; key.shadow.bias = -0.0006; key.shadow.normalBias = 0.02;
       const rim = new THREE.DirectionalLight(0x86b4ff, 2.4); rim.position.set(-2.4, 3.2, -3.4);
-      const fill = new THREE.DirectionalLight(0xc8b8a8, 0.9); fill.position.set(-3, 1.6, 2.6);
+      const fill = new THREE.DirectionalLight(0xc8b8a8, 1.2); fill.position.set(-3, 1.6, 2.6);
       const hemi = new THREE.HemisphereLight(0x6f7fa8, 0x2a2018, 0.55);
       const amb = new THREE.AmbientLight(0x3a3028, 0.5);
       scene.add(key, rim, fill, hemi, amb);
@@ -1187,10 +1190,11 @@
   }
   function _frameCamera(H) {
     const cam = CC.camera; if (!cam) return;
-    const dist = 2.45 * H + 0.55;
-    cam.position.set(0.02, H * 0.52, dist);
-    cam.lookAt(0, H * 0.5 - 0.02, 0);
+    const dist = 2.22 * H + 0.42;
+    cam.position.set(0.02, H * 0.5, dist);
+    cam.lookAt(0, H * 0.56, 0);
     cam.updateProjectionMatrix();
+    if (CC.pedestal) CC.pedestal.scale.setScalar(clamp(H / 1.8, 0.7, 1.12));
     if (CC.keyLight) { CC.keyLight.shadow.camera.top = H * 1.4; CC.keyLight.shadow.camera.updateProjectionMatrix(); }
   }
   function _sizePreview() {
