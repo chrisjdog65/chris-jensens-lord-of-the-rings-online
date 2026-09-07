@@ -82,7 +82,9 @@
 
   // controller state
   const S = {
-    camLen: 7,                 // smoothed clamped camera distance
+    camLen: 7,                 // smoothed clamped camera distance (published as cam.dist)
+    zoom: 7,                   // smoothed UNclamped zoom (follows cam.targetDist)
+    distOut: 7,                // the cam.dist value we last published (a different value = an external write)
     pivotInit: false,
     camSnap: true,
     fp: false,
@@ -307,6 +309,7 @@
     S.jumpBuffer = 0; S.coyote = 0; S.wasGround = true; S.rolling = false; S.rollT = 0; P.rolling = false;
     S.stride = 0; S.swimSfxT = 0; S.faceTargetT = 0; S.rangedPending = 0; S.rangedTarget = null;
     S.blockedT = 0; S.interactT = 0; S.zoneT = 0; S.pivotInit = false; S.camSnap = true;
+    S.zoom = cam.targetDist; S.camLen = cam.targetDist; cam.dist = cam.targetDist; S.distOut = cam.dist;
     _moveVel.set(0, 0, 0);
     if (player) { player.invulnerable = false; _prevPos.copy(player.pos); }
     P.autoRun = false;
@@ -422,8 +425,12 @@
     if (!player) return;
     const pos = player.pos;
     const snap = S.camSnap; S.camSnap = false;
-    cam.dist = snap ? cam.targetDist : damp(cam.dist, cam.targetDist, 12, dt);
-    const fp = cam.dist < FP_DIST;
+    // cam.dist is the ACTUAL camera distance (occlusion-clamped, what the player sees); the smoothed zoom lives in
+    // S.zoom. Another module writing cam.dist directly (boat cinematic, admin god-view, a restored save) snaps the zoom.
+    if (cam.dist !== S.distOut) S.zoom = clamp(num(cam.dist, cam.targetDist), 0.3, cam.maxDist);
+    S.zoom = snap ? cam.targetDist : damp(S.zoom, cam.targetDist, 12, dt);
+    const zoom = S.zoom;
+    const fp = zoom < FP_DIST;
     if (fp !== S.fp) { S.fp = fp; P.firstPerson = fp; }
     const sc = rigScale();
     let ph = fp ? (rig ? rig.height * 0.92 : 1.65) : cam.height * sc;
@@ -444,16 +451,18 @@
     const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
     _fwd.set(-Math.sin(cam.yaw) * cp, -sp, -Math.cos(cam.yaw) * cp);       // camera → pivot direction
     _right.set(Math.cos(cam.yaw), 0, -Math.sin(cam.yaw));
-    const sh = fp ? 0 : cam.shoulder * clamp((cam.dist - FP_DIST) / 3, 0, 1);
+    const sh = fp ? 0 : cam.shoulder * clamp((zoom - FP_DIST) / 3, 0, 1);
     cam.lookAt.copy(pv).addScaledVector(_right, sh);
-    _desired.copy(cam.lookAt).addScaledVector(_fwd, -cam.dist);
-    let len = cam.dist;
+    _desired.copy(cam.lookAt).addScaledVector(_fwd, -zoom);
+    let len = zoom;
     if (!fp && G.Physics && typeof G.Physics.cameraClamp === 'function') {
       const cpos = G.Physics.cameraClamp(cam.lookAt, _desired);
-      if (cpos) { _v1.copy(cpos).sub(cam.lookAt); len = Math.min(cam.dist, _v1.dot(_fwd) * -1); if (!(len > 0.3)) len = 0.3; }
+      if (cpos) { _v1.copy(cpos).sub(cam.lookAt); len = Math.min(zoom, _v1.dot(_fwd) * -1); if (!(len > 0.3)) len = 0.3; }
     }
     // pull in instantly, ease back out (no popping when the wall is left behind)
-    if (snap || len < S.camLen) S.camLen = len; else S.camLen = Math.min(cam.dist, damp(S.camLen, len, 6, dt));
+    if (snap || len < S.camLen) S.camLen = len; else S.camLen = Math.min(zoom, damp(S.camLen, len, 6, dt));
+    if (!(S.camLen > 0.3)) S.camLen = 0.3;
+    cam.dist = S.camLen; S.distOut = S.camLen;
     camera.position.copy(cam.lookAt).addScaledVector(_fwd, -S.camLen);
     const floor = terrainH(camera.position.x, camera.position.z) + 0.35;
     if (camera.position.y < floor) camera.position.y = floor;

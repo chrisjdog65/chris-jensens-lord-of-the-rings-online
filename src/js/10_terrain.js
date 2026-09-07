@@ -348,7 +348,7 @@
         const w = ss(hw + band, hw, d);
         h += diff * w;
         roadCore = ss(hw + 4, hw, d);
-        roadW = ss(hw + 2.5 + 5 * settle, hw - 1, d + 1.2 * G.noise2(x * 0.23 + 5, z * 0.23));
+        roadW = ss(hw + 2.5 + 4 * settle, hw - 1, d + 1.2 * G.noise2(x * 0.23 + 5, z * 0.23));
         water *= 1 - roadCore;
       }
     }
@@ -847,10 +847,11 @@
     // settlement squares: trodden packed earth (the zone's ground colour, a touch darker and warmer), solid in the core,
     // breaking into grass patches toward the edge of the town
     if (earth > 0) {
-      const ef = ss(0.06, 0.6, earth + 0.22 * v1 + 0.08 * v3);
+      // grass survives in pockets (v1 patches × v3 tufts), so even the core is not one flat sheet of dust
+      const ef = ss(0.06, 0.6, earth + 0.22 * v1 + 0.08 * v3) * (1 - 0.35 * ss(0.25, 0.6, v1) * ss(0.05, 0.5, v3));
       if (ef > 0) {
-        const k = 0.84 + 0.1 * v3;
-        r += (C[3] * k - r) * ef; g += (C[4] * k * 0.96 - g) * ef; b += (C[5] * k * 0.9 - b) * ef;
+        const k = 0.72 + 0.12 * v3;
+        r += (C[3] * k - r) * ef; g += (C[4] * k * 0.95 - g) * ef; b += (C[5] * k * 0.88 - b) * ef;
       }
     }
     // scree mottling in rocky zones

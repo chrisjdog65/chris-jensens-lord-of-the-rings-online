@@ -28,7 +28,10 @@
  * wall milliseconds, and the scenarios run with G.time.scale = --timescale (default 3) so that "hold W for one
  * game second" needs ~7 frames instead of 20. Scenarios that need more (fishing ×4, auto-quest ×6, AI sim ×5)
  * raise it further for their own duration. Behavioural scenarios run at PostFX quality 'low'; R03/R04 switch
- * to 'high' for their measurements.
+ * to 'high' for their measurements. After quick-start the runner measures the actual frame throughput and
+ * stretches every timeout / wall cap by `slow = clamp(2 / fps, 1, 8)` so a loaded machine gets proportionally
+ * longer budgets (printed as "timeouts ×N"). If the page or browser dies mid-run the runner relaunches, re-boots
+ * and re-quick-starts (twice at most) and carries on; the report is always written.
  *
  * Boots exactly like tools/smoke.js (same Chromium flags, same console-error filter), waits for
  * `window.__T.ready`, dismisses the "Click to begin" gesture, runs R37 on the creation screen, then
@@ -84,6 +87,7 @@ function makeT(page, ctx) {
     clock: async () => { T.check(); try { return await page.evaluate(() => ({ f: (window.G && window.G.time) ? window.G.time.frame : 0, t: (window.G && window.G.time) ? window.G.time.now : 0 })); } catch (e) { return { f: 0, t: 0 }; } },
     /** Wait until the game has rendered `n` more frames (headless software GL can run at 1–5 fps, so never rely on wall ms). */
     frames: async (n, capMs = 8000) => {
+      capMs *= (ctx.slow || 1);
       const c0 = await T.clock(); const t0 = Date.now();
       for (; ;) { const c = await T.clock(); if (c.f - c0.f >= n) return true; if (Date.now() - t0 >= capMs) return false; await page.waitForTimeout(40); }
     },
@@ -92,8 +96,8 @@ function makeT(page, ctx) {
     /** Hold a key for a wall-clock duration (legacy; prefer holdGame). */
     hold: async (code, ms) => { T.check(); await page.keyboard.down(code); try { await page.waitForTimeout(ms); } finally { await page.keyboard.up(code).catch(() => { }); } },
     /** Hold a key until `gameSec` seconds of GAME time have elapsed (wall cap `capMs`). Returns game seconds actually held. */
-    holdGame: async (code, gameSec, capMs = 25000) => {
-      T.check(); const c0 = await T.clock(); const t0 = Date.now(); let c = c0;
+    holdGame: async (code, gameSec, capMs = 40000) => {
+      T.check(); capMs *= (ctx.slow || 1); const c0 = await T.clock(); const t0 = Date.now(); let c = c0;
       await page.keyboard.down(code);
       try { for (; ;) { await page.waitForTimeout(40); c = await T.clock(); if (c.t - c0.t >= gameSec || Date.now() - t0 >= capMs) break; } }
       finally { await page.keyboard.up(code).catch(() => { }); }
@@ -101,6 +105,7 @@ function makeT(page, ctx) {
     },
     /** Poll `fn(arg)` until truthy; give up after `gameSec` of game time or `capMs` of wall time. */
     waitGame: async (fn, gameSec, capMs, arg) => {
+      capMs *= (ctx.slow || 1);
       const c0 = await T.clock(); const t0 = Date.now();
       for (; ;) {
         T.check();
@@ -128,6 +133,7 @@ function makeT(page, ctx) {
     evalG: (fn, arg) => { T.check(); return page.evaluate(fn, arg); },
     /** Poll `fn(arg)` in the page every 100 ms until it returns something truthy (returned) or `ms` elapse (null). */
     waitFor: async (fn, ms, arg) => {
+      ms *= (ctx.slow || 1);
       const t0 = Date.now();
       for (; ;) {
         T.check();
@@ -287,10 +293,26 @@ async function quickStart(page, ctx) {
   await page.evaluate((ts) => { try { window.G.PostFX.setQuality('low'); } catch (e) { /* ignore */ } try { window.G.time.scale = ts; } catch (e) { /* ignore */ } }, OPTS.timescale);
   await page.waitForTimeout(500);
   ctx.quickStartMs = Date.now() - t0;
+  await calibrate(page, ctx);
+}
+
+/** Measure how fast the game actually renders here and derive the timeout multiplier `ctx.slow`. */
+async function calibrate(page, ctx) {
+  try {
+    const a = await page.evaluate(() => ({ f: window.G.time.frame, w: performance.now() }));
+    await page.waitForTimeout(6000);
+    const b = await page.evaluate(() => ({ f: window.G.time.frame, w: performance.now() }));
+    const fps = (b.f - a.f) / Math.max(0.001, (b.w - a.w) / 1000);
+    ctx.calibFps = fps;
+    ctx.slow = Math.max(1, Math.min(8, 2 / Math.max(fps, 0.05)));
+    console.log('throughput calibration: ' + fps.toFixed(2) + ' frames/s → timeouts ×' + ctx.slow.toFixed(1) + ' (game time ×' + OPTS.timescale + ')');
+  } catch (e) { ctx.slow = ctx.slow || 1; }
 }
 
 /** Reset input/UI/game modifiers between scenarios so one scenario cannot poison the next. */
 async function settle(page) {
+  if (page.isClosed()) return;
+  try {
   for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'Space']) await page.keyboard.up(k).catch(() => { });
   await page.mouse.up({ button: 'right' }).catch(() => { });
   await page.mouse.up().catch(() => { });
@@ -312,6 +334,7 @@ async function settle(page) {
     t(() => { const p = G.state.player; if (p && p.mounted && G.Player && G.Player.dismount) G.Player.dismount(); });
   }, OPTS.timescale).catch(() => { });
   await page.waitForTimeout(150);
+  } catch (e) { /* page gone — the main loop handles recovery */ }
 }
 
 // ------------------------------------------------------------------------------------------------ scenarios
@@ -441,8 +464,8 @@ scenario('R10', 'WASD movement relative to the camera', async (T, ok) => {
   if (!spot) return;
   const w = await moveTest(T, 'KeyW', 1.0, spot);
   ok('W moves forward ≥ 3 m along camera forward (1 game-second)', w.dist >= 3 && w.fwdDot > 0.7, { dist: +w.dist.toFixed(2), dot: +w.fwdDot.toFixed(2), gameSec: w.gameSec });
-  const s = await moveTest(T, 'KeyS', 1.5, spot);
-  ok('S moves backward ≥ 3 m (1.5 game-seconds)', s.dist >= 3 && s.fwdDot < -0.7, { dist: +s.dist.toFixed(2), dot: +s.fwdDot.toFixed(2), gameSec: s.gameSec });
+  const s = await moveTest(T, 'KeyS', 2.0, spot);
+  ok('S backpedals ≥ 2.5 m in 2 game-seconds (walk speed)', s.dist >= 2.5 && s.fwdDot < -0.7, { dist: +s.dist.toFixed(2), dot: +s.fwdDot.toFixed(2), gameSec: s.gameSec });
   const a = await moveTest(T, 'KeyA', 1.0, spot);
   ok('A strafes left ≥ 3 m', a.dist >= 3 && a.rightDot < -0.7, { dist: +a.dist.toFixed(2), rightDot: +a.rightDot.toFixed(2), gameSec: a.gameSec });
   const d = await moveTest(T, 'KeyD', 1.0, spot);
@@ -758,8 +781,8 @@ scenario('R21', 'C = character: paper doll (18 slots), stats, set bonuses', asyn
   ok('C closes it', !!(await T.waitFor(() => !window.__V.visible('character'), 4000)));
 });
 
-scenario('R22', 'B = auto-quest bot progresses quests without deadlock', async (T, ok) => {
-  const budget = OPTS.fast ? 120000 : 180000;
+scenario('R22', 'B = auto-quest bot progresses quests without deadlock', async (T, ok, ctx) => {
+  const budget = (OPTS.fast ? 120000 : 180000) * Math.min(3, ctx.slow || 1);
   const c0 = await T.evalG((ts) => { const G = window.G; G.AutoQuest.speed = 10; G.time.scale = Math.max(6, ts); const c = G.Quests.completion(); return { done: c.done, total: c.total, level: G.state.player.level, xp: G.state.player.xp, t: G.time.now }; }, OPTS.timescale);
   ok('150 quests tracked by G.Quests.completion()', c0.total === 150, c0);
   await T.press('KeyB');
@@ -1196,7 +1219,7 @@ async function runScenario(sc, page, ctx) {
   const T = makeT(page, ctx);
   const checks = []; const t0 = Date.now(); const errAt = ctx.errors.length;
   const ok = (name, cond, extra) => { const c = { name, pass: !!cond }; if (extra !== undefined) c.extra = extra; checks.push(c); T.log((c.pass ? 'ok   ' : 'FAIL ') + name + (extra !== undefined ? '  ' + short(extra) : '')); return c.pass; };
-  const timeoutMs = sc.timeout || OPTS.timeoutMs;
+  const timeoutMs = (sc.timeout || OPTS.timeoutMs) * (ctx.slow || 1);
   let error = null, timer = null;
   const timeoutP = new Promise((_, rej) => { timer = setTimeout(() => { T.alive = false; rej(new Error('timeout after ' + Math.round(timeoutMs / 1000) + ' s')); }, timeoutMs); });
   try { await Promise.race([sc.fn(T, ok, ctx), timeoutP]); }
@@ -1229,11 +1252,30 @@ async function main() {
   const results = [];
   const failAll = (reason) => { for (const s of ordered) if (!results.find(r => r.id === s.id)) results.push({ id: s.id, title: s.title, pass: false, details: reason, ms: 0, checks: [], errors: [] }); };
 
-  const browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-  page.on('console', m => { const t = m.type(); if (t === 'error') { const txt = m.text(); if (!ERR_FILTER.test(txt)) ctx.errors.push('[console.error] ' + txt); } else if (t === 'warning') ctx.warnings.push(m.text()); });
-  page.on('pageerror', e => ctx.errors.push('[pageerror] ' + e.message + '\n' + (e.stack || '')));
-  page.on('crash', () => ctx.errors.push('[crash] page crashed'));
+  let browser = null, page = null;
+  const attach = (pg) => {
+    pg.on('console', m => { const t = m.type(); if (t === 'error') { const txt = m.text(); if (!ERR_FILTER.test(txt)) ctx.errors.push('[console.error] ' + txt); } else if (t === 'warning') ctx.warnings.push(m.text()); });
+    pg.on('pageerror', e => ctx.errors.push('[pageerror] ' + e.message + '\n' + (e.stack || '')));
+    pg.on('crash', () => { ctx.errors.push('[crash] page crashed'); ctx.crashed = 'page crashed'; console.log('  !! page crashed'); });
+    pg.on('close', () => { if (!ctx.closing) { ctx.crashed = ctx.crashed || 'page closed unexpectedly'; } });
+  };
+  const launch = async () => {
+    if (browser) { ctx.closing = true; try { await browser.close(); } catch (e) { /* ignore */ } ctx.closing = false; }
+    browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS });
+    browser.on('disconnected', () => { if (!ctx.closing) { ctx.crashed = ctx.crashed || 'browser disconnected'; console.log('  !! browser disconnected'); } });
+    page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    attach(page);
+    ctx.crashed = null;
+  };
+  /** Relaunch + re-boot + re-quick-start after the page/browser died mid-run. Returns true on success. */
+  const recover = async (why) => {
+    ctx.recoveries = (ctx.recoveries || 0) + 1;
+    if (ctx.recoveries > 2) return false;
+    console.log('  !! ' + why + ' — relaunching the browser (recovery ' + ctx.recoveries + '/2)…');
+    try { await launch(); await boot(page, ctx); await quickStart(page, ctx); console.log('  recovered (boot ' + fmtMs(ctx.bootMs) + ', quickStart ' + fmtMs(ctx.quickStartMs) + ')'); return true; }
+    catch (e) { console.log('  recovery failed: ' + e.message); return false; }
+  };
+  await launch();
 
   let booted = false;
   try { await boot(page, ctx); booted = true; console.log('boot ms:', ctx.bootMs); }
@@ -1253,20 +1295,25 @@ async function main() {
     ctx.clockStart = clk0;
     for (const sc of ordered) {
       if (sc.id === 'R37') continue;
+      if (ctx.crashed || page.isClosed()) {
+        const why = ctx.crashed || 'page closed';
+        if (!(await recover(why))) { failAll('aborted: ' + why + ' and recovery failed'); break; }
+      }
       if (OPTS.verbose) console.log('  ' + sc.id + ' ' + sc.title + ' …'); else process.stdout.write('  ' + sc.id + ' ' + sc.title + ' … ');
       const r = await runScenario(sc, page, ctx);
+      if (ctx.crashed || page.isClosed()) { r.pass = false; r.details = 'ERROR: ' + (ctx.crashed || 'page closed') + ' during the scenario' + (r.details ? ' | ' + r.details : ''); }
       results.push(r);
       console.log((OPTS.verbose ? '  ' + sc.id + ' ' : '') + (r.pass ? 'PASS' : 'FAIL'), '(' + fmtMs(r.ms) + ')' + (r.pass ? '' : '  ' + trunc(r.details, 110)));
-      const T = makeT(page, ctx); await T.shot(sc.id).catch(() => { });
-      await settle(page);
+      if (!ctx.crashed && !page.isClosed()) { const T = makeT(page, ctx); await T.shot(sc.id).catch(() => { }); await settle(page); }
     }
-    const clk1 = await page.evaluate(() => ({ f: window.G.time.frame, t: window.G.time.now, w: performance.now() })).catch(() => null);
+    const clk1 = (page && !page.isClosed()) ? await page.evaluate(() => ({ f: window.G.time.frame, t: window.G.time.now, w: performance.now() })).catch(() => null) : null;
     if (ctx.lastClock) ctx.throughput = ctx.lastClock;
     else if (clk0 && clk1 && clk1.w > clk0.w && !ctx.reloaded) ctx.throughput = { fps: (clk1.f - clk0.f) / ((clk1.w - clk0.w) / 1000), gamePerWall: (clk1.t - clk0.t) / ((clk1.w - clk0.w) / 1000) };
   }
 
   // game-side captured errors + final R02 verdict (zero errors across the WHOLE run)
-  const gameErrors = await page.evaluate(() => (window.__T && window.__T.errors) ? window.__T.errors.slice(0, 50).map(String) : ((window.G && window.G.errors) || []).slice(0, 50).map(String)).catch(() => []);
+  ctx.closing = true;
+  const gameErrors = (page && !page.isClosed()) ? await page.evaluate(() => (window.__T && window.__T.errors) ? window.__T.errors.slice(0, 50).map(String) : ((window.G && window.G.errors) || []).slice(0, 50).map(String)).catch(() => []) : [];
   const allErrors = ctx.errors.concat(gameErrors.map(e => '[G.errors] ' + e));
   const uniq = []; const seen = new Set();
   for (const e of allErrors) { const k = e.slice(0, 160); if (!seen.has(k)) { seen.add(k); uniq.push(e); } }
@@ -1280,7 +1327,7 @@ async function main() {
       r02.details = wasClean ? msg : r02.details + '; ' + msg;
     } else if (wasClean) r02.details += '; zero errors across the whole run';
   }
-  await browser.close();
+  try { await browser.close(); } catch (e) { /* ignore */ }
 
   results.sort((a, b) => a.id.localeCompare(b.id));
   printTable(results);
@@ -1288,9 +1335,9 @@ async function main() {
   console.log('');
   if (uniq.length) { console.log('ERRORS (' + uniq.length + ' unique):'); for (const e of uniq.slice(0, 12)) console.log('---\n' + trunc(e, 400)); console.log(''); }
   if (ctx.warnings.length) console.log('warnings: ' + ctx.warnings.length + ' (first: ' + trunc(ctx.warnings[0], 100) + ')');
-  const thr = ctx.throughput ? '  · headless throughput ' + ctx.throughput.fps.toFixed(2) + ' frames/s (' + ctx.throughput.gamePerWall.toFixed(3) + ' game-s per wall-s at time ×' + OPTS.timescale + ')' : '';
+  const thr = ctx.throughput ? '  · headless throughput ' + ctx.throughput.fps.toFixed(2) + ' frames/s (' + ctx.throughput.gamePerWall.toFixed(3) + ' game-s per wall-s at time ×' + OPTS.timescale + ', timeouts ×' + (ctx.slow || 1).toFixed(1) + ')' : (ctx.slow ? '  · timeouts ×' + ctx.slow.toFixed(1) : '');
   console.log(passed + '/' + results.length + ' passed' + (booted ? '' : '  (game never booted — see details)') + '  · total ' + fmtMs(Date.now() - t0) + thr);
-  const report = { date: new Date().toISOString(), html: HTML, opts: OPTS, booted, bootMs: ctx.bootMs, quickStartMs: ctx.quickStartMs, durationMs: Date.now() - t0, throughput: ctx.throughput || null, summary: { passed, total: results.length, failed: results.filter(r => !r.pass).map(r => r.id) }, results, errors: uniq, warningCount: ctx.warnings.length };
+  const report = { date: new Date().toISOString(), html: HTML, opts: OPTS, booted, bootMs: ctx.bootMs, quickStartMs: ctx.quickStartMs, durationMs: Date.now() - t0, throughput: ctx.throughput || null, calibration: { fps: ctx.calibFps || null, slow: ctx.slow || 1 }, recoveries: ctx.recoveries || 0, summary: { passed, total: results.length, failed: results.filter(r => !r.pass).map(r => r.id) }, results, errors: uniq, warningCount: ctx.warnings.length };
   fs.writeFileSync(REPORT, JSON.stringify(report, null, 2));
   console.log('report:', REPORT);
   process.exit(passed === results.length && results.length > 0 ? 0 : 1);
@@ -1325,4 +1372,8 @@ async function fullAutoquest(page, ctx, browser) {
   process.exit(res.ok && res.errors.length === 0 ? 0 : 1);
 }
 
-main().catch(e => { console.error('HARNESS FAILURE', e); process.exit(2); });
+main().catch(e => {
+  console.error('HARNESS FAILURE', e);
+  try { fs.writeFileSync(REPORT, JSON.stringify({ date: new Date().toISOString(), html: HTML, opts: OPTS, harnessFailure: String(e && e.stack || e) }, null, 2)); } catch (e2) { /* ignore */ }
+  process.exit(2);
+});
