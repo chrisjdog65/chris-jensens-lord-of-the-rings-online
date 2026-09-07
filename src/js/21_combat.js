@@ -34,13 +34,14 @@
    Events emitted beyond SPEC: abilityUsed {ent, ability, target}, entityDamaged {src, dst, amount, crit, dtype, avoided},
      entityHealed {src, dst, amount}, effectsChanged (ent), castStart (ent), castEnd (ent), lootDropped (bag), lootTaken {items, gold, bag},
      xpGained (n), hotbarChanged (slot), titleEarned (id), combatMusic (theme).
-   Fields written on entities: cooldowns{}, gcdReady, casting {id, name, icon, start, end, castTime, ability*, target*, fx*} (* = hidden),
+   Fields written on entities: cooldowns{}, gcdReady (+ alias gcdReadyAt), casting {id, name, icon, start, end, castTime, ability*, target*, fx*} (* = hidden),
      nextSwing, lastCombat, lastAbility, autoAttack, threat {id → number}, knockback (Vector3), effects[], _cbAcc (far-tick accumulator).
    Loot bag entity: { kind:'chest', subkind:'lootbag', loot:[instances], gold, owner, expires, interact:{label:'Loot', range:2.5, fn} }.
    Assumptions: G.Data.stats.compute reads effect kinds stun/root/slow (02); G.Physics.lineOfSight/moveEntity applies ent.knockback (15);
      G.FX.spawn/projectile (16); G.Audio.sfx/music (01); G.UI.floatText/notify/notifyBig/chat/showLoot/deathScreen (30);
      G.Monsters.onDamaged/onTaunt, G.AIPlayers.onDamaged (optional); G.Quests.onKill; G.Player.dismount; G.Game.zoneMusic/scene (optional);
      G.Items.lootFor/addToInventory/get/rarityOf; G.Chars.buildProp('bundle') for the loot-bag mesh (optional).
+     Monster entities may carry typeData|type (object)|typeId, dmg (per-hit, pre-scaled), attackSpeed, xpMult, elite, boss, ccImmune.
    Private helpers are file-local (no shared globals). ==== */
 (function () {
   'use strict';
@@ -69,6 +70,7 @@
   const HIT_ANIM_GAP = 0.45;
   const CAST_MOVE_TOLERANCE = 0.5;       // metres of movement that interrupt a cast (players)
   const CAST_MOVE_TOLERANCE_AI = 1.5;    // non-players get more slack (steering jitter)
+  const SWING_GRACE = 0.3;               // AI modules drive their own attack cadence; a call this close to the swing timer is accepted
 
   const PHYSICAL = { common: 1, beleriand: 1, westernesse: 1, ancientDwarf: 1 };
   const DTYPE_NAME = { common: 'Common', beleriand: 'Beleriand', westernesse: 'Westernesse', ancientDwarf: 'Ancient Dwarf-make', fire: 'Fire', frost: 'Frost', light: 'Light', lightning: 'Lightning', fall: 'fall', shadow: 'Shadow' };
@@ -109,7 +111,8 @@
   function fmtMoney(c) { return typeof G.fmtMoney === 'function' ? G.fmtMoney(c) : String(c) + 'c'; }
   function fmtNum(n) { return typeof G.fmtNum === 'function' ? G.fmtNum(n) : String(n); }
   function hide(obj, key, val) { Object.defineProperty(obj, key, { value: val, writable: true, enumerable: false, configurable: true }); }
-  function rand() { return typeof G.rand === 'function' ? G.rand() : Math.random(); }
+  let _lcg = 0x2545f491;
+  function rand() { if (typeof G.rand === 'function') return G.rand(); _lcg = (Math.imul(_lcg, 1664525) + 1013904223) >>> 0; return _lcg / 4294967296; }
   function variance() { return 1 - VARIANCE + rand() * 2 * VARIANCE; }
   function statsObj() {
     const st = G.state.stats || (G.state.stats = {});
@@ -651,9 +654,11 @@
     if (amount <= 0) return 0;
     dtype = dtype || 'common';
     // read every option up front: `opts` may be a shared object that re-entrant calls overwrite
-    const optCrit = !!opts.crit, optRaw = !!opts.raw, optKind = opts.kind || 'melee', optThreat = num(opts.threat, 1),
+    const optAbility = opts.ability || null;
+    const optCrit = !!opts.crit, optRaw = !!opts.raw || optAbility === 'fall', optThreat = num(opts.threat, 1),
+      optKind = opts.kind || (optAbility === 'ranged' ? 'ranged' : optAbility === 'fall' ? 'fall' : (optAbility && typeof optAbility === 'object' && optAbility.kind === 'ranged') ? 'ranged' : 'melee'),
       optSfx = opts.sfx, optNoFx = !!opts.noFx, optNoAnim = !!opts.noAnim, optSmall = !!opts.small, optSilent = !!opts.silent,
-      optDot = !!opts.dot, optAbility = opts.ability || null, optFxKind = opts.fxKind || null;
+      optDot = !!opts.dot, optFxKind = opts.fxKind || null;
     const st = G.state, stats = statsObj();
     const dstIsPlayer = isPlayer(dst), credit = creditFor(src), srcIsPlayer = !!credit;
     const physical = !!PHYSICAL[dtype];
@@ -710,7 +715,8 @@
         if (srcIsPlayer && !optDot) chat('You ' + (crit ? 'critically hit ' : 'hit ') + nameOf(dst) + ' for ' + fmtNum(dealt) + ' ' + (DTYPE_NAME[dtype] || dtype) + ' damage.', 'combat');
         else if (srcIsPlayer && optDot) chat(nameOf(dst) + ' suffers ' + fmtNum(dealt) + ' ' + (DTYPE_NAME[dtype] || dtype) + ' damage' + (optAbility ? ' from ' + (optAbility.name || optAbility) : '') + '.', 'combat');
         else if (dstIsPlayer && src) chat(nameOf(src) + (crit ? ' critically hits you for ' : ' hits you for ') + fmtNum(dealt) + ' ' + (DTYPE_NAME[dtype] || dtype) + ' damage.', 'combat');
-        else if (dstIsPlayer && dtype === 'fall') chat('You take ' + fmtNum(dealt) + ' damage from the fall.', 'combat');
+        else if (dstIsPlayer && (dtype === 'fall' || optAbility === 'fall')) chat('You take ' + fmtNum(dealt) + ' damage from the fall.', 'combat');
+        else if (dstIsPlayer) chat('You take ' + fmtNum(dealt) + ' ' + (DTYPE_NAME[dtype] || dtype) + ' damage.', 'combat');
       }
     }
     if (!avoided && !optNoFx && dealt > 0 && nearPlayer(dst, 120)) {
@@ -844,6 +850,8 @@
     return f;
   }
 
+  function setGcd(ent, readyAt) { ent.gcdReady = readyAt; ent.gcdReadyAt = readyAt; }
+
   // ------------------------------------------------------------------------------------------------ casting
   function isCasting(ent) { return !!(ent && ent.casting); }
   function castProgress(ent) {
@@ -856,7 +864,7 @@
     const c = { id: a.id, name: a.name, icon: a.icon || '', start: tNow, end: tNow + a.castTime, castTime: a.castTime, x: p ? p.x : 0, z: p ? p.z : 0 };
     hide(c, 'ability', a); hide(c, 'target', t || null); hide(c, 'fx', null);
     ent.casting = c;
-    if (a.gcd !== false) ent.gcdReady = tNow + GCD;
+    if (a.gcd !== false) setGcd(ent, tNow + GCD);
     playAnim(ent, 'cast', true);
     sfx('spell_cast', ent, 0.8, 1);
     if (nearPlayer(ent, 120)) { const o = fxReset(); o.target = ent; o.yOff = heightOf(ent) * 0.7; o.duration = a.castTime; o.color = DTYPE_HEX[(a.effects[0] && a.effects[0].dtype) || 'light']; c.fx = fx('sparkle', p, o); }
@@ -919,7 +927,7 @@
       if (typeof ent.power === 'number') ent.power = Math.max(0, ent.power - num(a.power, 0));
       if (a.cooldown > 0) { if (!ent.cooldowns) ent.cooldowns = {}; ent.cooldowns[a.id] = tNow + a.cooldown; }
     }
-    if (a.gcd !== false) ent.gcdReady = tNow + (free ? 0.2 : GCD);
+    if (a.gcd !== false) setGcd(ent, tNow + (free ? 0.2 : GCD));
     ent.lastAbility = a.id; ent.lastAbilityTime = tNow;
     lastAbility.ent = ent; lastAbility.id = a.id; lastAbility.target = t || null; lastAbility.time = tNow;
     counters.abilities++;
@@ -1217,7 +1225,7 @@
     if (ent.casting) return false;
     if (isPlayer(ent) && ent.mounted) return false;
     const tNow = now();
-    if (!opts.force && num(ent.nextSwing, 0) > tNow) return false;
+    if (!opts.force && num(ent.nextSwing, 0) - tNow > (isPlayer(ent) ? 0 : SWING_GRACE)) return false;
     const range = num(opts.range, MELEE);
     if (!inRange(ent, target, range + RANGE_SLACK)) return false;
     if (!opts.force && !canSee(ent, target)) return false;
@@ -1388,7 +1396,8 @@
         if (fam) stats.killsByFamily[fam] = num(stats.killsByFamily[fam], 0) + 1;
         chat('You have defeated ' + nameOf(ent) + '.', 'combat');
         const xpApi = G.Data && G.Data.xp;
-        const xp = (xpApi && typeof xpApi.killXP === 'function') ? Math.round(num(xpApi.killXP(levelOf(ent), levelOf(credit), boss ? 4 : elite ? 1.5 : 1), 0)) : 0;
+        const xpMult = (typeof ent.xpMult === 'number' && ent.xpMult > 0) ? ent.xpMult : (boss ? 4 : elite ? 1.5 : 1);
+        const xp = (xpApi && typeof xpApi.killXP === 'function') ? Math.round(num(xpApi.killXP(levelOf(ent), levelOf(credit), xpMult), 0)) : 0;
         if (xp > 0) Progress.addXP(xp, EMPTY);
         const hk = credit.stats ? num(credit.stats.healOnKillPct, 0) : 0;
         if (hk > 0 && isAlive(credit) && credit.stats) heal(credit, credit, credit.stats.maxMorale * hk / 100, _hotOpts);
@@ -1414,7 +1423,7 @@
   function revive(ent, moraleFrac) {
     if (!ent) return false;
     ent.alive = true; ent.dead = false; ent.deathTime = 0;
-    ent.casting = null; ent.autoAttack = false; ent.target = null; ent.nextSwing = 0; ent.gcdReady = 0;
+    ent.casting = null; ent.autoAttack = false; ent.target = null; ent.nextSwing = 0; setGcd(ent, 0);
     if (Array.isArray(ent.effects)) ent.effects.length = 0;
     clearThreat(ent);
     if (ent.knockback && typeof ent.knockback === 'object') { ent.knockback.x = 0; ent.knockback.y = 0; ent.knockback.z = 0; }
@@ -1509,6 +1518,7 @@
     if (!Array.isArray(p.titles)) p.titles = [];
     if (typeof p.level !== 'number' || !isFinite(p.level)) p.level = 1;
     if (typeof p.gcdReady !== 'number') p.gcdReady = 0;
+    if (typeof p.gcdReadyAt !== 'number') p.gcdReadyAt = p.gcdReady;
     if (typeof p.nextSwing !== 'number') p.nextSwing = 0;
     return p;
   }
@@ -1715,9 +1725,10 @@
   // ------------------------------------------------------------------------------------------------ balance curves
   // Measured with tools/scratch/_balance.js: sustained DPS (full rotation + auto-attack) of a hero wearing uncommon
   // gear in every slot, median over six classes: L10 ≈ 320, L40 ≈ 1280, L80 ≈ 3020 (champion ≈ +40 %, burglar ≈ −35 %).
-  // Curve 55 + 24L + 0.2L² sits a little above the median so the top DPS class stays ≥ 4 s per kill.
+  // Curve 55 + 24L + 0.25L² sits a little above the median so the top DPS class stays ≥ 4 s per kill
+  // (monster morale = 6 × DPS: L1 ≈ 475, L10 ≈ 1920, L40 ≈ 8490, L80 ≈ 21450).
   // Hero max morale in that gear ≈ 100 + 190L, physical mitigation sits at the 60 % cap from L5 on.
-  function heroDPSEstimate(level) { const L = Math.max(1, Math.min(120, num(level, 1))); return 55 + 24 * L + 0.2 * L * L; }
+  function heroDPSEstimate(level) { const L = Math.max(1, Math.min(120, num(level, 1))); return 55 + 24 * L + 0.25 * L * L; }
   function suggestMonsterStats(level, opts) {
     opts = opts || EMPTY;
     const L = Math.max(1, Math.min(120, Math.round(num(level, 1))));

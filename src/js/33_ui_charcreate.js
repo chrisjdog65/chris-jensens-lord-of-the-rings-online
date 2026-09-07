@@ -298,8 +298,8 @@
 .cc-top .grow { flex: 1; }
 .cc-body { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 12px 22px 14px; }
 .cc-left { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding-right: 6px; display: grid; grid-template-columns: 1fr; gap: 10px; align-content: start; }
-@media (min-width: 1560px) { .cc-left { grid-template-columns: 1.15fr .85fr; } .cc-left .cc-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; } }
-@media (max-width: 1559px) { .cc-left .cc-col { display: contents; } }
+@media (min-width: 1560px) { .cc-left { grid-template-columns: 1.1fr .9fr; } .cc-left .cc-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; } }
+@media (max-width: 1559px) { .cc-left .cc-col { display: contents; } .cc-sec-name { order: 1; } .cc-sec-race { order: 2; } .cc-sec-class { order: 3; } .cc-sec-app { order: 4; } .cc-sec-stats { order: 5; } }
 .cc-section { background: rgba(20, 15, 9, .78); border: 1px solid var(--border); border-radius: 5px; padding: 8px 12px 10px; box-shadow: inset 0 0 0 1px rgba(255,220,140,.05), 0 4px 14px rgba(0,0,0,.35); }
 .cc-section .section-title { margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
 .cc-section .section-title .n { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--gold); color: var(--gold-bright); font-size: 10px; }
@@ -370,9 +370,10 @@
 .cc-stat .b.pos { color: #8fe08a; } .cc-stat .b.neg { color: #ff8a7a; }
 .cc-stat.main .k { color: var(--gold-bright); }
 .cc-stat-note { font-size: 11.5px; color: var(--parch-dim); margin-top: 6px; font-style: italic; }
-.cc-right { flex: none; width: 460px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.cc-right { flex: none; width: 460px; display: flex; flex-direction: column; gap: 12px; min-height: 0; justify-content: center; }
 @media (max-width: 1500px) { .cc-right { width: 400px; } }
-.cc-preview-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+@media (min-width: 1700px) { .cc-right { width: 560px; } }
+.cc-preview-wrap { flex: 0 0 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .cc-preview { position: relative; border: 1px solid var(--border-hi); border-radius: 6px; overflow: hidden; background: radial-gradient(90% 70% at 50% 20%, #3a2f22 0%, #1a140d 45%, #070503 100%); box-shadow: 0 10px 40px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,220,140,.08); cursor: grab; }
 .cc-preview.dragging { cursor: grabbing; }
 .cc-preview canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; display: block; }
@@ -872,7 +873,7 @@
     };
     e.gM = el('div', { class: 'g active' }, [gIcon(true), 'Male']); e.gF = el('div', { class: 'g' }, [gIcon(false), 'Female']);
     e.gM.addEventListener('click', function () { _setGender('male'); }); e.gF.addEventListener('click', function () { _setGender('female'); });
-    const secName = el('div', { class: 'cc-section' }, [
+    const secName = el('div', { class: 'cc-section cc-sec-name' }, [
       el('div', { class: 'section-title' }, [el('span', { class: 'n', text: '1' }), 'Name & Gender']),
       el('div', { class: 'cc-name-row' }, [e.name, rndBtn, el('div', { class: 'cc-gender' }, [e.gM, e.gF])]),
       e.nameErr,
@@ -890,7 +891,7 @@
       CC.raceCards[r.id] = card; e.raceGrid.appendChild(card);
     });
     e.raceDetail = el('div', { class: 'cc-detail' });
-    const secRace = el('div', { class: 'cc-section' }, [el('div', { class: 'section-title' }, [el('span', { class: 'n', text: '2' }), 'Race']), e.raceGrid, e.raceDetail]);
+    const secRace = el('div', { class: 'cc-section cc-sec-race' }, [el('div', { class: 'section-title' }, [el('span', { class: 'n', text: '2' }), 'Race']), e.raceGrid, e.raceDetail]);
     // ---- class
     e.classGrid = el('div', { class: 'cc-grid' });
     _classes().forEach(function (c) {
@@ -904,7 +905,7 @@
       CC.classCards[c.id] = card; e.classGrid.appendChild(card);
     });
     e.classDetail = el('div', { class: 'cc-detail' });
-    const secClass = el('div', { class: 'cc-section' }, [el('div', { class: 'section-title' }, [el('span', { class: 'n', text: '3' }), 'Class']), e.classGrid, e.classDetail]);
+    const secClass = el('div', { class: 'cc-section cc-sec-class' }, [el('div', { class: 'section-title' }, [el('span', { class: 'n', text: '3' }), 'Class']), e.classGrid, e.classDetail]);
     // ---- appearance
     e.skin = el('div', { class: 'cc-swatches' }); e.hairStyle = el('div', { class: 'cc-seg' }); e.hairColor = el('div', { class: 'cc-swatches' }); e.eyes = el('div', { class: 'cc-swatches' });
     e.beardRow = []; e.beard = el('div', { class: 'cc-seg' });
@@ -917,13 +918,13 @@
     const row = function (label, ctrl) { const l = el('div', { class: 'lbl', text: label }); app.appendChild(l); app.appendChild(ctrl); return [l, ctrl]; };
     row('Skin', e.skin); row('Hair', e.hairStyle); row('Hair colour', e.hairColor); row('Eyes', e.eyes); e.beardRow = row('Beard', e.beard);
     row('Height', el('div', { class: 'cc-range' }, [e.height, e.heightVal])); row('Build', e.build);
-    const secApp = el('div', { class: 'cc-section' }, [el('div', { class: 'section-title' }, [el('span', { class: 'n', text: '4' }), 'Appearance']), app]);
+    const secApp = el('div', { class: 'cc-section cc-sec-app' }, [el('div', { class: 'section-title' }, [el('span', { class: 'n', text: '4' }), 'Appearance']), app]);
     // ---- stats
     e.stats = el('div', { class: 'cc-stats' });
     e.statNote = el('div', { class: 'cc-stat-note' });
-    const secStats = el('div', { class: 'cc-section' }, [el('div', { class: 'section-title' }, [el('span', { class: 'n', text: '5' }), 'Starting attributes — level 1']), e.stats, e.statNote]);
+    const secStats = el('div', { class: 'cc-section cc-sec-stats' }, [el('div', { class: 'section-title' }, [el('span', { class: 'n', text: '5' }), 'Starting attributes — level 1']), e.stats, e.statNote]);
     // ---- left column layout
-    const left = el('div', { class: 'cc-left' }, [el('div', { class: 'cc-col' }, [secName, secRace, secClass]), el('div', { class: 'cc-col' }, [secApp, secStats])]);
+    const left = el('div', { class: 'cc-left' }, [el('div', { class: 'cc-col' }, [secName, secRace, secApp]), el('div', { class: 'cc-col' }, [secClass, secStats])]);
     // ---- right column: preview + enter
     e.pvName = el('div', { class: 'n' }); e.pvSub = el('div', { class: 's' }); e.pvHome = el('div', { class: 'pv-home' });
     e.preview = el('div', { class: 'cc-preview' }, [el('div', { class: 'rays' }), el('div', { class: 'vig' }), el('div', { class: 'pv-name' }, [e.pvName, e.pvSub]), e.pvHome, el('div', { class: 'pv-hint', text: 'Drag to rotate' })]);
@@ -1108,7 +1109,7 @@
       key.shadow.mapSize.set(1024, 1024); key.shadow.camera.left = -2.2; key.shadow.camera.right = 2.2; key.shadow.camera.top = 3.4; key.shadow.camera.bottom = -1; key.shadow.camera.near = 0.5; key.shadow.camera.far = 14; key.shadow.bias = -0.0006; key.shadow.normalBias = 0.02;
       const rim = new THREE.DirectionalLight(0x86b4ff, 2.4); rim.position.set(-2.4, 3.2, -3.4);
       const fill = new THREE.DirectionalLight(0xc8b8a8, 1.2); fill.position.set(-3, 1.6, 2.6);
-      const hemi = new THREE.HemisphereLight(0x6f7fa8, 0x2a2018, 0.55);
+      const hemi = new THREE.HemisphereLight(0x6f7fa8, 0x2a2018, 0.7);
       const amb = new THREE.AmbientLight(0x3a3028, 0.5);
       scene.add(key, rim, fill, hemi, amb);
       // pedestal
@@ -1190,17 +1191,20 @@
   }
   function _frameCamera(H) {
     const cam = CC.camera; if (!cam) return;
-    const dist = 2.22 * H + 0.42;
-    cam.position.set(0.02, H * 0.5, dist);
-    cam.lookAt(0, H * 0.56, 0);
+    const dist = 2.3 * H + 0.45;
+    cam.position.set(0.02, H * 0.7, dist);
+    cam.lookAt(0, H * 0.5, 0);
     cam.updateProjectionMatrix();
-    if (CC.pedestal) CC.pedestal.scale.setScalar(clamp(H / 1.8, 0.7, 1.12));
+    if (CC.pedestal) CC.pedestal.scale.setScalar(clamp(H / 1.8, 0.7, 1.12) * 0.8);
     if (CC.keyLight) { CC.keyLight.shadow.camera.top = H * 1.4; CC.keyLight.shadow.camera.updateProjectionMatrix(); }
   }
   function _sizePreview() {
     const e = CC.els; if (!e.previewWrap) return;
-    const wrapW = e.previewWrap.clientWidth || 420, wrapH = e.previewWrap.clientHeight || 560;
-    let h = Math.min(wrapH - 4, 640), w = h * (PV_W / PV_H);
+    const right = e.previewWrap.parentNode;
+    const wrapW = (right && right.clientWidth) || 420;
+    const enterH = e.enterBtn && e.enterBtn.parentNode ? e.enterBtn.parentNode.offsetHeight : 90;
+    const availH = ((right && right.clientHeight) || 560) - enterH - 14;
+    let h = Math.min(Math.max(availH, 240), 820), w = h * (PV_W / PV_H);
     if (w > wrapW) { w = wrapW; h = w * (PV_H / PV_W); }
     e.preview.style.width = Math.floor(w) + 'px'; e.preview.style.height = Math.floor(h) + 'px';
   }

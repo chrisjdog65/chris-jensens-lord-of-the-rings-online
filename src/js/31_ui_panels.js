@@ -576,3 +576,448 @@
   function _dndInv(e) { if (DND.kind === 'inv') return DND.from; const v = _dtGet(e, 'text/inv-slot'); if (v !== '') { const n = parseInt(v, 10); return isFinite(n) ? n : -1; } return -1; }
   function _dndEquip(e) { if (DND.kind === 'equip') return DND.slot; return _dtGet(e, 'text/equip-slot') || null; }
   function _dndActive(e) { return DND.kind === 'inv' || DND.kind === 'equip' || _dtHas(e, 'text/inv-slot') || _dtHas(e, 'text/equip-slot'); }
+
+  // ================================================================================================ INVENTORY (I)
+  const INV_FILTERS = [
+    { id: 'all', label: 'All' },
+    { id: 'weapon', label: 'Weapons', types: ['weapon'] },
+    { id: 'armour', label: 'Armour', types: ['armour'] },
+    { id: 'jewellery', label: 'Jewellery', types: ['jewellery'] },
+    { id: 'consumable', label: 'Consumables', types: ['consumable', 'bait', 'mount'] },
+    { id: 'quest', label: 'Quest', types: ['quest'] },
+    { id: 'material', label: 'Materials', types: ['material', 'misc'] },
+    { id: 'fish', label: 'Fish', types: ['fish'] },
+  ];
+  const Inv = { filter: 'all', filters: INV_FILTERS, _hl: {}, _hlTimer: 0, _wrap: null, _scroll: 0 };
+  function _invFilter(id) { for (let i = 0; i < INV_FILTERS.length; i++) if (INV_FILTERS[i].id === id) return INV_FILTERS[i].types ? INV_FILTERS[i] : null; return null; }
+  function _invMatches(f, inst) { if (!f) return true; const v = _view(inst); return !!(v && f.types.indexOf(v.type) >= 0); }
+  function _vendorNpc() { return (_isOpen('vendor') && Vd.npc) ? Vd.npc : null; }
+  function _invPrimary(i, ev) {
+    const p = _player(); if (!p || !Array.isArray(p.inventory)) return;
+    const inst = p.inventory[i]; if (!inst) return;
+    const v = _view(inst); if (!v) return;
+    const vendor = _vendorNpc();
+    if (ev && ev.shiftKey && _num(inst.count, 1) > 1) { _splitPrompt(i); return; }
+    if (vendor && ev && (ev.ctrlKey || ev.altKey)) { if (_has(G.NPCs, 'sell')) G.NPCs.sell(vendor, i); return; }
+    if (v.use && _has(G.Items, 'use')) { G.Items.use(p, i); return; }
+    if (v.slot && _has(G.Items, 'equip')) { if (G.Items.equip(p, i)) _sfx('equip'); return; }
+  }
+  function _invMenu(i, x, y) {
+    const p = _player(); if (!p || !Array.isArray(p.inventory)) return;
+    const inst = p.inventory[i]; if (!inst) return;
+    const v = _view(inst); if (!v) return;
+    const items = [];
+    if (v.slot && _has(G.Items, 'equip')) {
+      const opts = _has(G.Items, 'slotsFor') ? G.Items.slotsFor(p, inst) : [v.slot];
+      if (opts.length > 1) opts.forEach(function (s) { items.push({ label: 'Equip — ' + _slotLabel(s) + (p.equipment && p.equipment[s] ? ' (replace)' : ''), icon: '⚔', onClick: function () { if (G.Items.equip(p, i, s)) _sfx('equip'); } }); });
+      else items.push({ label: 'Equip', icon: '⚔', onClick: function () { if (G.Items.equip(p, i)) _sfx('equip'); } });
+    }
+    if (v.use && _has(G.Items, 'use')) items.push({ label: 'Use', icon: '✦', onClick: function () { G.Items.use(p, i); } });
+    const vendor = _vendorNpc();
+    if (vendor) {
+      const val = _has(G.Items, 'sellValue') ? G.Items.sellValue(inst) : 0;
+      items.push({ label: 'Sell' + (val > 0 ? ' for ' + _moneyText(val) : ''), icon: '●', disabled: val <= 0, onClick: function () { if (_has(G.NPCs, 'sell')) G.NPCs.sell(vendor, i); } });
+    }
+    if (_num(inst.count, 1) > 1) items.push({ label: 'Split stack', icon: '⁝', onClick: function () { _splitPrompt(i); } });
+    items.push(null);
+    items.push({ label: 'Destroy', icon: '✕', cls: 'danger', disabled: v.type === 'quest', onClick: function () {
+      _confirm('Destroy ' + _itemName(inst) + (_num(inst.count, 1) > 1 ? ' ×' + inst.count : '') + '? This cannot be undone.', function () { if (_has(G.Items, 'destroy')) G.Items.destroy(p, i); else { p.inventory[i] = null; G.emit('inventoryChanged', p); } _sfx('ui_click'); }, { title: 'Destroy item', yes: 'Destroy' });
+    } });
+    _menu(items, x, y, _itemName(inst));
+  }
+  function _splitStack(p, i, n) {
+    if (!p || !Array.isArray(p.inventory)) return false;
+    const inst = p.inventory[i]; n = n | 0;
+    if (!inst || n < 1 || _num(inst.count, 1) <= n) return false;
+    let free = -1;
+    for (let k = 0; k < p.inventory.length; k++) if (!p.inventory[k]) { free = k; break; }
+    if (free < 0) { _notify('Your inventory is full', 'warning'); _sfx('ui_error'); return false; }
+    let uid = null;
+    if (_has(G.Items, 'create')) { const c = G.Items.create(inst.tid, 1); uid = c && c.uid; }
+    if (!uid) uid = _has(G, 'uid') ? G.uid() : 'u' + Math.floor(_now() * 1000);
+    const copy = Object.assign({}, inst, { uid: uid, count: n });
+    inst.count = _num(inst.count, 1) - n;
+    p.inventory[free] = copy;
+    G.emit('inventoryChanged', p);
+    return true;
+  }
+  Inv.splitStack = function (i, n) { return _splitStack(_player(), i, n); };
+  let _splitState = null;
+  function _splitPrompt(i) {
+    const p = _player(); if (!p) return;
+    const inst = p.inventory[i]; if (!inst || _num(inst.count, 1) < 2) return;
+    _splitState = { i: i, max: _num(inst.count, 1) - 1, n: Math.max(1, Math.floor(_num(inst.count, 1) / 2)), name: _itemName(inst) };
+    if (!_registered.split && _has(UI, 'registerPanel')) {
+      _registered.split = true;
+      UI.registerPanel('split', { title: 'Split stack', modal: true, width: 320, remember: false, rebuildOnOpen: true, build: function (body, panel) {
+        const s = _splitState; if (!s) return;
+        body.appendChild(el('div', { class: 'pn-sub', text: 'How many ' + s.name + ' do you want to move to a new stack?' }));
+        const range = el('input', { type: 'range', min: 1, max: s.max, value: s.n });
+        const numIn = el('input', { type: 'number', min: 1, max: s.max, value: s.n });
+        range.addEventListener('input', function () { s.n = clamp(parseInt(range.value, 10) || 1, 1, s.max); numIn.value = s.n; });
+        numIn.addEventListener('input', function () { s.n = clamp(parseInt(numIn.value, 10) || 1, 1, s.max); range.value = s.n; });
+        numIn.addEventListener('keydown', function (ev) { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); _close('split'); _splitStack(_player(), s.i, s.n); } });
+        body.appendChild(el('div', { class: 'sp-row' }, [range, numIn]));
+        if (panel.footer) _clear(panel.footer);
+        panel.addButton('Cancel', function () { _close('split'); });
+        panel.addButton('Split', function () { _close('split'); _splitStack(_player(), s.i, s.n); }, 'primary');
+      } });
+    }
+    _open('split');
+  }
+  function _invSlot(i, inst, p) {
+    const s = el('div', { class: 'slot inv-slot' + (inst ? ' border-' + _rarityOf(inst) : ' empty'), data: { i: i }, draggable: !!inst });
+    if (inst) {
+      s.innerHTML = _iconHTML(inst, 38);
+      const cnt = _num(inst.count, 1);
+      if (cnt > 1) s.appendChild(el('span', { class: 'count', text: cnt > 9999 ? '9999+' : String(cnt) }));
+      if (Inv._hl[inst.tid]) s.classList.add('hl');
+      _tip(s, function () {
+        const v = _view(inst);
+        let hint = v && v.use ? 'Click to use' : (v && v.slot ? 'Click to equip' : '');
+        if (_vendorNpc()) hint += (hint ? ' · ' : '') + 'Ctrl-click to sell';
+        if (cnt > 1) hint += (hint ? ' · ' : '') + 'Shift-click to split';
+        return _itemTip(inst, p) + '<div class="tt-sub" style="margin-top:4px">' + esc(hint ? hint + ' · right-click for options' : 'Right-click for options') + '</div>';
+      });
+      s.addEventListener('click', function (ev) { _invPrimary(i, ev); });
+      s.addEventListener('contextmenu', function (ev) { ev.preventDefault(); ev.stopPropagation(); _tipHide(); _invMenu(i, ev.clientX, ev.clientY); });
+      s.addEventListener('dragstart', function (ev) {
+        DND.kind = 'inv'; DND.from = i; DND.inst = inst;
+        _dtSet(ev, 'text/inv-slot', i); _dtSet(ev, 'text/plain', 'inv:' + i);
+        try { ev.dataTransfer.effectAllowed = 'move'; } catch (_) { /* ignore */ }
+        s.classList.add('dragging'); _tipHide();
+      });
+      s.addEventListener('dragend', function () { s.classList.remove('dragging'); _dndReset(); });
+    }
+    s.addEventListener('dragover', function (ev) { if (_dndActive(ev)) { ev.preventDefault(); try { ev.dataTransfer.dropEffect = 'move'; } catch (_) { /* ignore */ } s.classList.add('dragover'); } });
+    s.addEventListener('dragleave', function () { s.classList.remove('dragover'); });
+    s.addEventListener('drop', function (ev) {
+      ev.preventDefault(); s.classList.remove('dragover');
+      const pl = _player(); if (!pl) return;
+      const from = _dndInv(ev), eslot = _dndEquip(ev);
+      if (from >= 0) { if (from !== i && _has(G.Items, 'moveSlot')) G.Items.moveSlot(pl, from, i); }
+      else if (eslot && pl.equipment && pl.equipment[eslot] && _has(G.Items, 'unequip')) {
+        const it = pl.equipment[eslot];
+        if (G.Items.unequip(pl, eslot)) { const at = _has(G.Items, 'findInInventory') ? G.Items.findInInventory(pl, it.uid) : -1; if (at >= 0 && at !== i && !pl.inventory[i] && _has(G.Items, 'moveSlot')) G.Items.moveSlot(pl, at, i); _sfx('equip'); }
+      }
+      _dndReset();
+    });
+    return s;
+  }
+  Inv.render = function () {
+    const body = Inv.body; if (!body) return;
+    if (Inv._wrap) Inv._scroll = Inv._wrap.scrollTop;
+    _clear(body);
+    const p = _player();
+    const tabs = el('div', { class: 'tabs' });
+    INV_FILTERS.forEach(function (f) { tabs.appendChild(el('span', { class: 'tab' + (Inv.filter === f.id ? ' active' : ''), text: f.label, onclick: function () { Inv.setFilter(f.id); } })); });
+    const sortBtn = _btn('Sort', function () { Inv.sort(); }, 'small');
+    _tip(sortBtn, '<div class="tt-name">Sort bags</div><div class="tt-line">Merges stacks and orders everything by type, level and quality.</div>');
+    body.appendChild(el('div', { class: 'inv-top' }, [tabs, sortBtn]));
+    const wrap = el('div', { class: 'inv-grid-wrap' });
+    const grid = el('div', { class: 'inv-grid' });
+    Inv._wrap = wrap;
+    const n = C.INVENTORY_SLOTS || 200;
+    const inv = (p && Array.isArray(p.inventory)) ? p.inventory : [];
+    const f = _invFilter(Inv.filter);
+    let used = 0, shown = 0;
+    for (let i = 0; i < n; i++) {
+      const inst = inv[i] || null;
+      if (inst) used++;
+      if (f && (!inst || !_invMatches(f, inst))) continue;
+      grid.appendChild(_invSlot(i, inst, p));
+      shown++;
+    }
+    wrap.appendChild(grid);
+    if (f && !shown) wrap.appendChild(el('div', { class: 'pn-empty', text: 'Nothing of that kind in your bags.' }));
+    wrap.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    body.appendChild(wrap);
+    const bags = el('span', { class: 'inv-bags' + (used >= n ? ' full' : '') });
+    bags.innerHTML = 'Bags: <b>' + used + '/' + n + '</b>' + (f ? ' <span class="pn-muted">· ' + shown + ' shown</span>' : '');
+    const hint = el('span', { class: 'inv-hint', text: 'Drag to move · drop on your character to equip' });
+    const gold = el('span', { class: 'inv-gold' });
+    gold.innerHTML = _money(p ? _num(p.gold) : 0);
+    _tip(gold, function () { const g = p ? _num(p.gold) : 0; return '<div class="tt-name">Your purse</div><div class="tt-line">' + esc(_moneyText(g)) + '</div><div class="tt-desc">100 copper = 1 silver · 1,000 silver = 1 gold</div>'; });
+    body.appendChild(el('div', { class: 'inv-foot' }, [bags, hint, gold]));
+    if (Inv._scroll) wrap.scrollTop = Inv._scroll;
+  };
+  Inv.setFilter = function (id) { if (!_invFilter(id) && id !== 'all') id = 'all'; Inv.filter = id; Inv._scroll = 0; _sfx('ui_click'); Inv.refresh(); };
+  Inv.sort = function () { const p = _player(); if (p && _has(G.Items, 'sort')) { G.Items.sort(p); _sfx('ui_click'); _notify('Bags sorted.', 'info'); } };
+  Inv.highlight = function (tid) {
+    if (!tid) return;
+    Inv._hl[tid] = true;
+    Inv.mark();
+    if (Inv._hlTimer) clearTimeout(Inv._hlTimer);
+    Inv._hlTimer = setTimeout(function () { Inv._hlTimer = 0; Inv._hl = {}; Inv.mark(); }, 2400);
+    if (Inv.isOpen()) { const slots = Inv.body ? Inv.body.querySelectorAll('.inv-slot') : []; const p = _player(); for (let i = 0; i < slots.length; i++) { const idx = parseInt(slots[i].dataset.i, 10); const inst = p && p.inventory && p.inventory[idx]; if (inst && inst.tid === tid) slots[i].classList.add('hl'); } }
+  };
+  definePanel('inventory', Inv, { title: 'Inventory', key: 'KeyI', width: 508, pos: 'right' });
+
+  // ================================================================================================ CHARACTER (C)
+  const PV = { renderer: null, scene: null, camera: null, rig: null, canvas: null, group: null, angle: 0.55, dragging: false, idleT: 9, needRebuild: true, failed: false, ent: null, lastEquipSig: '', spinning: true, fallback: null };
+  const Ch = { tab: 'stats', preview: PV, _sideBody: null, _sideScroll: 0 };
+  const CH_LEFT = ['head', 'shoulder', 'back', 'chest', 'hands', 'legs', 'feet'];
+  const CH_RIGHT = ['neck', 'ear1', 'ear2', 'wrist1', 'wrist2', 'ring1', 'ring2', 'pocket'];
+  const CH_WEAPONS = ['mainhand', 'offhand', 'ranged'];
+  function _pvEnsure() {
+    if (PV.renderer || PV.failed || !THREE) return !!PV.renderer;
+    try {
+      if (!PV.canvas) PV.canvas = el('canvas', { width: 260, height: 380 });
+      PV.renderer = new THREE.WebGLRenderer({ canvas: PV.canvas, alpha: true, antialias: true, powerPreference: 'low-power' });
+      PV.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      PV.renderer.setSize(260, 380, false);
+      PV.renderer.setClearColor(0x000000, 0);
+      if ('outputColorSpace' in PV.renderer && THREE.SRGBColorSpace) PV.renderer.outputColorSpace = THREE.SRGBColorSpace;
+      PV.scene = new THREE.Scene();
+      PV.camera = new THREE.PerspectiveCamera(30, 260 / 380, 0.05, 60);
+      const key = new THREE.DirectionalLight(0xfff1dc, 2.6); key.position.set(2.2, 4, 3.2);
+      const fill = new THREE.DirectionalLight(0xbfd4ff, 1.1); fill.position.set(-3, 2, 2.4);
+      const rim = new THREE.DirectionalLight(0xffd9a0, 1.9); rim.position.set(0.5, 3, -4);
+      const hemi = new THREE.HemisphereLight(0xdfe8ff, 0x4a3a20, 0.85);
+      PV.scene.add(key, fill, rim, hemi);
+      PV.group = new THREE.Group();
+      PV.scene.add(PV.group);
+      PV.ent = { id: 'preview', kind: 'player', vel: new THREE.Vector3(0, 0, 0), onGround: true, alive: true, dead: false, swimming: false, mounted: false, target: null, inCombat: false };
+      PV.canvas.addEventListener('webglcontextlost', function (ev) { ev.preventDefault(); }, false);
+      return true;
+    } catch (err) { PV.failed = true; _report(err, 'character preview'); return false; }
+  }
+  function _equipSig(p) { let s = ''; if (p && p.equipment) for (const k in p.equipment) { const it = p.equipment[k]; s += k + ':' + (it ? (it.uid || it.tid) : '') + '|'; } return s + (p ? (p.race + p.gender + p.cls + p.hairStyle + p.hairColor + p.skin) : ''); }
+  function _pvRebuild() {
+    const p = _player();
+    if (!_pvEnsure() || !p || !_has(G.Chars, 'buildHumanoid')) return;
+    if (PV.rig) { try { if (typeof PV.rig.dispose === 'function') PV.rig.dispose(); } catch (_) { /* ignore */ } if (PV.rig.group && PV.rig.group.parent) PV.rig.group.parent.remove(PV.rig.group); PV.rig = null; }
+    const cd = _cls(p.cls);
+    try {
+      PV.rig = G.Chars.buildHumanoid({
+        race: p.race, gender: p.gender, cls: p.cls, name: p.name, level: p.level,
+        skin: p.skin, hair: p.hair, hairColor: p.hairColor, hairStyle: p.hairStyle, eyes: p.eyes, beard: p.beard,
+        height: _num(p.heightScale, 1) || 1, build: p.build, equipment: p.equipment || {}, armourType: cd ? cd.armourType : undefined,
+        nameplate: false, player: true,
+      });
+    } catch (err) { _report(err, 'character preview rig'); PV.rig = null; }
+    if (!PV.rig || !PV.rig.group) return;
+    PV.group.add(PV.rig.group);
+    if (typeof PV.rig.setAnim === 'function') PV.rig.setAnim('idle', true);
+    const H = Math.max(0.9, _num(PV.rig.height, 1.8) || 1.8);
+    PV.camera.position.set(0, H * 0.56, H * 2.08 + 0.15);
+    PV.camera.lookAt(0, H * 0.5, 0);
+    PV.camera.updateProjectionMatrix();
+    PV.lastEquipSig = _equipSig(p);
+    PV.needRebuild = false;
+  }
+  function _pvRender(dt) {
+    if (!Ch.isOpen() || PV.failed) return;
+    if (PV.needRebuild) _pvRebuild();
+    if (!PV.renderer || !PV.rig) return;
+    if (!PV.dragging) { PV.idleT += dt; if (PV.idleT > 2.5) PV.angle += dt * 0.35; }
+    PV.group.rotation.y = PV.angle;
+    try { if (typeof PV.rig.play === 'function') PV.rig.play(dt, PV.ent); PV.renderer.render(PV.scene, PV.camera); }
+    catch (err) { PV.failed = true; _report(err, 'character preview render'); }
+  }
+  function _pvBox() {
+    const box = el('div', { class: 'ch-preview' });
+    box.appendChild(el('div', { class: 'ch-floor' }));
+    if (_pvEnsure()) {
+      box.appendChild(PV.canvas);
+      box.appendChild(el('div', { class: 'ch-hint', text: 'drag to turn' }));
+      if (!PV._bound) {
+        PV._bound = true;
+        let lastX = 0;
+        PV.canvas.addEventListener('pointerdown', function (ev) { if (ev.button !== 0) return; PV.dragging = true; lastX = ev.clientX; try { PV.canvas.setPointerCapture(ev.pointerId); } catch (_) { /* ignore */ } ev.preventDefault(); });
+        PV.canvas.addEventListener('pointermove', function (ev) { if (!PV.dragging) return; PV.angle += (ev.clientX - lastX) * 0.012; lastX = ev.clientX; });
+        const up = function () { if (PV.dragging) { PV.dragging = false; PV.idleT = 0; } };
+        PV.canvas.addEventListener('pointerup', up); PV.canvas.addEventListener('pointercancel', up); PV.canvas.addEventListener('lostpointercapture', up);
+        PV.canvas.addEventListener('dblclick', function () { PV.angle = 0.55; PV.idleT = 0; });
+      }
+      if (PV.needRebuild) _pvRebuild();
+      _pvRender(0);
+    } else {
+      const p = _player(); const cd = p && _cls(p.cls);
+      box.appendChild(el('div', { class: 'ch-fallback', text: (cd && cd.icon) || '⚔' }));
+    }
+    return box;
+  }
+  function _chSlot(slot, p) {
+    const inst = p && p.equipment ? p.equipment[slot] : null;
+    const s = el('div', { class: 'slot ch-slot' + (inst ? ' border-' + _rarityOf(inst) : ' empty'), data: { eslot: slot }, draggable: !!inst });
+    if (inst) s.innerHTML = _iconHTML(inst, 38);
+    else s.appendChild(el('span', { class: 'empty-label', text: _slotLabel(slot) }));
+    _tip(s, function () {
+      if (inst) return _itemTip(inst, p) + '<div class="tt-sub" style="margin-top:4px">Click to unequip · drag to your bags</div>';
+      return '<div class="tt-name">' + esc(_slotLabel(slot)) + '</div><div class="tt-line">Empty slot</div><div class="tt-desc">Drag an item here from your bags, or click an item in your inventory to equip it.</div>';
+    });
+    if (inst) {
+      s.addEventListener('click', function () { if (_has(G.Items, 'unequip') && G.Items.unequip(p, slot)) _sfx('equip'); });
+      s.addEventListener('contextmenu', function (ev) { ev.preventDefault(); ev.stopPropagation(); _tipHide(); _menu([{ label: 'Unequip', icon: '↧', onClick: function () { if (_has(G.Items, 'unequip') && G.Items.unequip(p, slot)) _sfx('equip'); } }], ev.clientX, ev.clientY, _itemName(inst)); });
+      s.addEventListener('dragstart', function (ev) { DND.kind = 'equip'; DND.slot = slot; DND.inst = inst; _dtSet(ev, 'text/equip-slot', slot); _dtSet(ev, 'text/plain', 'equip:' + slot); try { ev.dataTransfer.effectAllowed = 'move'; } catch (_) { /* ignore */ } s.classList.add('dragging'); _tipHide(); });
+      s.addEventListener('dragend', function () { s.classList.remove('dragging'); _dndReset(); });
+    }
+    s.addEventListener('dragover', function (ev) { if (_dndActive(ev)) { ev.preventDefault(); try { ev.dataTransfer.dropEffect = 'move'; } catch (_) { /* ignore */ } s.classList.add('dragover'); } });
+    s.addEventListener('dragleave', function () { s.classList.remove('dragover'); });
+    s.addEventListener('drop', function (ev) {
+      ev.preventDefault(); s.classList.remove('dragover');
+      const pl = _player(); if (!pl) return;
+      const from = _dndInv(ev), fromSlot = _dndEquip(ev);
+      if (from >= 0) {
+        const it = pl.inventory && pl.inventory[from];
+        if (it && _has(G.Items, 'equip')) {
+          const ok = _has(G.Items, 'slotsFor') ? G.Items.slotsFor(pl, it).indexOf(slot) >= 0 : true;
+          if (!ok) { _notify(_itemName(it) + ' cannot go in the ' + _slotLabel(slot).toLowerCase() + ' slot.', 'warning'); _sfx('ui_error'); }
+          else if (G.Items.equip(pl, from, slot)) _sfx('equip');
+        }
+      } else if (fromSlot && fromSlot !== slot && pl.equipment && pl.equipment[fromSlot] && _has(G.Items, 'unequip') && _has(G.Items, 'equip')) {
+        const it = pl.equipment[fromSlot];
+        const ok = _has(G.Items, 'slotsFor') ? G.Items.slotsFor(pl, it).indexOf(slot) >= 0 : false;
+        if (!ok) { _notify('That does not fit there.', 'warning'); _sfx('ui_error'); }
+        else if (G.Items.unequip(pl, fromSlot)) { const at = _has(G.Items, 'findInInventory') ? G.Items.findInInventory(pl, it.uid) : -1; if (at >= 0) G.Items.equip(pl, at, slot); _sfx('equip'); }
+      }
+      _dndReset();
+    });
+    return s;
+  }
+  function _statRow(label, value, statKey, extra) {
+    const k = el('span', { class: 'k', text: label });
+    const v = el('span', { class: 'v' });
+    v.appendChild(document.createTextNode(_str(value)));
+    if (extra) v.appendChild(el('span', { class: 'pct', text: extra }));
+    const d = statKey ? _statDesc(statKey) : '';
+    if (d) _tip(k, '<div class="tt-name">' + esc(_statName(statKey) === label ? label : label) + '</div><div class="tt-desc">' + esc(d) + '</div>');
+    return [k, v];
+  }
+  function _pct(v) { return (Math.round(_num(v) * 10) / 10).toFixed(1) + '%'; }
+  function _chStats(p) {
+    const s = p.stats || {};
+    let pc = { mitigation: s.mitigation, critChance: s.critChance, blockChance: s.blockChance, parryChance: s.parryChance, evadeChance: s.evadeChance, resistChance: s.resistChance };
+    if (pc.mitigation == null && G.Data && G.Data.stats && _has(G.Data.stats, 'percentages')) { try { pc = G.Data.stats.percentages(p); } catch (_) { /* ignore */ } }
+    const box = el('div');
+    const sec = function (title, rows) { box.appendChild(el('div', { class: 'section-title', text: title })); const kv = el('div', { class: 'pn-kv' }); rows.forEach(function (r) { kv.appendChild(r[0]); kv.appendChild(r[1]); }); box.appendChild(kv); };
+    sec('Primary', ['might', 'agility', 'vitality', 'will', 'fate'].map(function (k) { return _statRow(_statName(k), _fmt(Math.round(_num(s[k]))), k); }));
+    sec('Morale & Power', [
+      _statRow('Morale', _fmt(Math.round(_num(p.morale))) + ' / ' + _fmt(Math.round(_num(s.maxMorale))), 'maxMorale'),
+      _statRow('Morale regeneration', (_num(s.moraleRegen)).toFixed(1) + ' /s', 'moraleRegen'),
+      _statRow('Power', _fmt(Math.round(_num(p.power))) + ' / ' + _fmt(Math.round(_num(s.maxPower))), 'maxPower'),
+      _statRow('Power regeneration', (_num(s.powerRegen)).toFixed(1) + ' /s', 'powerRegen'),
+    ]);
+    sec('Offence', [
+      _statRow('Physical Mastery', _fmt(Math.round(_num(s.physMastery))), 'physMastery'),
+      _statRow('Tactical Mastery', _fmt(Math.round(_num(s.tactMastery))), 'tactMastery'),
+      _statRow('Critical Rating', _fmt(Math.round(_num(s.crit))), 'crit', pc.critChance != null ? _pct(pc.critChance) : ''),
+      _statRow('Finesse', _fmt(Math.round(_num(s.finesse))), 'finesse'),
+    ]);
+    sec('Defence', [
+      _statRow('Armour', _fmt(Math.round(_num(s.armour))), 'armour', pc.mitigation != null ? _pct(pc.mitigation) : ''),
+      _statRow('Block Rating', _fmt(Math.round(_num(s.block))), 'block', pc.blockChance != null ? _pct(pc.blockChance) : ''),
+      _statRow('Parry Rating', _fmt(Math.round(_num(s.parry))), 'parry', pc.parryChance != null ? _pct(pc.parryChance) : ''),
+      _statRow('Evade Rating', _fmt(Math.round(_num(s.evade))), 'evade', pc.evadeChance != null ? _pct(pc.evadeChance) : ''),
+      _statRow('Resistance', _fmt(Math.round(_num(s.resist))), 'resist', pc.resistChance != null ? _pct(pc.resistChance) : ''),
+    ]);
+    const other = [];
+    if (s.speed != null) other.push(_statRow('Run Speed', '×' + (_num(s.speed, 1)).toFixed(2), 'speed'));
+    if (s.stealth) other.push(_statRow('Stealth', '+' + Math.round(_num(s.stealth) * 100) + '%', 'stealth'));
+    if (s.fishingLuck) other.push(_statRow('Fishing Luck', '+' + Math.round(_num(s.fishingLuck) * 100) + '%', 'fishingLuck'));
+    if (G.state && G.state.fishingSkill != null) other.push(_statRow('Fishing Skill', _num(G.state.fishingSkill, 1) + ' / 100', null));
+    if (other.length) sec('Other', other);
+    return box;
+  }
+  function _chSets(p) {
+    const box = el('div');
+    let sb = null;
+    try { sb = _has(G.Items, 'setBonuses') ? G.Items.setBonuses(p) : null; } catch (err) { _report(err, 'setBonuses'); }
+    const sets = sb && Array.isArray(sb.sets) ? sb.sets : [];
+    box.appendChild(el('div', { class: 'section-title', text: 'Gear sets' }));
+    if (!sets.length) { box.appendChild(el('div', { class: 'pn-empty', text: 'No pieces of any gear set are equipped. Sets grant bonuses at 2, 4 and 6 pieces.' })); return box; }
+    const eqTids = {}; if (p.equipment) for (const k in p.equipment) if (p.equipment[k]) eqTids[p.equipment[k].tid] = 1;
+    sets.forEach(function (st) {
+      const def = G.Data && G.Data.sets && G.Data.sets[st.id];
+      const card = el('div', { class: 'ch-set' });
+      card.appendChild(el('div', { class: 'ch-set-name' }, [el('span', { text: st.name }), el('span', { class: 'cnt', text: st.count + ' / ' + st.total })]));
+      if (def && Array.isArray(def.pieces) && def.pieces.length <= 8) def.pieces.forEach(function (tid) { const t = G.Data.items && G.Data.items[tid]; if (t) card.appendChild(el('div', { class: 'ch-set-piece' + (eqTids[tid] ? ' on' : ''), text: (eqTids[tid] ? '● ' : '○ ') + t.name })); });
+      const ths = Object.keys(st.bonuses || {}).map(Number).sort(function (a, b) { return a - b; });
+      ths.forEach(function (th) {
+        const b = st.bonuses[th]; const parts = [];
+        for (const k in b) parts.push('+' + b[k] + ' ' + _statName(k));
+        const on = st.bonusesActive && st.bonusesActive.indexOf(th) >= 0;
+        card.appendChild(el('div', { class: 'ch-set-bonus' + (on ? ' on' : '') }, [el('span', { class: 'th', text: '(' + th + ')' }), document.createTextNode(parts.join(', '))]));
+      });
+      if (def && def.desc) card.appendChild(el('div', { class: 'ab-trait-desc', text: def.desc }));
+      box.appendChild(card);
+    });
+    if (sb && sb.stats) { const keys = Object.keys(sb.stats).filter(function (k) { return sb.stats[k]; }); if (keys.length) { box.appendChild(el('div', { class: 'section-title', text: 'Active set bonuses' })); const kv = el('div', { class: 'pn-kv' }); keys.forEach(function (k) { const r = _statRow(_statName(k), '+' + sb.stats[k], k); kv.appendChild(r[0]); kv.appendChild(r[1]); }); box.appendChild(kv); } }
+    return box;
+  }
+  function _titleText(id, p) { if (!id) return ''; if (_has(G.Data, 'titleName')) { try { return G.Data.titleName(id, p && p.gender) || id; } catch (_) { return id; } } return id; }
+  function _setTitle(p, id) {
+    if (!p) return;
+    if (_has(G.Progress, 'setTitle')) { try { G.Progress.setTitle(id || null); } catch (_) { /* ignore */ } }
+    p.activeTitle = id || null;
+    p.title = id ? _titleText(id, p) : '';
+    _sfx('ui_click');
+    Ch.mark();
+  }
+  function _chTitles(p) {
+    const box = el('div');
+    const owned = Array.isArray(p.titles) ? p.titles : [];
+    box.appendChild(el('div', { class: 'section-title', text: 'Titles (' + owned.length + ')' }));
+    const none = el('div', { class: 'ch-title-row' + (!p.activeTitle ? ' active' : '') }, [el('span', { text: 'No title' }), el('span', { class: 'ch-title-desc', text: 'Go by your name alone.' })]);
+    none.addEventListener('click', function () { _setTitle(p, null); });
+    box.appendChild(none);
+    const all = (G.Data && Array.isArray(G.Data.titles)) ? G.Data.titles : owned.map(function (id) { return { id: id, name: _titleText(id, p) }; });
+    all.forEach(function (t) {
+      const have = owned.indexOf(t.id) >= 0;
+      const row = el('div', { class: 'ch-title-row' + (p.activeTitle === t.id ? ' active' : '') + (have ? '' : ' locked') }, [el('span', { text: _titleText(t.id, p) }), el('span', { class: 'ch-title-desc', text: t.desc || '' })]);
+      _tip(row, '<div class="tt-name">' + esc(_titleText(t.id, p)) + '</div><div class="tt-line">' + esc(t.desc || '') + '</div>' + (have ? '<div class="tt-stat">Earned</div>' : '<div class="tt-req">Not yet earned</div>'));
+      if (have) row.addEventListener('click', function () { _setTitle(p, t.id); });
+      box.appendChild(row);
+    });
+    return box;
+  }
+  Ch.render = function () {
+    const body = Ch.body; if (!body) return;
+    if (Ch._sideBody) Ch._sideScroll = Ch._sideBody.scrollTop;
+    _clear(body);
+    const p = _player();
+    if (!p) { body.appendChild(el('div', { class: 'pn-empty', text: 'No character yet.' })); return; }
+    const cd = _cls(p.cls), rd = _race(p.race);
+    // ---- header
+    const portrait = el('div', { class: 'ch-portrait', text: (cd && cd.icon) || '⚔', style: { borderColor: cd ? _hex(cd.color) : '' } });
+    const nameEl = el('span', { class: 'pn-head-name', text: p.name || 'Adventurer' });
+    const sel = el('select', { title: 'Title' });
+    sel.appendChild(el('option', { value: '', text: '— no title —' }));
+    (Array.isArray(p.titles) ? p.titles : []).forEach(function (id) { sel.appendChild(el('option', { value: id, text: _titleText(id, p), selected: p.activeTitle === id })); });
+    sel.value = p.activeTitle && (p.titles || []).indexOf(p.activeTitle) >= 0 ? p.activeTitle : '';
+    sel.addEventListener('change', function () { _setTitle(p, sel.value || null); });
+    sel.addEventListener('keydown', function (ev) { ev.stopPropagation(); });
+    _tip(sel, '<div class="tt-name">Title</div><div class="tt-line">Choose which of your earned titles is shown beside your name.</div>');
+    const sub = el('div', { class: 'ch-sub' });
+    sub.innerHTML = 'Level <b>' + _num(p.level, 1) + '</b> ' + esc((p.gender === 'female' ? 'Female ' : 'Male ') + ((rd && rd.name) || _title(p.race || ''))) + ' <b style="color:' + (cd ? _hex(cd.color) : 'inherit') + '">' + esc((cd && cd.name) || _title(p.cls || '')) + '</b>' + (cd ? ' <span class="chip">' + esc(_title(cd.role || '')) + '</span><span class="chip">' + esc(_title(cd.armourType || '')) + ' armour</span>' : '');
+    const xi = _xpInfo(p);
+    const xpRow = el('div', { class: 'ch-xp' }, [el('span', { text: 'XP' }), _bar(xi.frac, 'xp', xi.capped ? 'Level cap reached' : _fmt(Math.round(xi.cur)) + ' / ' + _fmt(Math.round(xi.need))), el('span', { text: xi.capped ? '' : _fmt(Math.round(xi.toNext)) + ' to ' + (xi.level + 1) })]);
+    body.appendChild(el('div', { class: 'ch-head' }, [portrait, el('div', { class: 'ch-headmain' }, [el('div', { class: 'ch-nameline' }, [nameEl, sel]), sub, xpRow])]));
+    // ---- main
+    const left = el('div', { class: 'ch-col' }); CH_LEFT.forEach(function (s) { left.appendChild(_chSlot(s, p)); });
+    const right = el('div', { class: 'ch-col' }); CH_RIGHT.forEach(function (s) { right.appendChild(_chSlot(s, p)); });
+    const weapons = el('div', { class: 'ch-weapons' });
+    CH_WEAPONS.forEach(function (s) { const sl = _chSlot(s, p); sl.appendChild(el('span', { class: 'slot-label', text: _slotLabel(s) })); weapons.appendChild(sl); });
+    const center = el('div', { class: 'ch-center' }, [_pvBox(), weapons]);
+    const doll = el('div', { class: 'ch-doll' }, [left, center, right]);
+    const tabs = el('div', { class: 'tabs' });
+    [['stats', 'Stats'], ['sets', 'Gear Sets'], ['titles', 'Titles']].forEach(function (t) { tabs.appendChild(el('span', { class: 'tab' + (Ch.tab === t[0] ? ' active' : ''), text: t[1], onclick: function () { Ch.setTab(t[0]); } })); });
+    const sideBody = el('div', { class: 'ch-side-body' });
+    sideBody.addEventListener('wheel', function (ev) { ev.stopPropagation(); }, { passive: true });
+    if (Ch.tab === 'sets') sideBody.appendChild(_chSets(p));
+    else if (Ch.tab === 'titles') sideBody.appendChild(_chTitles(p));
+    else sideBody.appendChild(_chStats(p));
+    Ch._sideBody = sideBody;
+    body.appendChild(el('div', { class: 'ch-main' }, [doll, el('div', { class: 'ch-side' }, [tabs, sideBody])]));
+    // ---- footer
+    const st = (G.state && G.state.stats) || {};
+    const foot = el('div', { class: 'ch-foot' });
+    [['Kills', _fmt(_num(st.kills))], ['Quests', _fmt(_num(st.quests))], ['Fish', _fmt(_num(st.fish))], ['Deaths', _fmt(_num(st.deaths))], ['Played', _playTime(st.playTime)]].forEach(function (x) { const s = el('span'); s.innerHTML = esc(x[0]) + ' <b>' + esc(x[1]) + '</b>'; foot.appendChild(s); });
+    body.appendChild(foot);
+    if (Ch._sideScroll) sideBody.scrollTop = Ch._sideScroll;
+  };
+  Ch.setTab = function (t) { Ch.tab = t === 'sets' || t === 'titles' ? t : 'stats'; Ch._sideScroll = 0; _sfx('ui_click'); Ch.refresh(); };
+  Ch.rebuildPreview = function () { PV.needRebuild = true; if (Ch.isOpen()) _pvRebuild(); };
+  Ch.onOpen = function (arg) { if (typeof arg === 'string') { Ch.tab = arg; Ch.refresh(); } PV.idleT = 9; const p = _player(); if (p && PV.lastEquipSig !== _equipSig(p)) PV.needRebuild = true; };
+  definePanel('character', Ch, { title: 'Character', key: 'KeyC', width: 728, pos: 'left' });
