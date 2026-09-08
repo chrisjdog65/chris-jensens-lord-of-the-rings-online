@@ -3,7 +3,7 @@
 ## Delivery
 - [x] R01 Single self-contained HTML file, downloadable, playable directly from file:// with no network.
 - [x] R02 "AAA / play-ready / bug-free": no console errors, no uncaught exceptions during a 5-minute scripted session; every panel opens/closes cleanly.
-- [ ] R03 60 FPS target: adaptive quality; ≤ 600 draw calls at high; no per-frame allocations in hot paths; smooth camera/movement (no jitter).
+- [x] R03 60 FPS target: adaptive quality; ≤ 600 draw calls at high; no per-frame allocations in hot paths; smooth camera/movement (no jitter).
 - [x] R04 Beautiful graphics: post-processing (bloom, ACES, FXAA, sharpen), shadows, day/night, weather, water, vegetation with wind, fog.
 
 ## Controls

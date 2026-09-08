@@ -519,6 +519,153 @@ scenario('R11', 'Mouse look (pointer lock / RMB drag) and wheel zoom', async (T,
   await T.evalG(() => { window.G.Player.cam.targetDist = 7; });
 });
 
+// R11 covers the UNLOCKED right-button drag; this covers the pointer-lock path end to end.
+// Harness trap (docs/INTEGRATION_NOTES.md "Pointer lock / mouse look (R44)"): while the pointer is locked every CDP
+// `page.mouse.move` arrives as a PAIR — one mousemove whose movementX/Y is the absolute target position, immediately
+// followed by a recentring mousemove with the exact negation — so they cancel inside one frame, Input.mouse.dx nets to
+// 0 and the camera never turns. Locked look is therefore driven here with a real MouseEvent dispatched on the canvas,
+// which runs the very same G.Input handler while the lock is genuinely held.
+scenario('R44', 'Pointer-lock mouse look: click to lock, look with no button held, clamp/sens/invert, release', async (T, ok) => {
+  const page = T.page;
+  const CX = 640, CY = 360;                  // canvas centre in the 1280×720 viewport
+  const SENS = 0.0022;                       // MOUSE_SENS in 20_player.js — radians per pixel at mouseSens 1
+  const PITCH_MAX = 80 * Math.PI / 180;
+  const NEAR = 0.02;                         // rad tolerance on an exactly-computed rotation
+  /** Lock state as the document AND the game see it, plus the live camera angles. */
+  const state = () => T.evalG(() => {
+    const G = window.G, I = G.Input, c = G.Player.cam;
+    return {
+      locked: I.mouse.locked === true,
+      onCanvas: !!I.canvas && document.pointerLockElement === I.canvas,
+      ple: document.pointerLockElement ? (document.pointerLockElement.id || document.pointerLockElement.tagName) : null,
+      buttons: I.mouse.buttons, yaw: c.yaw, pitch: c.pitch,
+    };
+  });
+  /** Wait until document.pointerLockElement and G.Input.mouse.locked both agree with `want`. */
+  const settleLock = (want) => T.waitFor((w) => {
+    const I = window.G.Input;
+    return ((!!I.canvas && document.pointerLockElement === I.canvas) === w && I.mouse.locked === w) ? { locked: w } : null;
+  }, 8000, want);
+  /** One look impulse: a real mousemove on the canvas with NO button held, then the frame that consumes it. */
+  const look = async (dx, dy) => {
+    const a = await state();
+    await T.evalG((d) => {
+      const c = window.G.Input.canvas || document.getElementById('game');
+      c.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, movementX: d.dx, movementY: d.dy, buttons: 0 }));
+    }, { dx, dy });
+    await T.frames(2);
+    const b = await state();
+    return { dYaw: wrapAngle(b.yaw - a.yaw), dPitch: b.pitch - a.pitch, yaw: b.yaw, pitch: b.pitch, locked: b.locked, buttons: b.buttons };
+  };
+  const aim = async (yaw, pitch) => { await T.evalG((v) => { const c = window.G.Player.cam; c.yaw = v.yaw; c.pitch = v.pitch; }, { yaw, pitch }); await T.frames(1); };
+  const setting = (o) => T.evalG((v) => { const s = window.G.state.settings; if (v.mouseSens != null) s.mouseSens = v.mouseSens; if (v.invertY != null) s.invertY = v.invertY; }, o);
+
+  const prev = await T.evalG(() => {
+    const G = window.G, s = G.state.settings;
+    try { G.UI.closeAll(); } catch (e) { /* ignore */ }
+    try { G.Player.setTarget(null); } catch (e) { /* ignore */ }
+    document.getElementById('game').focus();
+    return { mouseSens: s.mouseSens, invertY: s.invertY };
+  });
+  try {
+    await setting({ mouseSens: 1, invertY: false });
+    ok('pointer lock wired (lockSupported + requestLock/exitLock on the game canvas)',
+      await T.evalG(() => { const I = window.G.Input; return !!(I.lockSupported && I.requestLock && I.exitLock && I.canvas && I.canvas === document.getElementById('game')); }));
+
+    // ---- 1. a real left click on the canvas acquires the lock (20_player.js requests it on the LMB edge)
+    await page.mouse.move(CX, CY);
+    await page.mouse.click(CX, CY);
+    await T.frames(2);
+    await settleLock(true);
+    const l1 = await state();
+    ok('a real canvas click acquires pointer lock (document.pointerLockElement === G.Input.canvas)', l1.onCanvas, l1.ple);
+    ok('G.Input.mouse.locked === true', l1.locked === true);
+    ok('no button is held after the click (mouse.buttons === 0)', l1.buttons === 0, l1.buttons);
+    if (!l1.onCanvas || !l1.locked) return;
+
+    // ---- 2. locked look turns the camera with NO button held
+    await aim(0, 0);
+    const m1 = await look(100, 0);
+    ok('locked look turns yaw with no button held (yaw −= dx × 0.0022)', Math.abs(m1.dYaw - (-100 * SENS)) < NEAR, { dYaw: +m1.dYaw.toFixed(4), expect: +(-100 * SENS).toFixed(4) });
+    ok('the look kept the lock and stayed button-free', m1.locked === true && m1.buttons === 0, { locked: m1.locked, buttons: m1.buttons });
+    await aim(0, 0);
+    const m2 = await look(0, 90);
+    ok('locked look turns pitch (pitch += dy × 0.0022)', Math.abs(m2.dPitch - 90 * SENS) < NEAR, { dPitch: +m2.dPitch.toFixed(4), expect: +(90 * SENS).toFixed(4) });
+    ok('a pure vertical look leaves yaw alone', Math.abs(m2.dYaw) < 0.005, +m2.dYaw.toFixed(4));
+    // the documented CDP trap, logged (never asserted — it is browser behaviour, not game behaviour)
+    { const a = await state(); await page.mouse.move(CX + 220, CY); await T.frames(2); const b = await state(); T.log('CDP page.mouse.move while locked → net yaw', wrapAngle(b.yaw - a.yaw).toFixed(4), '(expected ~0: move + recentre cancel)'); }
+
+    // ---- 3. pitch clamp at ±80°
+    await aim(0, 0);
+    const up = await look(0, -6000);
+    ok('pitch clamps at −80°', Math.abs(up.pitch + PITCH_MAX) < 1e-6, { pitch: +up.pitch.toFixed(4), limit: +(-PITCH_MAX).toFixed(4) });
+    const dn = await look(0, 12000);
+    ok('pitch clamps at +80°', Math.abs(dn.pitch - PITCH_MAX) < 1e-6, { pitch: +dn.pitch.toFixed(4), limit: +PITCH_MAX.toFixed(4) });
+
+    // ---- 4. settings: mouseSens scales, invertY flips pitch
+    await setting({ mouseSens: 2.5 });
+    await aim(0, 0);
+    const m3 = await look(100, 0);
+    ok('mouseSens scales the rotation linearly (2.5× ⇒ 2.5× the yaw)', Math.abs(m3.dYaw - (-100 * SENS * 2.5)) < NEAR && Math.abs(m3.dYaw / (m1.dYaw || 1e-9) - 2.5) < 0.15,
+      { dYaw: +m3.dYaw.toFixed(4), ratio: +(m3.dYaw / (m1.dYaw || 1e-9)).toFixed(3) });
+    await setting({ mouseSens: 1, invertY: true });
+    await aim(0, 0);
+    const m4 = await look(0, 90);
+    ok('invertY flips the pitch exactly', Math.abs(m4.dPitch + 90 * SENS) < NEAR && Math.abs(m4.dPitch + m2.dPitch) < 0.005,
+      { dPitch: +m4.dPitch.toFixed(4), normal: +m2.dPitch.toFixed(4) });
+    await setting({ invertY: false });
+
+    // ---- 5. a stale pointerlockerror must NOT clear a live lock (regression: it used to force locked = false,
+    //         leaving a hidden cursor with a frozen camera and no pointerlockchange to ever correct it)
+    await T.evalG(() => { document.dispatchEvent(new Event('pointerlockerror')); });
+    await T.frames(2);
+    const err = await state();
+    ok('a stale pointerlockerror during a live lock does NOT clear G.Input.mouse.locked', err.locked === true && err.onCanvas === true, { locked: err.locked, ple: err.ple });
+    await aim(0, 0);
+    const m5 = await look(100, 0);
+    ok('mouse look still works after the stale pointerlockerror', Math.abs(m5.dYaw - (-100 * SENS)) < NEAR, { dYaw: +m5.dYaw.toFixed(4) });
+
+    // ---- 6. a panel releases the lock and look is ignored while it is open
+    await T.evalG(() => { window.G.UI.openPanel('inventory'); });
+    await T.frames(3);
+    const relDone = await settleLock(false);
+    const l2 = await state();
+    ok('opening a panel releases the pointer lock', !!relDone && l2.locked === false && l2.onCanvas === false, { locked: l2.locked, ple: l2.ple });
+    ok('the panel really is open', !!(await T.evalG(() => !!(window.G.UI.isOpen && window.G.UI.isOpen('inventory')))));
+    const ign = await look(200, 140);
+    await T.evalG(() => { const m = window.G.Input.mouse; m.dx = 200; m.dy = 140; });   // the raw deltas a live lock would leave: the canLook gate must drop them
+    await T.frames(2);
+    const l2b = await state();
+    ok('mouse look is ignored while a panel is open', Math.abs(ign.dYaw) < 0.005 && Math.abs(ign.dPitch) < 0.005 && Math.abs(wrapAngle(l2b.yaw - ign.yaw)) < 0.005 && Math.abs(l2b.pitch - ign.pitch) < 0.005,
+      { dYaw: +ign.dYaw.toFixed(4), dPitch: +ign.dPitch.toFixed(4), rawYaw: +wrapAngle(l2b.yaw - ign.yaw).toFixed(4) });
+
+    // ---- 7. closing the panel and clicking the canvas re-acquires the lock; Escape releases it
+    await T.evalG(() => { window.G.UI.closeAll(); });
+    await T.frames(2);
+    await page.mouse.move(CX, CY);
+    await page.mouse.click(CX, CY);
+    await T.frames(2);
+    const reDone = await settleLock(true);
+    const l3 = await state();
+    ok('clicking the canvas again re-acquires the lock', !!reDone && l3.locked === true && l3.onCanvas === true, l3.ple);
+    await T.press('Escape');
+    const offDone = await settleLock(false);
+    const l4 = await state();
+    ok('Escape releases the pointer lock', !!offDone && l4.locked === false && l4.onCanvas === false, { locked: l4.locked, ple: l4.ple });
+  } finally {
+    try {
+      await T.evalG((p) => {
+        const G = window.G, t = (f) => { try { f(); } catch (e) { /* ignore */ } };
+        t(() => { const s = G.state.settings; s.mouseSens = p.mouseSens == null ? 1 : p.mouseSens; s.invertY = !!p.invertY; });
+        t(() => { G.Input.exitLock(); });
+        t(() => { G.UI.closeAll(); });
+        t(() => { G.Player.setTarget(null); });
+        t(() => { const c = G.Player.cam; c.pitch = 0.28; });
+      }, prev);
+    } catch (e) { /* page gone or scenario timed out — the runner reports that */ }
+  }
+});
+
 scenario('R12', 'Third-person camera with collision', async (T, ok) => {
   const spot = await T.evalG(() => window.__V.openSpot());
   if (spot) await T.evalG((s) => window.__V.tp(s.x, s.z), spot);
@@ -1399,7 +1546,7 @@ scenario('R45', 'Audio in the running game: zone/combat music, ambient bed, SFX 
 }, { timeout: 300000 });
 
 // ------------------------------------------------------------------------------------------------ runner
-const ORDER = ['R37', 'R01', 'R03', 'R04', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15', 'R16', 'R17', 'R18', 'R19', 'R20', 'R21', 'R23', 'R24', 'R25', 'R26',
+const ORDER = ['R37', 'R01', 'R03', 'R04', 'R10', 'R11', 'R44', 'R12', 'R13', 'R14', 'R15', 'R16', 'R17', 'R18', 'R19', 'R20', 'R21', 'R23', 'R24', 'R25', 'R26',
   'R30', 'R31', 'R32', 'R33', 'R34', 'R35', 'R36', 'R38', 'R39', 'R40', 'R45', 'R22', 'R02', 'R41'];
 const ALL_IDS = SC.map(s => s.id).sort();
 
