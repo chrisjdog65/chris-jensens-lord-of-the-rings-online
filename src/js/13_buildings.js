@@ -2276,19 +2276,22 @@
     const back = new T.PlaneGeometry(s.w, s.h); back.translate(0, 0, 0.033);
     const geo = mergeGeos([front, back]);
     const mesh = new T.Mesh(geo, signMaterial(text));
-    mesh.position.set(s.x, s.y, s.z); mesh.rotation.y = s.ry; mesh.castShadow = true;
+    mesh.position.set(s.x, s.y, s.z); mesh.rotation.y = s.ry;
+    mesh.castShadow = false;                       // a painted board: its shadow is a smudge, and it toggles with the near band
+    mesh.userData.noBatch = true;                  // per-text material, and hidden past the near band — never merge it
     bld.ext.add(mesh);
     bld.signMeshes.push(mesh);
   }
 
   /* ---- visibility ---- */
   function refreshVis(bld) {
-    if (bld.batched) return;
+    if (bld.fullyBatched) { if (bld.group.visible) bld.group.visible = false; return; }   // everything it owns lives in a cell batch now
     const band = bld.band, inside = bld.inside;
     bld.group.visible = band < 3;
     const intVis = band === 0 || inside;
     if (bld.int) bld.int.visible = intVis;
-    if (bld.roof) bld.roof.visible = !inside;   // only the exterior shell hides while you are inside — what you see overhead is the interior ceiling, which never hides, so a chase camera pushed out through a wall still looks into the room instead of at a closed box
+    if (bld.extBatched) bld.ext.visible = false;
+    if (bld.roof) bld.roof.visible = bld.roofBatched ? false : !inside;   // only the exterior shell hides while you are inside — what you see overhead is the interior ceiling, which never hides, so a chase camera pushed out through a wall still looks into the room instead of at a closed box
     for (const c of bld.ceilings) c.group.visible = intVis;         // an upper storey is the floor below's ceiling — never hidden by height
     for (const d of bld.doors) for (const p of d.pivots) p.group.visible = band < 2;
     for (const sm of bld.signMeshes) sm.visible = band < 2;
