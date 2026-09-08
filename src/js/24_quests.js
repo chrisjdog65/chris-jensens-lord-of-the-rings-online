@@ -1012,7 +1012,8 @@
   (function () {
   const AQ = { active: false, paused: false, speed: 3, log: [], stats: { ticks: 0, chained: 0, teleports: 0, nudges: 0, forced: 0, fights: 0, kills: 0, deaths: 0, errors: 0, spawns: 0, boats: 0, packKills: 0 } };
   const LOG_MAX = 50;
-  const FIGHT_FRAMES = 2;          // rendered frames of real combat before the engine finishes a foe at speed 10
+  const FIGHT_FRAMES = 1;          // rendered frames of real combat before the engine finishes a foe at speed 10
+  const CAST_FRAMES = 4;           // rendered frames a single cast may take at speed 10 before the catch is credited
   const S = {
     planKind: '', questId: null, objIndex: -1, planKey: '', planT: 0, planDirty: true,
     attemptStart: 0, lastProg: -1, text: '', step: '', lastTextKey: '',
@@ -1615,7 +1616,7 @@
       if (u.castT < 0) { u.castT = now(); u.castF = frameNo(); }
       // A cast is ≈ 6 game-s for the auto angler; blazing speed budgets it in FRAMES so one stubborn fish cannot
       // swallow the run (the catch is then credited by the watchdog and the line recast).
-      const over = blaze ? (frameNo() - u.castF > 10) : (now() - u.castT > Math.max(12, 40 / sp));
+      const over = blaze ? (frameNo() - u.castF > CAST_FRAMES) : (now() - u.castT > Math.max(12, 40 / sp));
       if (over) { u.castT = -1; if (hasFn(F, 'cancel')) { try { F.cancel(false); } catch (e) { /* ignore */ } } F.autoActive = false; forceObjective(q.id, S.objIndex, 'the fish would not bite at ' + name, 1); }
       return;
     }
