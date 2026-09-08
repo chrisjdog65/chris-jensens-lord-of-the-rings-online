@@ -1938,7 +1938,8 @@
       [['H'], 'Mount or dismount your horse'], [['NumLock'], 'Auto-run'] ] },
     { title: 'Combat', rows: [
       [['1', '2', '…', '9', '0'], 'Hotbar slots 1–10'], [['G', 'T', 'V', 'X', 'Y', 'Z', 'L', 'N', 'O', 'U'], 'Hotbar slots 11–20'],
-      [['Tab'], 'Target the next enemy'], [['LMB'], 'Select a target / attack'], [['R'], 'Ranged attack with your equipped bow, javelin, staff…'] ] },
+      [['Tab'], 'Target the next enemy'], [['LMB'], 'Attack — swing at your target or the enemy in front of you (clicking also selects)'],
+      [['RMB'], 'Block (hold) — raise your guard: physical damage −60 %, tactical −30 %; you move at half speed'], [['R'], 'Ranged attack with your equipped bow, javelin, staff…'] ] },
     { title: 'The World', rows: [
       [['E'], 'Interact: talk, open doors, gather, loot, board boats, fish spots'], [['F'], 'Fish — stand at the water\'s edge'],
       [['B'], 'Auto-quest: let the bot play through every quest'] ] },
