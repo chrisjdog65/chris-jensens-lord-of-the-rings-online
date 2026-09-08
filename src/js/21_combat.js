@@ -135,7 +135,8 @@
     }
     return cur;
   }
-  function creditFor(e) { if (!e) return null; const o = rootOwner(e); return isPlayer(o) ? o : null; }
+  function entOf(e) { return (typeof e === 'string') ? ((typeof G.getEntity === 'function' && G.getEntity(e)) || null) : e; }
+  function creditFor(e) { e = entOf(e); if (!e) return null; const o = rootOwner(e); return isPlayer(o) ? o : null; }
   function factionOf(e) {
     if (!e) return 'neutral';
     if (e.owner) { const o = rootOwner(e); if (o && o !== e) return factionOf(o); }
@@ -207,6 +208,9 @@
     if (a === b) return true;
     const P = G.Physics; if (!P || typeof P.lineOfSight !== 'function') return true;
     const pa = posOf(a), pb = posOf(b); if (!pa || !pb) return false;
+    // touching distance: two fighters inside each other's melee reach always see each other (a terrain bump or a
+    // prop cylinder wedged between two adjacent entities must not veto every swing)
+    { const dx = pa.x - pb.x, dz = pa.z - pb.z, reach = MELEE + radiusOf(a) + radiusOf(b); if (dx * dx + dz * dz <= reach * reach && Math.abs(num(pa.y) - num(pb.y)) <= 3.5) return true; }
     _v1.set(pa.x, num(pa.y) + heightOf(a) * 0.8, pa.z); _v2.set(pb.x, num(pb.y) + heightOf(b) * 0.6, pb.z);
     let ok = false;
     try {
@@ -648,6 +652,7 @@
     else p.mounted = false;
   }
   function damage(src, dst, amount, dtype, opts) {
+    src = entOf(src); dst = entOf(dst);
     if (!dst || !isAlive(dst)) return 0;
     opts = opts || EMPTY;
     amount = num(amount, 0);
@@ -794,7 +799,7 @@
       const cd = ent.cooldowns ? num(ent.cooldowns[a.id], 0) : 0;
       if (cd > now()) { r.reason = a.name + ' is not ready yet'; r.code = 'cooldown'; return r; }
     }
-    if (a.gcd !== false && num(ent.gcdReady, 0) > now() + 1e-4 && !opts.ignoreGcd) { r.reason = ''; r.code = 'gcd'; return r; }
+    if (a.gcd !== false && !opts.ignoreGcd && num(ent.gcdReady, 0) > now() + gcdSlack()) { r.reason = ''; r.code = 'gcd'; return r; }
     let t = null;
     switch (a.target) {
       case 'self': case 'party': t = ent; break;
@@ -830,7 +835,7 @@
     const a = resolveAbility(id); if (!a) return false;
     if (isPlayer(ent) && G.state.noCooldowns) return true;
     const cd = ent.cooldowns ? num(ent.cooldowns[a.id], 0) : 0;
-    return cd <= now() && (a.gcd === false || num(ent.gcdReady, 0) <= now());
+    return cd <= now() && (a.gcd === false || num(ent.gcdReady, 0) <= now() + gcdSlack());
   }
   function cooldownLeft(ent, id) {
     if (!ent) return 0;
@@ -851,6 +856,9 @@
   }
 
   function setGcd(ent, readyAt) { ent.gcdReady = readyAt; ent.gcdReadyAt = readyAt; }
+  /** A global cooldown that expires within the current frame counts as ready: at low frame rates (weak machines,
+   *  headless GL) a tap that lands a few ms before the GCD ends must not be thrown away until the next frame. */
+  function gcdSlack() { const dt = G.time ? num(G.time.dt, 0) : 0; return Math.max(1e-4, Math.min(0.25, dt)); }
 
   // ------------------------------------------------------------------------------------------------ casting
   function isCasting(ent) { return !!(ent && ent.casting); }
@@ -958,10 +966,12 @@
     if (!isAlive(ent)) return;
     let victim = null;
     if (t && isAlive(t) && isHostile(ent, t)) {
-      // hit the intended target if the impact landed near it, or if the projectile reports it
+      // hit the intended target if the impact landed near it, or if the projectile reports it; a homing shot whose
+      // target still stands inside the ability's range lands too (the sweep may have clipped a bush or a bump first)
       if (hitEnt === t) victim = t;
-      else if (point && t.pos) { const dx = point.x - t.pos.x, dz = point.z - t.pos.z; if (dx * dx + dz * dz < 4) victim = t; }
+      else if (point && t.pos) { const dx = point.x - t.pos.x, dz = point.z - t.pos.z; if (dx * dx + dz * dz < 16) victim = t; }
       else victim = t;
+      if (!victim && inRange(ent, t, num(a.range, MELEE) + RANGE_SLACK + 3)) victim = t;
     }
     if (!victim && hitEnt && hitEnt !== ent && isAlive(hitEnt) && isHostile(ent, hitEnt)) victim = hitEnt;
     if (!victim) { if (t && isPlayer(ent)) floatText(t, 'Miss', COLOR_AVOID, null); return; }
@@ -1374,6 +1384,7 @@
 
   function kill(ent, killer) {
     if (!ent || ent.dead === true) return false;
+    killer = entOf(killer);
     const st = G.state; const stats = statsObj(); const t = now();
     if (isPlayer(ent) && st.godMode) { ent.morale = Math.max(1, num(ent.morale, 1)); return false; }
     ent.alive = false; ent.dead = true; ent.deathTime = t; ent.morale = 0;

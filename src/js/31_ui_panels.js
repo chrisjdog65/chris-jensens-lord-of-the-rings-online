@@ -356,6 +356,7 @@
 .chip.avail { color: #8fd0ff; border-color: #3a6a8a; }
 .jn-req { font-size: 12.5px; color: #d08a7a; margin: 4px 0 2px; }
 .jn-req b { color: #f0b8a8; font-weight: 600; }
+.jn-actions { flex-wrap: wrap; row-gap: 6px; }
 .jn-detail { flex: 1; min-width: 0; overflow-y: auto; padding: 4px 8px 4px 4px; }
 .jn-qname { font-family: var(--font-head); font-size: 19px; color: var(--gold-bright); text-shadow: 0 1px 2px #000; }
 .jn-chips { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 6px; }

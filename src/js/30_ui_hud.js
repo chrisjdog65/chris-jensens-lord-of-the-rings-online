@@ -669,6 +669,7 @@
     e.className = 'ftxt' + (slot.crit ? ' crit' : '');
     e.style.opacity = '0';
     e.style.display = '';
+    if (e.parentNode !== _ftLayer) _ftLayer.appendChild(e);   // expired floats leave the DOM; a reused slot re-enters it
     return slot;
   };
   function _updateFloatText(dt) {
@@ -680,7 +681,7 @@
       const f = _ft[i];
       if (!f.active) continue;
       f.t += dt;
-      if (f.t >= FT_DUR || !cam || !_projV) { f.active = false; f.el.style.display = 'none'; continue; }
+      if (f.t >= FT_DUR || !cam || !_projV) { f.active = false; f.el.style.display = 'none'; if (f.el.parentNode) f.el.parentNode.removeChild(f.el); continue; }
       _projV.set(f.x, f.y, f.z).project(cam);
       if (_projV.z > 1 || _projV.z < -1) { f.el.style.opacity = '0'; continue; }
       const k = f.t / FT_DUR;
