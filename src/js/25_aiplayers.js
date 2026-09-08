@@ -1703,19 +1703,25 @@
     emit('aiChat', { ent: e, text: text, channel: channel });
     return true;
   }
-  function schedule(e, text, channel, delay, to) {
+  // reply = true marks a line addressed to the hero (answer, gz…): it is never silently dropped — if the speaker has
+  // wandered out of /say range by the time it is due, it goes out on world instead of vanishing.
+  function schedule(e, text, channel, delay, to, reply) {
     if (!e || !text) return;
-    pending.push({ at: now() + Math.max(0, num(delay, 1)), e: e, text: text, channel: channel || 'world', to: to || null });
+    pending.push({ at: now() + Math.max(0, num(delay, 1)), e: e, text: text, channel: channel || 'world', to: to || null, reply: !!reply });
   }
   function processPending(t) {
     for (let i = pending.length - 1; i >= 0; i--) {
       const q = pending[i]; if (q.at > t) continue;
       pending.splice(i, 1);
       const e = q.e;
-      if (q.channel === 'say' && (e.dead || !nearHero(e.pos.x, e.pos.z, SAY_RANGE + 5))) continue;
-      if (q.channel !== 'whisper' && !chatEnabled()) continue;
-      sendLine(e, q.text, q.channel, q.to);
-      if (q.channel === 'say' && e.rig && hasFn(e.rig, 'setAnim') && !e.ai.fightTarget && !e.ai.sit && schance(0.25) && !e.rig.oneShot) { /* a little gesture while talking */ e.rig.setAnim(schance(0.5) ? 'emote_wave' : 'emote_cheer', false); }
+      let channel = q.channel;
+      if (channel === 'say' && (e.dead || !nearHero(e.pos.x, e.pos.z, SAY_RANGE + 5))) {
+        if (!q.reply || e.dead) continue;                 // ambient remarks are contextual: dropped when the speaker left
+        channel = 'world';
+      }
+      if (channel !== 'whisper' && !chatEnabled()) continue;
+      sendLine(e, q.text, channel, q.to);
+      if (channel === 'say' && e.rig && hasFn(e.rig, 'setAnim') && !e.ai.fightTarget && !e.ai.sit && schance(0.25) && !e.rig.oneShot) { /* a little gesture while talking */ e.rig.setAnim(schance(0.5) ? 'emote_wave' : 'emote_cheer', false); }
     }
   }
   function chatWeight(e, t) { if (!e || e.dead || e.online === false) return 0; if (t - e.lastChatAt < 45) return 0; return e.persona.chatty * (e.persona.style === 'quiet' ? 0.25 : 1) + 0.02; }
@@ -1815,20 +1821,34 @@
     let count = cat === 'r_lfg' ? si(1, 3) : (cat === 'r_hi' || cat === 'r_gg') ? si(1, 2) : 1;
     let channel = 'say';
     const cands = [];
+    const prefer = (cat === 'r_help' || cat === 'r_where' || cat === 'r_quest') ? 'helper' : null;
+    const pickAnywhere = () => { for (let k = 0; k < count + 6 && cands.length < count; k++) { const e = pickChatter(t, null, prefer); if (e && cands.indexOf(e) < 0) cands.push(e); } };
     if (ev.channel === 'say' || ev.channel === 'emote') {
       const near = nearChatters(t, SAY_RANGE, null);
       for (let i = 0; i < near.length; i++) cands.push(near[i]);
-      if (!cands.length) return;                          // nobody heard it
+      if (!cands.length) {
+        // nobody within earshot. A greeting / question / keyword line still gets an answer: someone chatty picks it
+        // up on world ("hello" must never go unanswered) — only a plain remark nobody heard, or an emote, fades away.
+        if (ev.channel === 'emote' || cat === 'r_default') return;
+        channel = 'world'; pickAnywhere();
+        if (!cands.length) return;
+      }
     } else if (ev.channel === 'world') {
-      channel = 'world';
-      for (let k = 0; k < count + 3 && cands.length < count; k++) { const e = pickChatter(t, null, cat === 'r_help' || cat === 'r_where' || cat === 'r_quest' ? 'helper' : null); if (e && cands.indexOf(e) < 0) cands.push(e); }
+      channel = 'world'; pickAnywhere();
+      if (!cands.length) return;
+    } else if (ev.channel === 'fellowship') {
+      // the hero's fellowship channel: whoever is closest (and talkative) answers there, else any chatty player
+      channel = 'fellowship'; count = 1;
+      const near = nearChatters(t, NEAR_SIM_DIST, null);
+      if (near.length) cands.push(near[Math.floor(S() * Math.min(near.length, 3))]);
+      else pickAnywhere();
       if (!cands.length) return;
     } else return;
     if (cands.length > count) { for (let i = cands.length - 1; i > 0; i--) { const j = Math.floor(S() * (i + 1)); const x = cands[i]; cands[i] = cands[j]; cands[j] = x; } cands.length = count; }
     for (let i = 0; i < cands.length; i++) {
       const e = cands[i];
       const line = pickLine(e, cat, null); if (!line) continue;
-      schedule(e, line, channel, sr(2, 6) + i * sr(0.5, 2)); e.lastChatAt = t; counters.replies++;
+      schedule(e, line, channel, sr(1.5, 4.5) + i * sr(0.5, 1.5), null, true); e.lastChatAt = t; counters.replies++;
       if (channel === 'say' && cat === 'r_hi' && e.rig && hasFn(e.rig, 'setAnim') && e._d2 < 14 * 14 && !e.ai.fightTarget && !e.ai.sit) { e.ai.emoteUntil = t + 2.5; e.rig.setAnim('emote_wave', true); }
     }
   }
@@ -1846,7 +1866,10 @@
     return true;
   }
   function onChat(ev) {
-    if (!ev || ev.from !== 'You') return;
+    // the HUD emits {channel, from:'You', text[, to]} for everything the hero types (default channel = say)
+    if (!ev) return;
+    const p = player();
+    if (!(ev.from === 'You' || ev.self === true || (p && ev.from && ev.from === p.name))) return;
     if (ev.channel === 'whisper') { if (ev.to) whisper(ev.to, ev.text); return; }
     if (!chatEnabled() || !inited) return;
     try { replyToHero(ev); } catch (err) { report(err, 'replyToHero'); }
@@ -1860,7 +1883,7 @@
       const e = pickChatter(t, null, null); if (!e || used.indexOf(e) >= 0) continue; used.push(e);
       const near = e._near && e._d2 < SAY_RANGE * SAY_RANGE;
       const line = pickLine(e, 'gz', { level: String(L), name: (p && p.name) || 'friend' });
-      if (line) { schedule(e, line, near ? 'say' : 'world', sr(2, 5) + i * sr(0.5, 1.5)); e.lastChatAt = t; }
+      if (line) { schedule(e, line, near ? 'say' : 'world', sr(2, 5) + i * sr(0.5, 1.5), null, true); e.lastChatAt = t; }
       if (near && e.rig && hasFn(e.rig, 'setAnim') && !e.ai.fightTarget) { e.ai.emoteUntil = t + 2; e.rig.setAnim('emote_cheer', true); }
     }
   }
