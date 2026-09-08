@@ -1300,6 +1300,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     _released: new Set(),
     _mPressed: 0,
     _mReleased: 0,
+    _btnMask: 0,        // authoritative button mask kept from down/up (mousemove lies under pointer lock)
     _downOnCanvas: 0,
     _rmbDrag: false,
     _rmbMoved: false,
@@ -1423,7 +1424,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       Input._pressed.clear();
       Input._queue.length = 0;
       Input._released.clear();
-      Input._mPressed = 0; Input._mReleased = 0; Input._downOnCanvas = 0;
+      Input._mPressed = 0; Input._mReleased = 0; Input._downOnCanvas = 0; Input._btnMask = 0; Input.mouse.buttons = 0;
       Input._rmbDrag = false; Input._rmbMoved = false;
       const m = Input.mouse;
       m.buttons = 0; m.dx = 0; m.dy = 0; m.wheel = 0;
@@ -1511,7 +1512,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   function onMouseDown(e) {
     const m = Input.mouse;
     const onCanvas = !!Input.canvas && e.target === Input.canvas;
-    m.buttons = e.buttons;
+    Input._btnMask |= 1 << (e.button | 0);
+    m.buttons = e.buttons || Input._btnMask;
     m.overCanvas = onCanvas;
     Input._lastX = e.clientX; Input._lastY = e.clientY;
     if (onCanvas) {
@@ -1524,7 +1526,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
   function onMouseUp(e) {
     const m = Input.mouse;
-    m.buttons = e.buttons;
+    Input._btnMask &= ~(1 << (e.button | 0));
+    m.buttons = Input._btnMask;
     const bit = 1 << (e.button | 0);
     if (Input._downOnCanvas & bit) { Input._mReleased |= bit; Input._downOnCanvas &= ~bit; }
     if (e.button === 2) Input._rmbDrag = false;
@@ -1536,7 +1539,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const w = (c && c.clientWidth) || window.innerWidth || 1, h = (c && c.clientHeight) || window.innerHeight || 1;
     m.nx = (m.x / w) * 2 - 1; m.ny = -(m.y / h) * 2 + 1;
     m.overCanvas = !!c && e.target === c;
-    m.buttons = e.buttons;
+    // Under pointer lock Chromium reports buttons:0 on mousemove even while a button is held,
+    // so only an unlocked move (or a non-zero mask) may update the held-button state.
+    if (!m.locked || e.buttons) { Input._btnMask = e.buttons; m.buttons = e.buttons; }
     if (m.locked) {
       m.dx += e.movementX || 0; m.dy += e.movementY || 0;
     } else if (Input._rmbDrag) {
