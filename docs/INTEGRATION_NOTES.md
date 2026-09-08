@@ -209,3 +209,14 @@ Rivendell (1400,40), the Misty Mountains (1650,−450) and a Trollshaws wood (11
   a house can be made to differ from its neighbour.
 - Not changed: 16_fx (impact/ability FX are already dense, and the lower bloom threshold makes them pop more), the
   water shader and the sky dome shader (both already looked good in the before pass).
+
+## Fishing audio (verified)
+All four cues fire in-game at `fs_bywater_pool`, both paths, with a real fish added and skill raised:
+- `autoFish()`: fish_cast → splash → fish_bite → splash → **fish_catch** (stats.fish 0→1, skill 1.00→1.31)
+- manual F key, minigame played to a win: fish_cast → fish_bite → **fish_catch** (stats.fish 0→1)
+- manual F held down throughout: fish_cast → fish_bite → **fish_fail** (correct — constant pull pegs the
+  tension and snaps the line; the reel is a balance game, not a hold-to-win)
+No code change was needed. The earlier "no fishing sound" result came from a probe reading
+`spot.x`/`spot.z`; fishing spots store position as `spot.pos.{x,z}` (same shape as towns). A shore stand
+must also face the water by **camera** yaw — `canFish` probes along `G.Player.getForward()`.
+Probes: scratchpad `fishprobe.js` (auto), `fishmanual.js` (fail path), `fishwin.js` (manual catch).

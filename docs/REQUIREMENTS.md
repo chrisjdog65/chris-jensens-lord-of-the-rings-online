@@ -34,7 +34,7 @@
 - [x] R35 150 AI players that act like humans: move, fight, level up, chat, group, react to the player.
 - [x] R36 P = players panel: every player, where they are, select to see level/stats/gear; live progression.
 - [x] R37 Character creation: male/female, 10 races, 10 classes, appearance, 3D preview.
-- [x] R38 Sound effects + music (procedural, no files), zone themes, combat music, ambient.
+- [x] R38 Sound effects + music (procedural, no files), zone themes, combat music, ambient. (fishing cues verified: cast/bite/catch/fail, auto and manual)
 - [x] R39 Good movement/combat/gameplay mechanics: abilities, cooldowns, buffs/debuffs, crits, loot, XP, death/respawn, vendors, trainers.
 - [x] R40 Good UI/UI mechanics: tooltips, drag&drop, panels draggable, chat, notifications, floating combat text.
 - [x] R41 Save/load (localStorage), continue from main menu.
