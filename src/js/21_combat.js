@@ -680,6 +680,9 @@
         if (mit > 0) amount *= 1 - Math.min(75, mit) / 100;
       }
     }
+    // active block (the player holding the right mouse button, 20_player): physical −60 %, tactical −30 %
+    let blockedActive = false;
+    if (!avoided && !optRaw && amount > 0 && dst.blocking === true && optKind !== 'dot' && optKind !== 'fall') { amount *= physical ? 0.4 : 0.7; blockedActive = true; }
     if (avoided) amount = 0;
     amount = Math.round(amount);
     if (amount < 1 && !avoided && raw0 > 0 && !(dstIsPlayer && st.godMode)) amount = 1;
@@ -689,7 +692,7 @@
     dst.morale = Math.max(0, before - amount);
     const dealt = before - dst.morale;
     const crit = optCrit && dealt > 0;
-    lastHit.src = src || null; lastHit.dst = dst; lastHit.amount = dealt; lastHit.crit = crit; lastHit.avoided = avoided; lastHit.dtype = dtype;
+    lastHit.src = src || null; lastHit.dst = dst; lastHit.amount = dealt; lastHit.crit = crit; lastHit.avoided = avoided; lastHit.dtype = dtype; lastHit.blocked = blockedActive;
     counters.hits++; if (crit) counters.crits++; if (avoided) counters.avoided++;
 
     // bookkeeping
@@ -707,6 +710,7 @@
     // feedback
     const involvesPlayer = srcIsPlayer || dstIsPlayer;
     if (!optSilent && (involvesPlayer || (!optDot && nearPlayer(dst, 60)))) {
+      if (blockedActive) { floatText(dst, 'Blocked', '#79d6ff', null); sfx('blunt_hit', dst, 0.35, 1.15); }
       if (avoided) {
         const word = avoided === 'evade' ? 'Evaded' : avoided === 'parry' ? 'Parried' : 'Blocked';
         floatText(dst, word, dstIsPlayer ? COLOR_AVOID_MINE : COLOR_AVOID, null);

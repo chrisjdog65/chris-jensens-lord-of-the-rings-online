@@ -13,7 +13,11 @@
    {ent,label,name}|null, interactLabel(), dodgeRoll(), jump(), toggleMount(), mount(tid?), dismount(), rangedAttack(),
    setTarget(ent), tabTarget(), clickSelect(x,y), respawn(), isBusy(), inInterior, headPos(out), handPos(out),
    rollCooldown() 0..1, autoMove(targetPos, opts), autoStop(), autoMoving, autoStuck, autoTarget.
-   Extras: setScene(scene), resize(w,h), snapCamera(), dispose(), player (getter), rig (getter), mountSpeed(tid),
+   Mouse: LMB = select + attack (G.Combat.basicAttack on the hostile target or the enemy in front; queued when the swing
+   timer is running; a visible swing with nothing in reach), RMB held = block (player.blocking → G.Combat.damage takes
+   −60 % physical / −30 % tactical, half speed, guard pose, auto-attack paused) while the RMB camera drag keeps working.
+   Extras: attack(picked?), setBlocking(bool), event blockingChanged(bool),
+   setScene(scene), resize(w,h), snapCamera(), dispose(), player (getter), rig (getter), mountSpeed(tid),
    autoRun (bool), rolling (bool), firstPerson (bool), moveInput {x,z} (last frame's world-space input direction).
    Events emitted: targetChanged(ent|null), mounted(bool), zoneChanged(zoneId), playerRespawn, autoMoveArrived,
    autoMoveStopped. Assumptions about other modules: see the header of each guarded call (every cross-module call
@@ -404,7 +408,7 @@
     if (!best) { const sp = (G.Data && typeof G.Data.startPosFor === 'function') ? G.Data.startPosFor(player.race) : null; best = sp || { x: px, z: pz }; }
     if (player.mounted) dismount(true);
     player.alive = true; player.dead = false; player.deathTime = 0; player.target = null; player.autoAttack = false;
-    player.invulnerable = false; player.casting = null;
+    player.invulnerable = false; player.casting = null; player.blocking = false; S.rmbHeld = false; S.blockT = 0; S.resumeAuto = false; S.attackQueued = false;
     computeStats(player);
     player.morale = Math.max(1, Math.round((player.stats.maxMorale || 100) * 0.1));
     player.power = Math.max(1, Math.round((player.stats.maxPower || 100) * 0.5));
@@ -806,7 +810,7 @@
     return best;
   }
   function rangedAttack() {
-    if (!player || !player.alive || S.rolling) return false;
+    if (!player || !player.alive || S.rolling || player.blocking) return false;
     const inst = player.equipment && player.equipment.ranged;
     if (!inst) { notify('You need a ranged weapon equipped.'); sfx('ui_error', { vol: 0.5 }); return false; }
     if (now() < S.rangedReady) return false;
@@ -864,9 +868,73 @@
     sfx('arrow_hit', { pos: t.pos, vol: 0.7 });
   }
 
+  // ================================================================================================ LMB ATTACK / RMB BLOCK
+  /** Left click on the canvas. `picked` is what clickSelect hit (an NPC / door / node → selection only). Attacks the
+   *  living hostile target, else the nearest living hostile in front within melee reach; a swing that cannot fire yet
+   *  (weapon timer, range) is queued and fires at the next chance. With nothing in reach the swing is still visible. */
+  function clickAttack(picked) {
+    if (!player || !player.alive || S.rolling) return false;
+    if (picked && !livingHostile(picked)) return false;
+    if (player.blocking) return false;                                   // the guard is up: no attacks
+    let t = livingHostile(player.target) ? player.target : null;
+    if (!t) { t = frontHostile((C.MELEE_RANGE || 3.2) + 1, 0.3); if (t) setTarget(t); }
+    if (t) {
+      if (player.mounted) dismount(false);
+      player.autoAttack = true;
+      S.faceTargetT = 0.9;
+      let ok = false;
+      if (G.Combat && typeof G.Combat.basicAttack === 'function') { try { ok = !!G.Combat.basicAttack(player, t, EMPTY); } catch (e) { if (G.reportError) G.reportError(e, 'Player.clickAttack'); ok = false; } }
+      if (!ok) { S.attackQueued = true; S.attackQueuedT = now() + 2.5; }
+      return true;
+    }
+    if (rig && typeof rig.setAnim === 'function') rig.setAnim('attack_slash', true);
+    sfx('sword_swing', { vol: 0.45 });
+    return false;
+  }
+  function updateQueuedAttack() {
+    if (!S.attackQueued) return;
+    if (now() > S.attackQueuedT || !player.alive || player.blocking || !livingHostile(player.target)) { S.attackQueued = false; return; }
+    if (!G.Combat || typeof G.Combat.basicAttack !== 'function') { S.attackQueued = false; return; }
+    let ok = false;
+    try { ok = !!G.Combat.basicAttack(player, player.target, EMPTY); } catch (e) { ok = false; S.attackQueued = false; }
+    if (ok) S.attackQueued = false;
+  }
+  /** Right button held → player.blocking (G.Combat.damage: physical −60 %, tactical −30 %); movement at half speed,
+   *  auto-attack paused while the guard is up and restored on release. Emits blockingChanged(bool). */
+  function setBlocking(on) {
+    if (!player) return false;
+    on = !!on;
+    if (player.blocking === on) return on;
+    player.blocking = on;
+    if (on) {
+      S.resumeAuto = !!player.autoAttack; player.autoAttack = false;
+      S.attackQueued = false;
+      sfx('equip', { vol: 0.35, pitch: 0.85 });
+    } else {
+      if (S.resumeAuto && livingHostile(player.target)) player.autoAttack = true;
+      S.resumeAuto = false;
+    }
+    emit('blockingChanged', on);
+    return on;
+  }
+  // guard pose: shield arm raised across the chest, weapon arm drawn back, a little crouch — blended over the rig's
+  // own animation after rig.play() (the humanoid rig has no 'block' clip; 'block' aliases the short 'hit' flinch)
+  const GUARD = { armL: [0.95, 0.4, -0.5], forearmL: [1.35, 0.15, 0.3], handL: [-0.25, 0, 0], armR: [0.3, 0, 0.3], forearmR: [0.8, 0, 0], torso: [0.08, -0.15, 0] };
+  const GUARD_KEYS = Object.keys(GUARD);
+  function guardPose() {
+    const k = S.blockT;
+    if (!(k > 0) || !rig || !rig.parts) return;
+    for (let i = 0; i < GUARD_KEYS.length; i++) {
+      const j = rig.parts[GUARD_KEYS[i]]; if (!j || !j.rotation) continue;
+      const t = GUARD[GUARD_KEYS[i]], r = j.rotation;
+      r.x += (t[0] - r.x) * k; r.y += (t[1] - r.y) * k; r.z += (t[2] - r.z) * k;
+    }
+  }
+
   function useHotbar(i) {
     if (!player || !player.alive) return false;
     const id = player.hotbar && player.hotbar[i]; if (!id) return false;
+    if (player.blocking) { S.rmbHeld = false; setBlocking(false); }   // an ability lowers the guard (press RMB again to block)
     if (!G.Combat || typeof G.Combat.useAbility !== 'function') return false;
     let ok = false;
     try { ok = !!G.Combat.useAbility(player, id, player.target || undefined); } catch (e) { if (G.reportError) G.reportError(e, 'Player.useHotbar'); ok = false; }
@@ -1048,6 +1116,7 @@
       else if (pl.swimming) speed = C.SWIM_SPEED * mul * num(st.swimSpeedMult, 1);
       else speed = C.RUN_SPEED * mul;
       if (fwdIn < 0 && !mounted && !pl.swimming) speed *= 0.5;
+      if (pl.blocking) speed *= 0.5;                             // guard up: half speed
       if (st.rooted || st.stunned) speed = 0;
       if (G.state.flyCam) speed *= 3;
     }
@@ -1217,6 +1286,7 @@
       mountRig.group.updateMatrixWorld(true);
     }
     if (rig && typeof rig.play === 'function') rig.play(dt, pl);
+    guardPose();
     if (rig) { pl.anim = rig.anim || pl.anim; pl.animTime = rig.animT || 0; }
     if (!pl.mounted && pl.mesh) pl.mesh.updateMatrixWorld(true);
     if (pl.nameplate) pl.nameplate.visible = false;
@@ -1257,11 +1327,21 @@
     // camera input first (mouse steer must affect this frame's movement)
     cameraInput(dt, canLook);
 
-    // pointer lock / click select
+    // right button (a press that began on the canvas) = hold to block; the RMB camera drag keeps working meanwhile
+    if (I) {
+      if (I.mousePressed(2) && I.mouse.overCanvas && !open && !typ) S.rmbHeld = true;
+      if (!I.mouseDown(2)) S.rmbHeld = false;
+    }
+    setBlocking(S.rmbHeld && controls && !S.rolling && !pl.mounted && !pl.swimming && !pl.casting && G.state.phase === 'playing');
+    S.blockT = clamp(S.blockT + (pl.blocking ? dt / 0.12 : -dt / 0.15), 0, 1);
+
+    // left button = select + attack, and the pointer-lock request
     if (I && I.mousePressed(0) && I.mouse.overCanvas && !open && !typ && G.state.phase === 'playing') {
-      clickSelect(I.mouse.x, I.mouse.y);
+      const picked = clickSelect(I.mouse.x, I.mouse.y);
+      if (controls) clickAttack(picked);
       if (!I.mouse.locked && typeof I.requestLock === 'function') I.requestLock();
     }
+    updateQueuedAttack();
 
     // key actions
     if (controls && I) {
@@ -1361,6 +1441,8 @@
   P.groundType = currentGroundType;
   P.setCameraDistance = function (d) { cam.targetDist = clamp(num(d, cam.targetDist), cam.minDist, cam.maxDist); if (G.state.settings) G.state.settings.cameraDist = cam.targetDist; S.settingDist = cam.targetDist; };
   P.useHotbar = useHotbar;
+  P.attack = clickAttack;                    // LMB behaviour, callable (picked entity optional)
+  P.setBlocking = setBlocking;               // RMB behaviour, callable (player.blocking)
 
   if (G.log) G.log('player module ready');
 })();
