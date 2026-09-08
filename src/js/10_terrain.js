@@ -931,6 +931,8 @@
     const a = G.noise2(x, y), b = G.noise2(x - freq, y), c = G.noise2(x - freq, y - freq), d = G.noise2(x, y - freq);
     return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * u * v + d * (1 - u) * v;
   }
+  // Three independent tileable noises packed per channel (see the terrain material's onBeforeCompile):
+  //   .r mid-scale luminance mottling   .g slow field for macro hue/brightness drift   .b fine grain / grit
   function makeDetailTexture() {
     const N = 256;
     const tex = G.canvasTexture(N, N, function (ctx, w, h) {
@@ -941,13 +943,20 @@
         for (let px = 0; px < w; px++) {
           const u = px * inv, v = py * inv;
           const n = tileNoise(u, v, 5, 0) * 0.5 + tileNoise(u, v, 13, 11) * 0.3 + tileNoise(u, v, 41, 23) * 0.2;
-          let val = 0.5 + n * 0.26;
+          let val = 0.5 + n * 0.30;
           const hs = G.hash2(px, py);
-          if (hs > 0.988) val += 0.16; else if (hs < 0.012) val -= 0.15;
-          val = val < 0.22 ? 0.22 : val > 0.82 ? 0.82 : val;
+          if (hs > 0.988) val += 0.18; else if (hs < 0.012) val -= 0.17;
+          val = val < 0.20 ? 0.20 : val > 0.84 ? 0.84 : val;
+          // .g — two slow octaves only (used at a ~57 m tile, so it must stay smooth)
+          let gv = 0.5 + (tileNoise(u, v, 2, 51) * 0.68 + tileNoise(u, v, 5, 67) * 0.32) * 0.42;
+          gv = gv < 0.14 ? 0.14 : gv > 0.86 ? 0.86 : gv;
+          // .b — fine grit, sampled at a ~1.3 m tile for close-range texture
+          let bvv = 0.5 + (tileNoise(u, v, 23, 89) * 0.5 + tileNoise(u, v, 53, 103) * 0.32) * 0.5;
+          const gs = G.hash2(px + 977, py + 313);
+          if (gs > 0.975) bvv += 0.14; else if (gs < 0.025) bvv -= 0.13;
+          bvv = bvv < 0.22 ? 0.22 : bvv > 0.82 ? 0.82 : bvv;
           const k = (py * w + px) * 4;
-          const bv = Math.round(val * 255);
-          d[k] = bv; d[k + 1] = bv; d[k + 2] = bv; d[k + 3] = 255;
+          d[k] = Math.round(val * 255); d[k + 1] = Math.round(gv * 255); d[k + 2] = Math.round(bvv * 255); d[k + 3] = 255;
         }
       }
       ctx.putImageData(img, 0, 0);
@@ -1663,16 +1672,56 @@
     detailTex = makeDetailTexture();
     material = new THREE.MeshStandardMaterial({ vertexColors: true, map: detailTex, roughness: 0.95, metalness: 0, dithering: true });
     material.name = 'terrain';
+    // Multi-scale ground detail. The detail map packs three independent noises: .r mid-scale luminance (mean 0.5),
+    // .g a slow field used for macro hue/brightness drift, .b a fine grain. Sampling it at three UV scales gives
+    // close-range grain, mid-range mottling and a macro break-up that never fades out — so large flat areas of one
+    // colour (town squares, meadows) stop reading as painted cardboard without a single extra draw call.
     material.onBeforeCompile = function (shader) {
+      // chunk meshes are translation-only children of an identity group, so the object normal IS the world normal
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', 'varying vec3 vWorldN;\n#include <common>')
+        .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n  vWorldN = objectNormal;');
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', 'varying vec3 vWorldN;\n#define vUpN vWorldN.y\n#include <common>');
+      // Micro-relief: the fine detail channel doubles as a height field, so close ground gets a real bumped normal
+      // (grit catching the light, cross-lit ridges at dawn/dusk) rather than a flat plane with a pattern painted on.
+      shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>', [
+        '#include <normal_fragment_maps>',
+        '#ifdef USE_MAP',
+        '  {',
+        '    float bumpFade = ( 1.0 - smoothstep( 14.0, 42.0, dDist ) ) * dUp;',
+        '    if ( bumpFade > 0.003 ) {',
+        '      vec2 buv = vMapUv * 4.7 + vec2( 0.37, 0.61 );',
+        '      float hx = texture2D( map, buv + vec2( 0.0045, 0.0 ) ).b;',
+        '      float hz = texture2D( map, buv + vec2( 0.0, 0.0045 ) ).b;',
+        '      vec3 wn = normalize( vWorldN );',
+        '      wn.x -= ( hx - dFine.b ) * 5.0 * bumpFade;',
+        '      wn.z -= ( hz - dFine.b ) * 5.0 * bumpFade;',
+        '      normal = normalize( ( viewMatrix * vec4( normalize( wn ), 0.0 ) ).xyz );',
+        '    }',
+        '  }',
+        '#endif',
+      ].join('\n'));
       shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', [
         '#ifdef USE_MAP',
-        '  vec4 dtl = texture2D( map, vMapUv );',
-        '  float dtlFade = 1.0 - smoothstep( 40.0, 85.0, length( vViewPosition ) );',
-        '  diffuseColor.rgb *= mix( 1.0, dtl.r * 2.0, dtlFade );',
+        '  float dDist = length( vViewPosition );',
+        // the detail map is planar (world XZ), so it smears on steep faces — fade it back there
+        '  float dUp = mix( 0.42, 1.0, smoothstep( 0.22, 0.72, abs( vUpN ) ) );',
+        '  vec3 dtl  = texture2D( map, vMapUv ).rgb;',                                    // ~6 m tile
+        '  vec3 dFine = texture2D( map, vMapUv * 4.7 + vec2( 0.37, 0.61 ) ).rgb;',        // ~1.3 m tile
+        '  vec3 dMac  = texture2D( map, vMapUv * 0.105 + vec2( 0.13, 0.83 ) ).rgb;',      // ~57 m tile
+        '  float fMid  = ( 1.0 - smoothstep( 60.0, 150.0, dDist ) ) * dUp;',
+        '  float fFine = ( 1.0 - smoothstep( 9.0, 32.0, dDist ) ) * dUp;',
+        '  float g = mix( 1.0, dtl.r * 2.0, fMid );',
+        '  g *= mix( 1.0, 0.5 + dFine.b, fFine * 0.9 );',
+        '  g *= 0.80 + 0.40 * dMac.g;',
+        '  diffuseColor.rgb *= g;',
+        // macro hue drift: dry ochre patches against cooler ones, plus a mid-scale chroma break-up up close
+        '  float hMac = ( dMac.g - 0.5 ) * 2.0 + ( dtl.g - 0.5 ) * fMid;',
+        '  diffuseColor.rgb *= vec3( 1.0 + hMac * 0.085, 1.0 + hMac * 0.018, 1.0 - hMac * 0.075 );',
         '#endif',
       ].join('\n'));
     };
-    material.customProgramCacheKey = function () { return 'terrain_detail_v1'; };
+    material.customProgramCacheKey = function () { return 'terrain_detail_v3'; };
     group = new THREE.Group();
     group.name = 'terrain';
     group.matrixAutoUpdate = false;

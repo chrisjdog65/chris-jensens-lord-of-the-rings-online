@@ -1,7 +1,8 @@
 /* ==== 17_postfx.js — Post-processing pipeline (G.PostFX). Self-written (no EffectComposer): the scene is
  * rendered into a linear HalfFloat render target, a soft-knee bright pass (half res) feeds a 2-iteration
- * separable 9-tap gaussian blur (quarter res, ping-pong), then a tonemap pass (bloom add → exposure → ACES
- * filmic → saturation/tint/vignette → sRGB encode, contrast, luma in alpha) writes an 8-bit LDR target and a
+ * separable 9-tap gaussian blur (quarter res, ping-pong), then a tonemap pass (bloom add → exposure → linear
+ * filmic contrast around 18 % grey → ACES filmic → saturation/split-tone/vignette → sRGB encode, luma in
+ * alpha) writes an 8-bit LDR target and a
  * final pass applies FXAA 3.11 (quality preset 12), CAS-style edge-aware sharpening and film grain straight
  * to the screen. Quality presets drive pixel ratio / render scale, bloom resolution, shadow map size
  * (G.Sky.setShadowQuality) and vegetation density (G.Veg.setDensity).
@@ -138,24 +139,34 @@
     '  }',
     '  if (uBloom > 0.0) col += texture2D(tBloom, vUv).rgb * uBloom;',
     '  col = max(col * uExposure, vec3(0.0));',
+    // Contrast is applied in LINEAR light around a 0.30 pivot (roughly a sunlit scene's average), BEFORE the
+    // tonemap: the filmic shoulder rolls the lifted highlights off instead of clipping them, and shadows deepen
+    // without the flat crush a post-sRGB stretch gives. The pivot keeps overall brightness where it was. The
+    // strength eases back to 1.0 in the deepest lows so night scenes and forest floors keep their shadow detail
+    // instead of going to solid black.
+    '  if (uContrast != 1.0) {',
+    '    float cw = smoothstep(0.004, 0.055, lumaLin(col));',
+    '    float ce = mix(1.0, uContrast, cw);',
+    '    col = pow(max(col, vec3(1e-5)) * 3.3333333, vec3(ce)) * 0.30;',
+    '  }',
     '  if (uTonemap > 0.5) col = acesFilmic(col); else col = min(col, vec3(1.0));',
     '  float l = lumaLin(col);',
     '  col = mix(vec3(l), col, uSaturation);',
+    // Split tone: warm shadows / cool highlights, with a touch of extra saturation left in the midtones.
     '  if (uTint > 0.0) {',
-    '    float w = smoothstep(0.0, 0.55, l);',
-    '    vec3 tc = mix(vec3(1.05, 0.99, 0.93), vec3(0.95, 0.99, 1.05), w);',
+    '    float w = smoothstep(0.02, 0.62, l);',
+    '    vec3 tc = mix(vec3(1.075, 0.995, 0.905), vec3(0.958, 0.992, 1.058), w);',
     '    col *= mix(vec3(1.0), tc, uTint);',
-    '    col += uTint * (1.0 - w) * vec3(0.012, 0.008, 0.005);',
+    '    col += uTint * (1.0 - w) * vec3(0.014, 0.008, 0.004);',
     '  }',
     '  if (uVignette > 0.0) {',
     '    vec2 q = (vUv - 0.5) * 2.0;',
     '    q.x *= uAspect;',
     '    float dv = length(q) / length(vec2(uAspect, 1.0));',
-    '    col *= mix(1.0, smoothstep(1.2, 0.3, dv), uVignette);',
+    '    col *= mix(1.0, smoothstep(1.25, 0.32, dv), uVignette);',
     '  }',
     '  col = clamp(col, 0.0, 1.0);',
     '  vec3 s = toSRGB(col);',
-    '  s = clamp((s - 0.5) * uContrast + 0.5, 0.0, 1.0);',
     '  float ls = dot(s, vec3(0.299, 0.587, 0.114));',
     '  gl_FragColor = vec4(s, mix(ls, 1.0, uOutAlpha));',
     '}',
@@ -785,16 +796,16 @@
     quality: (G && G.state && G.state.quality) || 'high',
     renderScale: 1,
     params: {
-      bloom: 0.35,            // bloom intensity (0 = off)
-      exposure: 1.05,         // pre-tonemap exposure
-      vignette: 0.35,         // 0..1
-      saturation: 1.08,
-      contrast: 1.05,         // around sRGB mid-grey
-      bloomThreshold: 0.85,   // soft-knee threshold in linear HDR
+      bloom: 0.42,            // bloom intensity (0 = off)
+      exposure: 1.06,         // pre-tonemap exposure
+      vignette: 0.38,         // 0..1
+      saturation: 1.12,
+      contrast: 1.22,         // filmic contrast in LINEAR light around a 0.30 pivot (applied before the tonemap)
+      bloomThreshold: 0.80,   // soft-knee threshold in linear HDR
       bloomRadius: 1.0,       // blur step multiplier
       grain: 0.03,            // film grain amplitude (0 = off)
-      sharpen: 0.25,          // 0..1 CAS-style sharpening (0 = off)
-      tint: 0.15,             // warm shadows / cool highlights split-tone strength (0 = off)
+      sharpen: 0.45,          // 0..1 CAS-style sharpening (0 = off)
+      tint: 0.28,             // warm shadows / cool highlights split-tone strength (0 = off)
       aberration: 0,          // chromatic aberration (0 = off)
       tonemap: true,          // ACES filmic on/off (off = clamp; useful for calibration)
     },

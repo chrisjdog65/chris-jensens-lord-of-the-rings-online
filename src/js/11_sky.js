@@ -756,16 +756,23 @@
     _moonLightDir.copy(_moonDir).lerp(_upV, 1 - smooth(0, 0.15, em)).normalize();
     placeLight(moon, _moonLightDir, pos, false);
 
-    // hemisphere: sky colour from the palette (desaturated at twilight), warm ground by day / cool by night
-    _c1.copy(_zen).lerp(_hor, 0.45);
+    // hemisphere: sky colour from the palette — biased toward the (warm) horizon at twilight so the world sits in
+    // the same light as the sky instead of staying neutral-cool under a burning sunset; only lightly desaturated.
+    _c1.copy(_zen).lerp(_hor, 0.45 + 0.35 * dawnGlow);
     const hl = lum(_c1); _c2.setRGB(hl, hl, hl);
-    _c1.lerp(_c2, dawnGlow * 0.45);
+    _c1.lerp(_c2, dawnGlow * 0.16);
     hemi.color.copy(_c1).lerp(FLASH_COLOR, flash * 0.5);
     hemi.groundColor.copy(HEMI_GROUND_DAY).lerp(_sunLight, 0.25).lerp(HEMI_GROUND_NIGHT, night);
     hemi.intensity = lerp(0.6, 0.22, night) * (1 - grey * 0.2) + flash * 0.6;
 
     _lightLevel = clamp(smooth(-0.08, 0.28, e) * (1 - dark * 0.55) + night * (0.05 + 0.15 * moonLit * moonUp), 0, 1);
     ambient.color.copy(AMBIENT_DAY).lerp(AMBIENT_NIGHT, night);
+    if (dawnGlow > 0.002) {   // tint the flat fill toward the horizon at dawn/dusk, at the SAME luminance
+      _c2.copy(_hor);
+      const nl = lum(ambient.color) / Math.max(lum(_c2), 1e-4);
+      _c2.multiplyScalar(nl);
+      ambient.color.lerp(_c2, dawnGlow * 0.6);
+    }
     ambient.intensity = 0.25 * (0.55 + 0.45 * _lightLevel) + flash * 0.3;
 
     // ---- fog: sky horizon (incl. average haze glow) blended with the zone's fog colour, denser when dark/wet

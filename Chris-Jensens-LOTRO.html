@@ -12327,6 +12327,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const a = G.noise2(x, y), b = G.noise2(x - freq, y), c = G.noise2(x - freq, y - freq), d = G.noise2(x, y - freq);
     return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * u * v + d * (1 - u) * v;
   }
+  // Three independent tileable noises packed per channel (see the terrain material's onBeforeCompile):
+  //   .r mid-scale luminance mottling   .g slow field for macro hue/brightness drift   .b fine grain / grit
   function makeDetailTexture() {
     const N = 256;
     const tex = G.canvasTexture(N, N, function (ctx, w, h) {
@@ -12337,13 +12339,20 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         for (let px = 0; px < w; px++) {
           const u = px * inv, v = py * inv;
           const n = tileNoise(u, v, 5, 0) * 0.5 + tileNoise(u, v, 13, 11) * 0.3 + tileNoise(u, v, 41, 23) * 0.2;
-          let val = 0.5 + n * 0.26;
+          let val = 0.5 + n * 0.30;
           const hs = G.hash2(px, py);
-          if (hs > 0.988) val += 0.16; else if (hs < 0.012) val -= 0.15;
-          val = val < 0.22 ? 0.22 : val > 0.82 ? 0.82 : val;
+          if (hs > 0.988) val += 0.18; else if (hs < 0.012) val -= 0.17;
+          val = val < 0.20 ? 0.20 : val > 0.84 ? 0.84 : val;
+          // .g — two slow octaves only (used at a ~57 m tile, so it must stay smooth)
+          let gv = 0.5 + (tileNoise(u, v, 2, 51) * 0.68 + tileNoise(u, v, 5, 67) * 0.32) * 0.42;
+          gv = gv < 0.14 ? 0.14 : gv > 0.86 ? 0.86 : gv;
+          // .b — fine grit, sampled at a ~1.3 m tile for close-range texture
+          let bvv = 0.5 + (tileNoise(u, v, 23, 89) * 0.5 + tileNoise(u, v, 53, 103) * 0.32) * 0.5;
+          const gs = G.hash2(px + 977, py + 313);
+          if (gs > 0.975) bvv += 0.14; else if (gs < 0.025) bvv -= 0.13;
+          bvv = bvv < 0.22 ? 0.22 : bvv > 0.82 ? 0.82 : bvv;
           const k = (py * w + px) * 4;
-          const bv = Math.round(val * 255);
-          d[k] = bv; d[k + 1] = bv; d[k + 2] = bv; d[k + 3] = 255;
+          d[k] = Math.round(val * 255); d[k + 1] = Math.round(gv * 255); d[k + 2] = Math.round(bvv * 255); d[k + 3] = 255;
         }
       }
       ctx.putImageData(img, 0, 0);
@@ -13059,16 +13068,56 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     detailTex = makeDetailTexture();
     material = new THREE.MeshStandardMaterial({ vertexColors: true, map: detailTex, roughness: 0.95, metalness: 0, dithering: true });
     material.name = 'terrain';
+    // Multi-scale ground detail. The detail map packs three independent noises: .r mid-scale luminance (mean 0.5),
+    // .g a slow field used for macro hue/brightness drift, .b a fine grain. Sampling it at three UV scales gives
+    // close-range grain, mid-range mottling and a macro break-up that never fades out — so large flat areas of one
+    // colour (town squares, meadows) stop reading as painted cardboard without a single extra draw call.
     material.onBeforeCompile = function (shader) {
+      // chunk meshes are translation-only children of an identity group, so the object normal IS the world normal
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', 'varying vec3 vWorldN;\n#include <common>')
+        .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n  vWorldN = objectNormal;');
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', 'varying vec3 vWorldN;\n#define vUpN vWorldN.y\n#include <common>');
+      // Micro-relief: the fine detail channel doubles as a height field, so close ground gets a real bumped normal
+      // (grit catching the light, cross-lit ridges at dawn/dusk) rather than a flat plane with a pattern painted on.
+      shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>', [
+        '#include <normal_fragment_maps>',
+        '#ifdef USE_MAP',
+        '  {',
+        '    float bumpFade = ( 1.0 - smoothstep( 14.0, 42.0, dDist ) ) * dUp;',
+        '    if ( bumpFade > 0.003 ) {',
+        '      vec2 buv = vMapUv * 4.7 + vec2( 0.37, 0.61 );',
+        '      float hx = texture2D( map, buv + vec2( 0.0045, 0.0 ) ).b;',
+        '      float hz = texture2D( map, buv + vec2( 0.0, 0.0045 ) ).b;',
+        '      vec3 wn = normalize( vWorldN );',
+        '      wn.x -= ( hx - dFine.b ) * 5.0 * bumpFade;',
+        '      wn.z -= ( hz - dFine.b ) * 5.0 * bumpFade;',
+        '      normal = normalize( ( viewMatrix * vec4( normalize( wn ), 0.0 ) ).xyz );',
+        '    }',
+        '  }',
+        '#endif',
+      ].join('\n'));
       shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', [
         '#ifdef USE_MAP',
-        '  vec4 dtl = texture2D( map, vMapUv );',
-        '  float dtlFade = 1.0 - smoothstep( 40.0, 85.0, length( vViewPosition ) );',
-        '  diffuseColor.rgb *= mix( 1.0, dtl.r * 2.0, dtlFade );',
+        '  float dDist = length( vViewPosition );',
+        // the detail map is planar (world XZ), so it smears on steep faces — fade it back there
+        '  float dUp = mix( 0.42, 1.0, smoothstep( 0.22, 0.72, abs( vUpN ) ) );',
+        '  vec3 dtl  = texture2D( map, vMapUv ).rgb;',                                    // ~6 m tile
+        '  vec3 dFine = texture2D( map, vMapUv * 4.7 + vec2( 0.37, 0.61 ) ).rgb;',        // ~1.3 m tile
+        '  vec3 dMac  = texture2D( map, vMapUv * 0.105 + vec2( 0.13, 0.83 ) ).rgb;',      // ~57 m tile
+        '  float fMid  = ( 1.0 - smoothstep( 60.0, 150.0, dDist ) ) * dUp;',
+        '  float fFine = ( 1.0 - smoothstep( 9.0, 32.0, dDist ) ) * dUp;',
+        '  float g = mix( 1.0, dtl.r * 2.0, fMid );',
+        '  g *= mix( 1.0, 0.5 + dFine.b, fFine * 0.9 );',
+        '  g *= 0.80 + 0.40 * dMac.g;',
+        '  diffuseColor.rgb *= g;',
+        // macro hue drift: dry ochre patches against cooler ones, plus a mid-scale chroma break-up up close
+        '  float hMac = ( dMac.g - 0.5 ) * 2.0 + ( dtl.g - 0.5 ) * fMid;',
+        '  diffuseColor.rgb *= vec3( 1.0 + hMac * 0.085, 1.0 + hMac * 0.018, 1.0 - hMac * 0.075 );',
         '#endif',
       ].join('\n'));
     };
-    material.customProgramCacheKey = function () { return 'terrain_detail_v1'; };
+    material.customProgramCacheKey = function () { return 'terrain_detail_v3'; };
     group = new THREE.Group();
     group.name = 'terrain';
     group.matrixAutoUpdate = false;
@@ -13905,16 +13954,23 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     _moonLightDir.copy(_moonDir).lerp(_upV, 1 - smooth(0, 0.15, em)).normalize();
     placeLight(moon, _moonLightDir, pos, false);
 
-    // hemisphere: sky colour from the palette (desaturated at twilight), warm ground by day / cool by night
-    _c1.copy(_zen).lerp(_hor, 0.45);
+    // hemisphere: sky colour from the palette — biased toward the (warm) horizon at twilight so the world sits in
+    // the same light as the sky instead of staying neutral-cool under a burning sunset; only lightly desaturated.
+    _c1.copy(_zen).lerp(_hor, 0.45 + 0.35 * dawnGlow);
     const hl = lum(_c1); _c2.setRGB(hl, hl, hl);
-    _c1.lerp(_c2, dawnGlow * 0.45);
+    _c1.lerp(_c2, dawnGlow * 0.16);
     hemi.color.copy(_c1).lerp(FLASH_COLOR, flash * 0.5);
     hemi.groundColor.copy(HEMI_GROUND_DAY).lerp(_sunLight, 0.25).lerp(HEMI_GROUND_NIGHT, night);
     hemi.intensity = lerp(0.6, 0.22, night) * (1 - grey * 0.2) + flash * 0.6;
 
     _lightLevel = clamp(smooth(-0.08, 0.28, e) * (1 - dark * 0.55) + night * (0.05 + 0.15 * moonLit * moonUp), 0, 1);
     ambient.color.copy(AMBIENT_DAY).lerp(AMBIENT_NIGHT, night);
+    if (dawnGlow > 0.002) {   // tint the flat fill toward the horizon at dawn/dusk, at the SAME luminance
+      _c2.copy(_hor);
+      const nl = lum(ambient.color) / Math.max(lum(_c2), 1e-4);
+      _c2.multiplyScalar(nl);
+      ambient.color.lerp(_c2, dawnGlow * 0.6);
+    }
     ambient.intensity = 0.25 * (0.55 + 0.45 * _lightLevel) + flash * 0.3;
 
     // ---- fog: sky horizon (incl. average haze glow) blended with the zone's fog colour, denser when dark/wet
@@ -14339,7 +14395,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     deadBark: hexRGB(0x46403a), deadBarkTop: hexRGB(0x736a5f),
     snowBark: hexRGB(0x3b2e25), snowNeedle: hexRGB(0x31593c), snowNeedleTop: hexRGB(0x5f8f5a),
     malBark: hexRGB(0x9b9b96), malBarkTop: hexRGB(0xbdbbb1), malLeaf: hexRGB(0xc59a2e), malLeafTop: hexRGB(0xf5d867),
-    bush: hexRGB(0x3a7529), bushTop: hexRGB(0x78b23c), shrub: hexRGB(0x6d7b44), shrubTop: hexRGB(0xa2a866),
+    // bushes/hedges sit low, so their visible faces get almost no sun — the base colours are lifted a step so a
+    // hedgerow reads as dark green foliage rather than a black scribble along the field edge
+    bush: hexRGB(0x4a8434), bushTop: hexRGB(0x8cc24a), shrub: hexRGB(0x7a8850), shrubTop: hexRGB(0xafb473),
     rock: hexRGB(0x75736c), rockTop: hexRGB(0x9d9b93), moss: hexRGB(0x5b7a37),
     cut: hexRGB(0xc8ab7a), reed: hexRGB(0x5e7f33), reedTop: hexRGB(0xc3c66d), stem: hexRGB(0x3f7a2a),
     white: [1, 1, 1], cream: hexRGB(0xe8dcc3), capUnder: hexRGB(0xd9cbb0),
@@ -14598,19 +14656,28 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
    * aVeg  (per vertex, vec2): x = sway weight, y = canopy flag (tint + snow apply where 1)
    * aInst (per instance, vec4): rgb = canopy tint multiplier, w = snow amount
    * ---------------------------------------------------------------------------------------------- */
-  const uniforms = { uTime: { value: 0 }, uWind: { value: 1 }, uPlayer: { value: new THREE.Vector3() } };
+  const uniforms = {
+    uTime: { value: 0 }, uWind: { value: 1 }, uPlayer: { value: new THREE.Vector3() },
+    uSunV: { value: new THREE.Vector3(0, 1, 0) },       // view-space direction TOWARD the sun (fed by update())
+    uSunCol: { value: new THREE.Color(0, 0, 0) },       // sun colour × normalised intensity
+  };
   const WIND_PERIOD = Math.PI * 4 * 25;   // all wind frequencies are multiples of 0.5 → seamless wrap
-  function injectWind(shader, uFade) {
+  function injectWind(shader, uFade, uTrans) {
     shader.uniforms.uTime = uniforms.uTime;
     shader.uniforms.uWind = uniforms.uWind;
     shader.uniforms.uPlayer = uniforms.uPlayer;
+    shader.uniforms.uSunV = uniforms.uSunV;
+    shader.uniforms.uSunCol = uniforms.uSunCol;
     shader.uniforms.uFade = uFade;
+    shader.uniforms.uTrans = uTrans;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', [
         'attribute vec2 aVeg;', 'attribute vec4 aInst;', 'uniform float uTime;', 'uniform float uWind;', 'uniform vec3 uPlayer;', 'uniform vec2 uFade;',
+        'varying float vLeaf;',
         '#include <common>'].join('\n'))
       .replace('#include <color_vertex>', [
         '#include <color_vertex>',
+        '  vLeaf = aVeg.y;',
         '#ifdef USE_COLOR',
         '  vColor.rgb *= mix(vec3(1.0), aInst.rgb, aVeg.y);',
         '  vColor.rgb = mix(vColor.rgb, vec3(0.93, 0.95, 1.0), aInst.w * clamp((normal.y - 0.1) * 1.5, 0.0, 1.0) * aVeg.y);',
@@ -14636,14 +14703,26 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         '  }',
         '}',
         '#endif'].join('\n'));
+    // Leaf translucency: foliage lit from behind glows. Cheap wrap-around term driven by how much the camera is
+    // looking INTO the sun through the leaf; only canopy/blade vertices (aVeg.y = 1) take it, and uTrans is 0 on rock.
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', 'varying float vLeaf;\nuniform vec3 uSunV;\nuniform vec3 uSunCol;\nuniform float uTrans;\n#include <common>')
+      .replace('#include <opaque_fragment>', [
+        'if (uTrans > 0.0 && vLeaf > 0.01) {',
+        '  float bl = max(dot(-uSunV, normalize(vViewPosition)), 0.0);',
+        '  bl = bl * bl * bl;',
+        '  outgoingLight += diffuseColor.rgb * uSunCol * (uTrans * vLeaf * bl);',
+        '}',
+        '#include <opaque_fragment>'].join('\n'));
   }
   const MATS = {};
-  function makeMaterial(opts, fadeNear, fadeFar) {
+  function makeMaterial(opts, fadeNear, fadeFar, trans) {
     const m = new THREE.MeshStandardMaterial(Object.assign({ vertexColors: true, roughness: 0.92, metalness: 0.0 }, opts));
     const uFade = { value: new THREE.Vector2(fadeNear == null ? 1e6 : fadeNear, fadeFar == null ? 1e6 + 1 : fadeFar) };
-    m.userData.uFade = uFade;
-    m.onBeforeCompile = (shader) => injectWind(shader, uFade);
-    m.customProgramCacheKey = () => 'veg_wind_' + (opts.map ? 'a' : 'o') + (opts.flatShading ? 'f' : 's') + (fadeNear == null ? '' : 'd');
+    const uTrans = { value: trans == null ? 0 : trans };
+    m.userData.uFade = uFade; m.userData.uTrans = uTrans;
+    m.onBeforeCompile = (shader) => injectWind(shader, uFade, uTrans);
+    m.customProgramCacheKey = () => 'veg_wind2_' + (opts.map ? 'a' : 'o') + (opts.flatShading ? 'f' : 's') + (fadeNear == null ? '' : 'd');
     return m;
   }
   function paintGrassTexture(ctx, w, h) {
@@ -14697,11 +14776,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return tex;
   }
   function buildMaterials() {
-    MATS.tree = makeMaterial({ side: THREE.FrontSide });
-    MATS.rock = makeMaterial({ flatShading: true, roughness: 0.95 });
-    MATS.grass = makeMaterial({ map: makeTexture(128, 128, paintGrassTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }, 33, 46);
-    MATS.fern = makeMaterial({ map: makeTexture(128, 128, paintFernTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }, 47, 62);
-    MATS.detail = makeMaterial({ side: THREE.FrontSide }, 38, 52);
+    MATS.tree = makeMaterial({ side: THREE.FrontSide }, null, null, 0.55);
+    MATS.rock = makeMaterial({ flatShading: true, roughness: 0.95 }, null, null, 0);
+    MATS.grass = makeMaterial({ map: makeTexture(128, 128, paintGrassTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }, 38, 50, 0.7);
+    MATS.fern = makeMaterial({ map: makeTexture(128, 128, paintFernTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }, 47, 62, 0.7);
+    MATS.detail = makeMaterial({ side: THREE.FrontSide }, 38, 52, 0.4);
   }
 
   /* ------------------------------------------------------------------------------------------------
@@ -14906,9 +14985,14 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const rng = makeRng(cellSeed(cx, cz, 1));
     const towns = townsNear(xc, zc, CELL);
     const dark = prof.darkTint || null;
+    // grove-scale colour drift (≈ 200–300 m features): neighbouring stands of trees read as different stands
+    // instead of one continuous sheet of the same green. Mean-neutral, deterministic (fbm, not rng).
+    const gvA = clamp(fbm(xc * 0.0034 + 21.7, zc * 0.0034 - 11.3, 2) * 0.5 + 0.5, 0, 1);
+    const gvB = clamp(fbm(xc * 0.0071 - 5.1, zc * 0.0071 + 9.4, 2) * 0.5 + 0.5, 0, 1);
+    const grove = [0.925 + 0.15 * gvA, 0.955 + 0.09 * gvB, 0.86 + 0.28 * (1 - gvA)];
     const spawnTree = (type, x, z, y, s, keepFar, tintMul) => {
       const spec = TYPES[type];
-      const jr = 0.88 + rng() * 0.22, jg = 0.9 + rng() * 0.2, jb = 0.82 + rng() * 0.22;
+      const jr = (0.85 + rng() * 0.30) * grove[0], jg = (0.88 + rng() * 0.24) * grove[1], jb = (0.78 + rng() * 0.30) * grove[2];
       let tr = jr, tg = jg, tb = jb;
       if (dark) { tr *= dark[0]; tg *= dark[1]; tb *= dark[2]; }
       if (tintMul) { tr *= tintMul[0]; tg *= tintMul[1]; tb *= tintMul[2]; }
@@ -15248,6 +15332,14 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     if (T.onRoad && T.onRoad(x, z) > 0.12) return false;
     return true;
   }
+  // 0 = nothing grows, 1 = meadow grass, 2 = packed earth (town squares, worn ground): sparse dry tufts only
+  function grassKind(T, x, z) {
+    const gt = T.groundType ? T.groundType(x, z) : (T.height(x, z) > SEA ? 'grass' : 'water');
+    if (gt !== 'grass' && gt !== 'dirt') return 0;
+    if (T.onRoad && T.onRoad(x, z) > 0.12) return 0;
+    return gt === 'grass' ? 1 : 2;
+  }
+  const DRY_TUFT = [1.20, 1.02, 0.60];
   function fillGrass(x0, z0, base, ring) {
     const T = G.Terrain; if (!T || !T.height) return;
     const P = ring.patch, zone = zoneAtPos(x0 + P / 2, z0 + P / 2), prof = profileFor(zone);
@@ -15263,22 +15355,36 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     let allGrass = 0, anyGrass = false;
     for (let i = 0; i < 5; i++) {
       const sx = x0 + P * (i === 4 ? 0.5 : (i & 1 ? 0.8 : 0.2)), sz = z0 + P * (i === 4 ? 0.5 : (i & 2 ? 0.8 : 0.2));
-      if (grassOK(T, sx, sz)) { allGrass++; anyGrass = true; }
+      const kd = grassKind(T, sx, sz);
+      if (kd === 1) { allGrass++; anyGrass = true; } else if (kd === 2) anyGrass = true;
     }
     if (!anyGrass) return;
     const perBlade = allGrass < 5;
     for (let k = 0; k < n; k++) {
       const x = x0 + rng() * P, z = z0 + rng() * P;
-      if (perBlade && !grassOK(T, x, z)) continue;
+      let dry = 0;
+      if (perBlade) {
+        const kd = grassKind(T, x, z);
+        if (kd === 0) continue;
+        // packed earth keeps a scatter of dry tufts — enough to stop town squares reading as bare canvas
+        if (kd === 2) { if (rng() > 0.28) continue; dry = 1; }
+      }
       const y = T.height(x, z);
       if (!perBlade && y < SEA + 0.15) continue;
       const u = clamp((x - x0) / P, 0, 1), v = clamp((z - z0) / P, 0, 1);
       for (let c = 0; c < 3; c++) _gc[c] = lerp(lerp(_gc4[0][c], _gc4[1][c], u), lerp(_gc4[2][c], _gc4[3][c], u), v);
       const j = 0.85 + rng() * 0.3;
       // ground colour × zone grass colour (normalised so mid-green ground stays mid-green), biome tint, jitter
-      let r = _gc[0] * _zc[0] * 2.6 * j, g = _gc[1] * _zc[1] * 2.2 * j, b = _gc[2] * _zc[2] * 2.4 * j;
-      if (gt) { r *= gt[0]; g *= gt[1]; b *= gt[2]; }
-      const s = (0.75 + rng() * 0.55), sy = s * hMul * (0.8 + rng() * 0.45);
+      let r, g, b;
+      if (dry) {
+        // straw growing out of packed earth: keyed off the GROUND colour (never the zone's green) and lifted a
+        // little so the tufts read against the dust instead of turning into dark specks
+        r = _gc[0] * DRY_TUFT[0] * j; g = _gc[1] * DRY_TUFT[1] * j; b = _gc[2] * DRY_TUFT[2] * j;
+      } else {
+        r = _gc[0] * _zc[0] * 2.6 * j; g = _gc[1] * _zc[1] * 2.2 * j; b = _gc[2] * _zc[2] * 2.4 * j;
+        if (gt) { r *= gt[0]; g *= gt[1]; b *= gt[2]; }
+      }
+      const s = (0.75 + rng() * 0.55) * (dry ? 0.85 : 1), sy = s * hMul * (0.8 + rng() * 0.45) * (dry ? 0.78 : 1);
       ringWrite(ring, base + k, x, y - 0.03, z, rng() * Math.PI * 2, s, sy, s, clamp(r, 0, 1.6), clamp(g, 0, 1.6), clamp(b, 0, 1.6), 0, (rng() - 0.5) * 0.25, (rng() - 0.5) * 0.25);
     }
   }
@@ -15336,7 +15442,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
   }
   function buildRings() {
-    makeRing('grass', DETAIL_GEOMS.grass, MATS.grass, 45, 8, 210, fillGrass);
+    makeRing('grass', DETAIL_GEOMS.grass, MATS.grass, 50, 8, 245, fillGrass);
     makeRing('flower', DETAIL_GEOMS.flower, MATS.detail, 52, 16, 40, fillFlowers);
     makeRing('fern', DETAIL_GEOMS.fern, MATS.fern, 60, 16, 16, fillFerns);
     makeRing('mushroom', DETAIL_GEOMS.mushroom, MATS.detail, 50, 16, 12, fillMushrooms);
@@ -15357,6 +15463,24 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     if (typeof G.on === 'function') G.on('weatherChanged', (kind) => { if (WEATHER_WIND[kind] != null) setWind(WEATHER_WIND[kind]); });
     log('built', Object.keys(MESHES).length, 'types');
   }
+  // Feed the leaf-translucency uniforms: sun direction in VIEW space + its colour scaled by how strong it is.
+  // Guarded end to end — if there is no Sky or camera yet the term simply stays black.
+  const _sunW = new THREE.Vector3();
+  function updateSunUniforms() {
+    const S = G.Sky;
+    const cam = (G.Player && G.Player.camera) || (G.Game && G.Game.camera) || null;
+    const col = uniforms.uSunCol.value;
+    if (!S || !cam || !S.sun) { col.setRGB(0, 0, 0); return; }
+    const dir = S.sunDir || (S.getSunDir ? S.getSunDir(_sunW) : null);
+    if (!dir) { col.setRGB(0, 0, 0); return; }
+    const up = dir.y;
+    if (up <= 0.01) { col.setRGB(0, 0, 0); return; }
+    _sunW.set(dir.x, dir.y, dir.z);
+    if (cam.matrixWorldInverse) _sunW.transformDirection(cam.matrixWorldInverse);
+    uniforms.uSunV.value.copy(_sunW).normalize();
+    const k = clamp((S.sun.intensity || 0) / 3, 0, 1.1) * clamp(up * 4, 0, 1);
+    col.copy(S.sun.color).multiplyScalar(k);
+  }
   function update(playerPos, dt) {
     if (!built || !playerPos) return;
     const px = playerPos.x, pz = playerPos.z;
@@ -15366,6 +15490,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     wind += (windTarget - wind) * Math.min(1, dt * 1.2);
     uniforms.uWind.value = wind;
     uniforms.uTime.value = ((G.time && typeof G.time.now === 'number') ? G.time.now : tAcc) % WIND_PERIOD;
+    updateSunUniforms();
 
     const pcx = Math.floor(px / CELL), pcz = Math.floor(pz / CELL);
     if (pcx !== lastCellX || pcz !== lastCellZ) {
@@ -15764,7 +15889,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       case 'rug_elf': m = new T.MeshStandardMaterial({ map: makeTex(256, 256, texRug('elf'), false), roughness: 1 }); break;
       case 'rug_dwarf': m = new T.MeshStandardMaterial({ map: makeTex(256, 256, texRug('dwarf'), false), roughness: 1 }); break;
       case 'water': m = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.35, transparent: true, opacity: 0.85 }); break;
-      case 'glass': m = new T.MeshStandardMaterial({ color: 0x5a6a7a, emissive: 0xffb050, emissiveIntensity: 0.08, roughness: 0.25, metalness: 0.4 }); break;
+      case 'glass': m = new T.MeshStandardMaterial({ color: 0x5a6a7a, emissive: 0xffbe72, emissiveIntensity: 0.08, roughness: 0.25, metalness: 0.4 }); break;
       case 'ember': m = new T.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, emissive: 0xff5a10, emissiveIntensity: 1.6, roughness: 0.9 }); break;
       case 'lampglow': m = new T.MeshStandardMaterial({ color: 0xfff1c8, emissive: 0xffc070, emissiveIntensity: 0.15, roughness: 0.6 }); break;
       case 'elfglow': m = new T.MeshStandardMaterial({ color: 0xe8f2ff, emissive: 0x9ec8ff, emissiveIntensity: 0.5, roughness: 0.5 }); break;
@@ -17834,6 +17959,26 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return { minx: bb.min.x, maxx: bb.max.x, minz: bb.min.z, maxz: bb.max.z, box: bb.clone() };
   }
   function newCell() { return { ext: {}, roof: {}, rec: { meshes: [], blds: [], split: false, inside: 0 } }; }
+  /* Per-building colour drift. Recipe geometry is cached and shared, so the only place a house can be made to
+     differ from its neighbour is the batching clone. A ±9 % brightness step plus a small warm/cool shift is enough
+     to break up a terrace of identical plaster-and-timber fronts; it is deterministic (hash2 of the position). */
+  const _bTint = [1, 1, 1];
+  function buildingTint(bld, out) {
+    const h1 = hash2(bld.x * 0.0713 + 3.1, bld.z * 0.0911 - 5.7);
+    const h2 = hash2(bld.z * 0.0517 + 9.3, bld.x * 0.0637 + 1.9);
+    const v = 0.91 + h1 * 0.18;
+    out[0] = v * (0.968 + h2 * 0.064); out[1] = v * (0.99 + h2 * 0.02); out[2] = v * (1.042 - h2 * 0.084);
+    return out;
+  }
+  function tintBatchGeo(g, t) {
+    const c = g.attributes && g.attributes.color;
+    if (!c || !c.array) return;
+    const a = c.array;
+    for (let i = 0; i + 2 < a.length; i += 3) {
+      a[i] = Math.min(1, a[i] * t[0]); a[i + 1] = Math.min(1, a[i + 1] * t[1]); a[i + 2] = Math.min(1, a[i + 2] * t[2]);
+    }
+    c.needsUpdate = true;
+  }
   let _batchMs = 0;
   function batchStatic(list, label) {
     if (!Array.isArray(list) || !list.length) return null;
@@ -17848,6 +17993,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       // An enterable's roof goes into the cell's own ROOF batch, which is split back into its per-building meshes
       // while the player is inside one of them (that is the only time a single roof has to vanish on its own).
       const split = !!(bld.roof && bld.enterable);
+      buildingTint(bld, _bTint);
       let tookExt = 0, tookRoof = 0;
       for (const sub of [bld.ext, bld.roof]) {
         if (!sub) continue;
@@ -17857,6 +18003,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
           const mat = String(mesh.material.name || '').replace(/^bld_/, '');
           if (!mat || mat === 'banner') continue;
           const g = mesh.geometry.clone(); g.applyMatrix4(mesh.matrixWorld);
+          tintBatchGeo(g, _bTint);
           // One bucket per (cell, material): small props ride along in the wall geometry's draw call, so keeping them
           // out of the shadow map would cost a whole extra mesh. A bucket only stays out of the shadow pass when
           // NOTHING in it casts (a cell of nothing but crates, fences, lamps and signs).
@@ -18089,14 +18236,17 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     let ll = 1;
     if (G.Sky && typeof G.Sky.lightLevel === 'number') ll = G.Sky.lightLevel;
     else if (G.time && typeof G.time.dayTime === 'number') { const h = G.time.dayTime; ll = (h > 6.5 && h < 19.5) ? 1 : (h > 5 && h <= 6.5) ? (h - 5) / 1.5 : (h >= 19.5 && h < 21) ? (21 - h) / 1.5 : 0; }
-    return clamp((0.5 - ll) / 0.4, 0, 1);
+    // lamps and hearths are lit from late afternoon on, not only once it is properly dark — a town at dusk
+    // with every window black reads as abandoned
+    return clamp((0.68 - ll) / 0.52, 0, 1);
   }
   let _night = 0;
   function updateMaterials() {
     _night = nightFactor();
-    if (MAT.glass) MAT.glass.emissiveIntensity = 0.06 + _night * 1.5;
-    if (MAT.lampglow) MAT.lampglow.emissiveIntensity = 0.12 + _night * 1.9;
-    if (MAT.elfglow) MAT.elfglow.emissiveIntensity = 0.45 + _night * 1.3;
+    const n2 = _night * _night;                                     // ramp slowly at dusk, then bloom hard at night
+    if (MAT.glass) MAT.glass.emissiveIntensity = 0.05 + _night * 0.55 + n2 * 2.1;
+    if (MAT.lampglow) MAT.lampglow.emissiveIntensity = 0.10 + _night * 0.7 + n2 * 2.2;
+    if (MAT.elfglow) MAT.elfglow.emissiveIntensity = 0.45 + _night * 0.5 + n2 * 1.1;
   }
   const cand = []; let candN = 0; let _stamp = 0;
   const near = []; let nearN = 0;
@@ -23204,8 +23354,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 <script data-module="17_postfx.js">
 /* ==== 17_postfx.js — Post-processing pipeline (G.PostFX). Self-written (no EffectComposer): the scene is
  * rendered into a linear HalfFloat render target, a soft-knee bright pass (half res) feeds a 2-iteration
- * separable 9-tap gaussian blur (quarter res, ping-pong), then a tonemap pass (bloom add → exposure → ACES
- * filmic → saturation/tint/vignette → sRGB encode, contrast, luma in alpha) writes an 8-bit LDR target and a
+ * separable 9-tap gaussian blur (quarter res, ping-pong), then a tonemap pass (bloom add → exposure → linear
+ * filmic contrast around 18 % grey → ACES filmic → saturation/split-tone/vignette → sRGB encode, luma in
+ * alpha) writes an 8-bit LDR target and a
  * final pass applies FXAA 3.11 (quality preset 12), CAS-style edge-aware sharpening and film grain straight
  * to the screen. Quality presets drive pixel ratio / render scale, bloom resolution, shadow map size
  * (G.Sky.setShadowQuality) and vegetation density (G.Veg.setDensity).
@@ -23342,24 +23493,34 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     '  }',
     '  if (uBloom > 0.0) col += texture2D(tBloom, vUv).rgb * uBloom;',
     '  col = max(col * uExposure, vec3(0.0));',
+    // Contrast is applied in LINEAR light around a 0.30 pivot (roughly a sunlit scene's average), BEFORE the
+    // tonemap: the filmic shoulder rolls the lifted highlights off instead of clipping them, and shadows deepen
+    // without the flat crush a post-sRGB stretch gives. The pivot keeps overall brightness where it was. The
+    // strength eases back to 1.0 in the deepest lows so night scenes and forest floors keep their shadow detail
+    // instead of going to solid black.
+    '  if (uContrast != 1.0) {',
+    '    float cw = smoothstep(0.004, 0.055, lumaLin(col));',
+    '    float ce = mix(1.0, uContrast, cw);',
+    '    col = pow(max(col, vec3(1e-5)) * 3.3333333, vec3(ce)) * 0.30;',
+    '  }',
     '  if (uTonemap > 0.5) col = acesFilmic(col); else col = min(col, vec3(1.0));',
     '  float l = lumaLin(col);',
     '  col = mix(vec3(l), col, uSaturation);',
+    // Split tone: warm shadows / cool highlights, with a touch of extra saturation left in the midtones.
     '  if (uTint > 0.0) {',
-    '    float w = smoothstep(0.0, 0.55, l);',
-    '    vec3 tc = mix(vec3(1.05, 0.99, 0.93), vec3(0.95, 0.99, 1.05), w);',
+    '    float w = smoothstep(0.02, 0.62, l);',
+    '    vec3 tc = mix(vec3(1.075, 0.995, 0.905), vec3(0.958, 0.992, 1.058), w);',
     '    col *= mix(vec3(1.0), tc, uTint);',
-    '    col += uTint * (1.0 - w) * vec3(0.012, 0.008, 0.005);',
+    '    col += uTint * (1.0 - w) * vec3(0.014, 0.008, 0.004);',
     '  }',
     '  if (uVignette > 0.0) {',
     '    vec2 q = (vUv - 0.5) * 2.0;',
     '    q.x *= uAspect;',
     '    float dv = length(q) / length(vec2(uAspect, 1.0));',
-    '    col *= mix(1.0, smoothstep(1.2, 0.3, dv), uVignette);',
+    '    col *= mix(1.0, smoothstep(1.25, 0.32, dv), uVignette);',
     '  }',
     '  col = clamp(col, 0.0, 1.0);',
     '  vec3 s = toSRGB(col);',
-    '  s = clamp((s - 0.5) * uContrast + 0.5, 0.0, 1.0);',
     '  float ls = dot(s, vec3(0.299, 0.587, 0.114));',
     '  gl_FragColor = vec4(s, mix(ls, 1.0, uOutAlpha));',
     '}',
@@ -23989,16 +24150,16 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     quality: (G && G.state && G.state.quality) || 'high',
     renderScale: 1,
     params: {
-      bloom: 0.35,            // bloom intensity (0 = off)
-      exposure: 1.05,         // pre-tonemap exposure
-      vignette: 0.35,         // 0..1
-      saturation: 1.08,
-      contrast: 1.05,         // around sRGB mid-grey
-      bloomThreshold: 0.85,   // soft-knee threshold in linear HDR
+      bloom: 0.42,            // bloom intensity (0 = off)
+      exposure: 1.06,         // pre-tonemap exposure
+      vignette: 0.38,         // 0..1
+      saturation: 1.12,
+      contrast: 1.22,         // filmic contrast in LINEAR light around a 0.30 pivot (applied before the tonemap)
+      bloomThreshold: 0.80,   // soft-knee threshold in linear HDR
       bloomRadius: 1.0,       // blur step multiplier
       grain: 0.03,            // film grain amplitude (0 = off)
-      sharpen: 0.25,          // 0..1 CAS-style sharpening (0 = off)
-      tint: 0.15,             // warm shadows / cool highlights split-tone strength (0 = off)
+      sharpen: 0.45,          // 0..1 CAS-style sharpening (0 = off)
+      tint: 0.28,             // warm shadows / cool highlights split-tone strength (0 = off)
       aberration: 0,          // chromatic aberration (0 = off)
       tonemap: true,          // ACES filmic on/off (off = clamp; useful for calibration)
     },

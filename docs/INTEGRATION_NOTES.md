@@ -170,3 +170,42 @@
 - **Harness trap**: while the pointer is locked, every CDP move (`page.mouse.move`) arrives as a pair — one `mousemove` whose `movementX/Y` is the absolute target position, immediately followed by a recentering `mousemove` with the exact negation. They cancel inside one frame, so `Input.mouse.dx` nets to 0 and the camera never turns. Locked mouse-look therefore CANNOT be driven with `page.mouse.move`; dispatch a real event instead — `canvas.dispatchEvent(new MouseEvent('mousemove', {bubbles:true, movementX, movementY, buttons:0}))` — which runs the same `Input` handler while the lock is genuinely held. Unlocked RMB-drag look is unaffected and tests fine with `page.mouse.move`.
 - Measured at `mouseSens` 1: yaw = −dx × 0.0022 rad, pitch = +dy × 0.0022 rad (`MOUSE_SENS` in 20_player.js), pitch clamped to ±80°, `invertY` negates pitch exactly, `mouseSens` scales linearly.
 - Fixed in 00_core.js: `pointerlockerror` used to force `Input.mouse.locked = false`. Chromium fires that error for the superseded `requestPointerLock({unadjustedMovement:true})` attempt (unsupported under swiftshader) and it can land *after* the lock is established — leaving a live lock reported as unlocked, i.e. hidden cursor + frozen camera with no later `pointerlockchange` to correct it, and `requestLock()` unable to recover because a repeat request on an already-locked element resolves without firing a change event. Lock state is now always re-derived from `document.pointerLockElement` (`syncLock()`), which `onLockError`, `exitLock` and `requestLock` all call.
+
+## Beauty pass (postfx / terrain / vegetation / sky / buildings)
+Judged from before/after screenshot pairs at Hobbiton (−1050,−140), Bree (−250,−20), Evendim shore (−250,−900),
+Rivendell (1400,40), the Misty Mountains (1650,−450) and a Trollshaws wood (1150,0), each at 13:00 and 18:30
+(`tools/out/base-*.png` → `tools/out/r3-*.png`; the grade sweep is `tools/out/a2-<place>-c10|c18|c26.png`).
+
+- **17_postfx** — `params.contrast` no longer stretches the sRGB image around mid-grey (which clipped and flattened);
+  it is now a **filmic contrast in linear light around a 0.30 pivot, applied BEFORE the ACES curve**, so the shoulder
+  rolls the lifted highlights off instead of clipping and the shadows deepen cleanly. The strength eases back to 1.0
+  below ≈ 0.05 linear (`smoothstep(0.004, 0.055, luma)`) so night scenes and forest floors keep shadow detail. The
+  split tone is stronger and pivots higher (warm shadows / cool highlights). New defaults: exposure 1.06, contrast
+  1.22, saturation 1.12, bloom 0.42 @ threshold 0.80, vignette 0.38, sharpen 0.45, tint 0.28. **Anything reading
+  `params.contrast` must know the semantics changed** — 1.0 is still neutral, but values now behave like an ACES
+  contrast, not a levels stretch. A pivot of 0.18 was tried first and rejected: it brightened every daylit scene.
+- **10_terrain** — the detail map now packs three independent tileable noises (`.r` mid-scale mottling, `.g` a slow
+  field, `.b` fine grit) and the material samples it at three UV scales: ~1.3 m grit (fades by 32 m), the old ~6 m
+  mottling (now out to 150 m) and a ~57 m macro band that **never** fades, plus a macro hue drift. That is what stops
+  town squares and meadows reading as flat painted card. `.b` doubles as a height field for a **bumped normal**
+  within 42 m (world-space perturbation transformed by `viewMatrix`), which is why close ground now catches the light.
+  All of it is faded on steep faces (`dUp`, from the new `vWorldN` varying) because the map is planar in world XZ and
+  used to smear badly on cliffs. Cache key is `terrain_detail_v3`; cost is 2–4 extra texture fetches, no new draw call.
+- **12_vegetation** — leaf translucency: canopy/blade vertices (`aVeg.y`) add `diffuse × sunColour × pow(dot(−sunV, V), 3)`
+  so foliage glows when you look into the sun through it. `makeMaterial(opts, fadeNear, fadeFar, trans)` gained the
+  strength (tree 0.55, grass/fern 0.7, detail 0.4, **rock 0**); `update()` feeds `uSunV` (view space) / `uSunCol` from
+  `G.Sky.sunDir` + `sun.color/intensity`, all guarded. Trees also take a **grove-scale fbm tint** (≈ 250 m features) on
+  top of a wider per-tree jitter, so neighbouring stands differ. `fillGrass` now scatters **dry straw tufts on packed
+  earth** (`grassKind()` returns 2 for `dirt`, 28 % keep rate, shorter, ground-keyed straw colour) — Bree's square is
+  no longer bare canvas. Grass ring 45 m/210 → 50 m/245 (fade 38→50). Bush/shrub base colours lifted a step (hedges
+  were reading as black scribbles). Program cache key is `veg_wind2_*`.
+- **11_sky** — the hemisphere fill is biased toward the (warm) horizon at twilight instead of being desaturated toward
+  grey, and the ambient fill is tinted toward the horizon colour **at the same luminance** during dawn/dusk. Before
+  this, trees stayed plastic-green under a burning sunset.
+- **13_buildings** — `nightFactor()` widened (`(0.68 − lightLevel)/0.52`) so windows, lamps and hearths light up from
+  late afternoon; glow ramps are now `a + n·b + n²·c` (soft at dusk, blooming at night) and the window emissive is
+  warmer (`0xffbe72`). Batching applies a deterministic **per-building colour drift** (±9 % value + a small warm/cool
+  shift, `buildingTint`/`tintBatchGeo`) to the cloned geometry — recipe geometry is shared, so this is the only place
+  a house can be made to differ from its neighbour.
+- Not changed: 16_fx (impact/ability FX are already dense, and the lower bloom threshold makes them pop more), the
+  water shader and the sky dome shader (both already looked good in the before pass).

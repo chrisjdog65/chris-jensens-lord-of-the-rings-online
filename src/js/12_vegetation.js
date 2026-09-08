@@ -285,7 +285,9 @@
     deadBark: hexRGB(0x46403a), deadBarkTop: hexRGB(0x736a5f),
     snowBark: hexRGB(0x3b2e25), snowNeedle: hexRGB(0x31593c), snowNeedleTop: hexRGB(0x5f8f5a),
     malBark: hexRGB(0x9b9b96), malBarkTop: hexRGB(0xbdbbb1), malLeaf: hexRGB(0xc59a2e), malLeafTop: hexRGB(0xf5d867),
-    bush: hexRGB(0x3a7529), bushTop: hexRGB(0x78b23c), shrub: hexRGB(0x6d7b44), shrubTop: hexRGB(0xa2a866),
+    // bushes/hedges sit low, so their visible faces get almost no sun — the base colours are lifted a step so a
+    // hedgerow reads as dark green foliage rather than a black scribble along the field edge
+    bush: hexRGB(0x4a8434), bushTop: hexRGB(0x8cc24a), shrub: hexRGB(0x7a8850), shrubTop: hexRGB(0xafb473),
     rock: hexRGB(0x75736c), rockTop: hexRGB(0x9d9b93), moss: hexRGB(0x5b7a37),
     cut: hexRGB(0xc8ab7a), reed: hexRGB(0x5e7f33), reedTop: hexRGB(0xc3c66d), stem: hexRGB(0x3f7a2a),
     white: [1, 1, 1], cream: hexRGB(0xe8dcc3), capUnder: hexRGB(0xd9cbb0),
@@ -544,19 +546,28 @@
    * aVeg  (per vertex, vec2): x = sway weight, y = canopy flag (tint + snow apply where 1)
    * aInst (per instance, vec4): rgb = canopy tint multiplier, w = snow amount
    * ---------------------------------------------------------------------------------------------- */
-  const uniforms = { uTime: { value: 0 }, uWind: { value: 1 }, uPlayer: { value: new THREE.Vector3() } };
+  const uniforms = {
+    uTime: { value: 0 }, uWind: { value: 1 }, uPlayer: { value: new THREE.Vector3() },
+    uSunV: { value: new THREE.Vector3(0, 1, 0) },       // view-space direction TOWARD the sun (fed by update())
+    uSunCol: { value: new THREE.Color(0, 0, 0) },       // sun colour × normalised intensity
+  };
   const WIND_PERIOD = Math.PI * 4 * 25;   // all wind frequencies are multiples of 0.5 → seamless wrap
-  function injectWind(shader, uFade) {
+  function injectWind(shader, uFade, uTrans) {
     shader.uniforms.uTime = uniforms.uTime;
     shader.uniforms.uWind = uniforms.uWind;
     shader.uniforms.uPlayer = uniforms.uPlayer;
+    shader.uniforms.uSunV = uniforms.uSunV;
+    shader.uniforms.uSunCol = uniforms.uSunCol;
     shader.uniforms.uFade = uFade;
+    shader.uniforms.uTrans = uTrans;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', [
         'attribute vec2 aVeg;', 'attribute vec4 aInst;', 'uniform float uTime;', 'uniform float uWind;', 'uniform vec3 uPlayer;', 'uniform vec2 uFade;',
+        'varying float vLeaf;',
         '#include <common>'].join('\n'))
       .replace('#include <color_vertex>', [
         '#include <color_vertex>',
+        '  vLeaf = aVeg.y;',
         '#ifdef USE_COLOR',
         '  vColor.rgb *= mix(vec3(1.0), aInst.rgb, aVeg.y);',
         '  vColor.rgb = mix(vColor.rgb, vec3(0.93, 0.95, 1.0), aInst.w * clamp((normal.y - 0.1) * 1.5, 0.0, 1.0) * aVeg.y);',
@@ -582,14 +593,26 @@
         '  }',
         '}',
         '#endif'].join('\n'));
+    // Leaf translucency: foliage lit from behind glows. Cheap wrap-around term driven by how much the camera is
+    // looking INTO the sun through the leaf; only canopy/blade vertices (aVeg.y = 1) take it, and uTrans is 0 on rock.
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', 'varying float vLeaf;\nuniform vec3 uSunV;\nuniform vec3 uSunCol;\nuniform float uTrans;\n#include <common>')
+      .replace('#include <opaque_fragment>', [
+        'if (uTrans > 0.0 && vLeaf > 0.01) {',
+        '  float bl = max(dot(-uSunV, normalize(vViewPosition)), 0.0);',
+        '  bl = bl * bl * bl;',
+        '  outgoingLight += diffuseColor.rgb * uSunCol * (uTrans * vLeaf * bl);',
+        '}',
+        '#include <opaque_fragment>'].join('\n'));
   }
   const MATS = {};
-  function makeMaterial(opts, fadeNear, fadeFar) {
+  function makeMaterial(opts, fadeNear, fadeFar, trans) {
     const m = new THREE.MeshStandardMaterial(Object.assign({ vertexColors: true, roughness: 0.92, metalness: 0.0 }, opts));
     const uFade = { value: new THREE.Vector2(fadeNear == null ? 1e6 : fadeNear, fadeFar == null ? 1e6 + 1 : fadeFar) };
-    m.userData.uFade = uFade;
-    m.onBeforeCompile = (shader) => injectWind(shader, uFade);
-    m.customProgramCacheKey = () => 'veg_wind_' + (opts.map ? 'a' : 'o') + (opts.flatShading ? 'f' : 's') + (fadeNear == null ? '' : 'd');
+    const uTrans = { value: trans == null ? 0 : trans };
+    m.userData.uFade = uFade; m.userData.uTrans = uTrans;
+    m.onBeforeCompile = (shader) => injectWind(shader, uFade, uTrans);
+    m.customProgramCacheKey = () => 'veg_wind2_' + (opts.map ? 'a' : 'o') + (opts.flatShading ? 'f' : 's') + (fadeNear == null ? '' : 'd');
     return m;
   }
   function paintGrassTexture(ctx, w, h) {
@@ -643,11 +666,11 @@
     return tex;
   }
   function buildMaterials() {
-    MATS.tree = makeMaterial({ side: THREE.FrontSide });
-    MATS.rock = makeMaterial({ flatShading: true, roughness: 0.95 });
-    MATS.grass = makeMaterial({ map: makeTexture(128, 128, paintGrassTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }, 33, 46);
-    MATS.fern = makeMaterial({ map: makeTexture(128, 128, paintFernTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }, 47, 62);
-    MATS.detail = makeMaterial({ side: THREE.FrontSide }, 38, 52);
+    MATS.tree = makeMaterial({ side: THREE.FrontSide }, null, null, 0.55);
+    MATS.rock = makeMaterial({ flatShading: true, roughness: 0.95 }, null, null, 0);
+    MATS.grass = makeMaterial({ map: makeTexture(128, 128, paintGrassTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }, 38, 50, 0.7);
+    MATS.fern = makeMaterial({ map: makeTexture(128, 128, paintFernTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }, 47, 62, 0.7);
+    MATS.detail = makeMaterial({ side: THREE.FrontSide }, 38, 52, 0.4);
   }
 
   /* ------------------------------------------------------------------------------------------------
@@ -852,9 +875,14 @@
     const rng = makeRng(cellSeed(cx, cz, 1));
     const towns = townsNear(xc, zc, CELL);
     const dark = prof.darkTint || null;
+    // grove-scale colour drift (≈ 200–300 m features): neighbouring stands of trees read as different stands
+    // instead of one continuous sheet of the same green. Mean-neutral, deterministic (fbm, not rng).
+    const gvA = clamp(fbm(xc * 0.0034 + 21.7, zc * 0.0034 - 11.3, 2) * 0.5 + 0.5, 0, 1);
+    const gvB = clamp(fbm(xc * 0.0071 - 5.1, zc * 0.0071 + 9.4, 2) * 0.5 + 0.5, 0, 1);
+    const grove = [0.925 + 0.15 * gvA, 0.955 + 0.09 * gvB, 0.86 + 0.28 * (1 - gvA)];
     const spawnTree = (type, x, z, y, s, keepFar, tintMul) => {
       const spec = TYPES[type];
-      const jr = 0.88 + rng() * 0.22, jg = 0.9 + rng() * 0.2, jb = 0.82 + rng() * 0.22;
+      const jr = (0.85 + rng() * 0.30) * grove[0], jg = (0.88 + rng() * 0.24) * grove[1], jb = (0.78 + rng() * 0.30) * grove[2];
       let tr = jr, tg = jg, tb = jb;
       if (dark) { tr *= dark[0]; tg *= dark[1]; tb *= dark[2]; }
       if (tintMul) { tr *= tintMul[0]; tg *= tintMul[1]; tb *= tintMul[2]; }
@@ -1194,6 +1222,14 @@
     if (T.onRoad && T.onRoad(x, z) > 0.12) return false;
     return true;
   }
+  // 0 = nothing grows, 1 = meadow grass, 2 = packed earth (town squares, worn ground): sparse dry tufts only
+  function grassKind(T, x, z) {
+    const gt = T.groundType ? T.groundType(x, z) : (T.height(x, z) > SEA ? 'grass' : 'water');
+    if (gt !== 'grass' && gt !== 'dirt') return 0;
+    if (T.onRoad && T.onRoad(x, z) > 0.12) return 0;
+    return gt === 'grass' ? 1 : 2;
+  }
+  const DRY_TUFT = [1.20, 1.02, 0.60];
   function fillGrass(x0, z0, base, ring) {
     const T = G.Terrain; if (!T || !T.height) return;
     const P = ring.patch, zone = zoneAtPos(x0 + P / 2, z0 + P / 2), prof = profileFor(zone);
@@ -1209,22 +1245,36 @@
     let allGrass = 0, anyGrass = false;
     for (let i = 0; i < 5; i++) {
       const sx = x0 + P * (i === 4 ? 0.5 : (i & 1 ? 0.8 : 0.2)), sz = z0 + P * (i === 4 ? 0.5 : (i & 2 ? 0.8 : 0.2));
-      if (grassOK(T, sx, sz)) { allGrass++; anyGrass = true; }
+      const kd = grassKind(T, sx, sz);
+      if (kd === 1) { allGrass++; anyGrass = true; } else if (kd === 2) anyGrass = true;
     }
     if (!anyGrass) return;
     const perBlade = allGrass < 5;
     for (let k = 0; k < n; k++) {
       const x = x0 + rng() * P, z = z0 + rng() * P;
-      if (perBlade && !grassOK(T, x, z)) continue;
+      let dry = 0;
+      if (perBlade) {
+        const kd = grassKind(T, x, z);
+        if (kd === 0) continue;
+        // packed earth keeps a scatter of dry tufts — enough to stop town squares reading as bare canvas
+        if (kd === 2) { if (rng() > 0.28) continue; dry = 1; }
+      }
       const y = T.height(x, z);
       if (!perBlade && y < SEA + 0.15) continue;
       const u = clamp((x - x0) / P, 0, 1), v = clamp((z - z0) / P, 0, 1);
       for (let c = 0; c < 3; c++) _gc[c] = lerp(lerp(_gc4[0][c], _gc4[1][c], u), lerp(_gc4[2][c], _gc4[3][c], u), v);
       const j = 0.85 + rng() * 0.3;
       // ground colour × zone grass colour (normalised so mid-green ground stays mid-green), biome tint, jitter
-      let r = _gc[0] * _zc[0] * 2.6 * j, g = _gc[1] * _zc[1] * 2.2 * j, b = _gc[2] * _zc[2] * 2.4 * j;
-      if (gt) { r *= gt[0]; g *= gt[1]; b *= gt[2]; }
-      const s = (0.75 + rng() * 0.55), sy = s * hMul * (0.8 + rng() * 0.45);
+      let r, g, b;
+      if (dry) {
+        // straw growing out of packed earth: keyed off the GROUND colour (never the zone's green) and lifted a
+        // little so the tufts read against the dust instead of turning into dark specks
+        r = _gc[0] * DRY_TUFT[0] * j; g = _gc[1] * DRY_TUFT[1] * j; b = _gc[2] * DRY_TUFT[2] * j;
+      } else {
+        r = _gc[0] * _zc[0] * 2.6 * j; g = _gc[1] * _zc[1] * 2.2 * j; b = _gc[2] * _zc[2] * 2.4 * j;
+        if (gt) { r *= gt[0]; g *= gt[1]; b *= gt[2]; }
+      }
+      const s = (0.75 + rng() * 0.55) * (dry ? 0.85 : 1), sy = s * hMul * (0.8 + rng() * 0.45) * (dry ? 0.78 : 1);
       ringWrite(ring, base + k, x, y - 0.03, z, rng() * Math.PI * 2, s, sy, s, clamp(r, 0, 1.6), clamp(g, 0, 1.6), clamp(b, 0, 1.6), 0, (rng() - 0.5) * 0.25, (rng() - 0.5) * 0.25);
     }
   }
@@ -1282,7 +1332,7 @@
     }
   }
   function buildRings() {
-    makeRing('grass', DETAIL_GEOMS.grass, MATS.grass, 45, 8, 210, fillGrass);
+    makeRing('grass', DETAIL_GEOMS.grass, MATS.grass, 50, 8, 245, fillGrass);
     makeRing('flower', DETAIL_GEOMS.flower, MATS.detail, 52, 16, 40, fillFlowers);
     makeRing('fern', DETAIL_GEOMS.fern, MATS.fern, 60, 16, 16, fillFerns);
     makeRing('mushroom', DETAIL_GEOMS.mushroom, MATS.detail, 50, 16, 12, fillMushrooms);
@@ -1303,6 +1353,24 @@
     if (typeof G.on === 'function') G.on('weatherChanged', (kind) => { if (WEATHER_WIND[kind] != null) setWind(WEATHER_WIND[kind]); });
     log('built', Object.keys(MESHES).length, 'types');
   }
+  // Feed the leaf-translucency uniforms: sun direction in VIEW space + its colour scaled by how strong it is.
+  // Guarded end to end — if there is no Sky or camera yet the term simply stays black.
+  const _sunW = new THREE.Vector3();
+  function updateSunUniforms() {
+    const S = G.Sky;
+    const cam = (G.Player && G.Player.camera) || (G.Game && G.Game.camera) || null;
+    const col = uniforms.uSunCol.value;
+    if (!S || !cam || !S.sun) { col.setRGB(0, 0, 0); return; }
+    const dir = S.sunDir || (S.getSunDir ? S.getSunDir(_sunW) : null);
+    if (!dir) { col.setRGB(0, 0, 0); return; }
+    const up = dir.y;
+    if (up <= 0.01) { col.setRGB(0, 0, 0); return; }
+    _sunW.set(dir.x, dir.y, dir.z);
+    if (cam.matrixWorldInverse) _sunW.transformDirection(cam.matrixWorldInverse);
+    uniforms.uSunV.value.copy(_sunW).normalize();
+    const k = clamp((S.sun.intensity || 0) / 3, 0, 1.1) * clamp(up * 4, 0, 1);
+    col.copy(S.sun.color).multiplyScalar(k);
+  }
   function update(playerPos, dt) {
     if (!built || !playerPos) return;
     const px = playerPos.x, pz = playerPos.z;
@@ -1312,6 +1380,7 @@
     wind += (windTarget - wind) * Math.min(1, dt * 1.2);
     uniforms.uWind.value = wind;
     uniforms.uTime.value = ((G.time && typeof G.time.now === 'number') ? G.time.now : tAcc) % WIND_PERIOD;
+    updateSunUniforms();
 
     const pcx = Math.floor(px / CELL), pcz = Math.floor(pz / CELL);
     if (pcx !== lastCellX || pcz !== lastCellZ) {

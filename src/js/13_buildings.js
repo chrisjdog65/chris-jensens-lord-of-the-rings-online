@@ -319,7 +319,7 @@
       case 'rug_elf': m = new T.MeshStandardMaterial({ map: makeTex(256, 256, texRug('elf'), false), roughness: 1 }); break;
       case 'rug_dwarf': m = new T.MeshStandardMaterial({ map: makeTex(256, 256, texRug('dwarf'), false), roughness: 1 }); break;
       case 'water': m = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.35, transparent: true, opacity: 0.85 }); break;
-      case 'glass': m = new T.MeshStandardMaterial({ color: 0x5a6a7a, emissive: 0xffb050, emissiveIntensity: 0.08, roughness: 0.25, metalness: 0.4 }); break;
+      case 'glass': m = new T.MeshStandardMaterial({ color: 0x5a6a7a, emissive: 0xffbe72, emissiveIntensity: 0.08, roughness: 0.25, metalness: 0.4 }); break;
       case 'ember': m = new T.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, emissive: 0xff5a10, emissiveIntensity: 1.6, roughness: 0.9 }); break;
       case 'lampglow': m = new T.MeshStandardMaterial({ color: 0xfff1c8, emissive: 0xffc070, emissiveIntensity: 0.15, roughness: 0.6 }); break;
       case 'elfglow': m = new T.MeshStandardMaterial({ color: 0xe8f2ff, emissive: 0x9ec8ff, emissiveIntensity: 0.5, roughness: 0.5 }); break;
@@ -2389,6 +2389,26 @@
     return { minx: bb.min.x, maxx: bb.max.x, minz: bb.min.z, maxz: bb.max.z, box: bb.clone() };
   }
   function newCell() { return { ext: {}, roof: {}, rec: { meshes: [], blds: [], split: false, inside: 0 } }; }
+  /* Per-building colour drift. Recipe geometry is cached and shared, so the only place a house can be made to
+     differ from its neighbour is the batching clone. A ±9 % brightness step plus a small warm/cool shift is enough
+     to break up a terrace of identical plaster-and-timber fronts; it is deterministic (hash2 of the position). */
+  const _bTint = [1, 1, 1];
+  function buildingTint(bld, out) {
+    const h1 = hash2(bld.x * 0.0713 + 3.1, bld.z * 0.0911 - 5.7);
+    const h2 = hash2(bld.z * 0.0517 + 9.3, bld.x * 0.0637 + 1.9);
+    const v = 0.91 + h1 * 0.18;
+    out[0] = v * (0.968 + h2 * 0.064); out[1] = v * (0.99 + h2 * 0.02); out[2] = v * (1.042 - h2 * 0.084);
+    return out;
+  }
+  function tintBatchGeo(g, t) {
+    const c = g.attributes && g.attributes.color;
+    if (!c || !c.array) return;
+    const a = c.array;
+    for (let i = 0; i + 2 < a.length; i += 3) {
+      a[i] = Math.min(1, a[i] * t[0]); a[i + 1] = Math.min(1, a[i + 1] * t[1]); a[i + 2] = Math.min(1, a[i + 2] * t[2]);
+    }
+    c.needsUpdate = true;
+  }
   let _batchMs = 0;
   function batchStatic(list, label) {
     if (!Array.isArray(list) || !list.length) return null;
@@ -2403,6 +2423,7 @@
       // An enterable's roof goes into the cell's own ROOF batch, which is split back into its per-building meshes
       // while the player is inside one of them (that is the only time a single roof has to vanish on its own).
       const split = !!(bld.roof && bld.enterable);
+      buildingTint(bld, _bTint);
       let tookExt = 0, tookRoof = 0;
       for (const sub of [bld.ext, bld.roof]) {
         if (!sub) continue;
@@ -2412,6 +2433,7 @@
           const mat = String(mesh.material.name || '').replace(/^bld_/, '');
           if (!mat || mat === 'banner') continue;
           const g = mesh.geometry.clone(); g.applyMatrix4(mesh.matrixWorld);
+          tintBatchGeo(g, _bTint);
           // One bucket per (cell, material): small props ride along in the wall geometry's draw call, so keeping them
           // out of the shadow map would cost a whole extra mesh. A bucket only stays out of the shadow pass when
           // NOTHING in it casts (a cell of nothing but crates, fences, lamps and signs).
@@ -2644,14 +2666,17 @@
     let ll = 1;
     if (G.Sky && typeof G.Sky.lightLevel === 'number') ll = G.Sky.lightLevel;
     else if (G.time && typeof G.time.dayTime === 'number') { const h = G.time.dayTime; ll = (h > 6.5 && h < 19.5) ? 1 : (h > 5 && h <= 6.5) ? (h - 5) / 1.5 : (h >= 19.5 && h < 21) ? (21 - h) / 1.5 : 0; }
-    return clamp((0.5 - ll) / 0.4, 0, 1);
+    // lamps and hearths are lit from late afternoon on, not only once it is properly dark — a town at dusk
+    // with every window black reads as abandoned
+    return clamp((0.68 - ll) / 0.52, 0, 1);
   }
   let _night = 0;
   function updateMaterials() {
     _night = nightFactor();
-    if (MAT.glass) MAT.glass.emissiveIntensity = 0.06 + _night * 1.5;
-    if (MAT.lampglow) MAT.lampglow.emissiveIntensity = 0.12 + _night * 1.9;
-    if (MAT.elfglow) MAT.elfglow.emissiveIntensity = 0.45 + _night * 1.3;
+    const n2 = _night * _night;                                     // ramp slowly at dusk, then bloom hard at night
+    if (MAT.glass) MAT.glass.emissiveIntensity = 0.05 + _night * 0.55 + n2 * 2.1;
+    if (MAT.lampglow) MAT.lampglow.emissiveIntensity = 0.10 + _night * 0.7 + n2 * 2.2;
+    if (MAT.elfglow) MAT.elfglow.emissiveIntensity = 0.45 + _night * 0.5 + n2 * 1.1;
   }
   const cand = []; let candN = 0; let _stamp = 0;
   const near = []; let nearN = 0;
