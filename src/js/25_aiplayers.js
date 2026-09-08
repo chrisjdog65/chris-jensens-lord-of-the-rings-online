@@ -1345,8 +1345,8 @@
     if (e._d2 > RENDER_DROP * RENDER_DROP) { if (e.boatRig) disposeBoat(e); return; }
     const rig = e.rig;
     if (!rig) { if (e.boatRig) disposeBoat(e); return; }                      // no rig within the budget → nothing to seat
-    if (e._d2 > RENDER_DIST * RENDER_DIST && !e.boatRig) return;
-    const b = ensureBoat(e); if (!b) return;
+    const b = (e.boatRig || e._d2 <= RENDER_DIST * RENDER_DIST) ? ensureBoat(e) : null;
+    if (!b) { syncRig(e); return; }                                           // boat not built yet (frame budget / outer band): rig still follows
     if (rig.group.parent !== b.seat) {
       if (rig.group.parent) rig.group.parent.remove(rig.group);
       b.seat.add(rig.group); rig.group.position.set(0, -0.08, 0); rig.group.rotation.set(0, 0, 0); rig.group.scale.set(1, 1, 1);
@@ -1361,7 +1361,7 @@
     const hC = waveH(x, z, tt), hF = waveH(x + fx * 1.4, z + fz * 1.4, tt), hR = waveH(x + rx * 0.7, z + rz * 0.7, tt);
     const g = b.group;
     g.position.set(x, num(C.SEA_LEVEL, 0) + hC - BOAT_DRAFT, z);
-    g.rotation.set(Math.atan2(hC - hF, 1.4) * 0.8 + Math.sin(tt * 1.3) * 0.012, yaw, Math.atan2(hR - hC, 0.7) * 0.8 + Math.sin(tt * 0.9) * 0.015, 'YXZ');
+    g.rotation.set(Math.atan2(hF - hC, 1.4) * 0.8 + Math.sin(tt * 1.3) * 0.012, yaw, Math.atan2(hR - hC, 0.7) * 0.8 + Math.sin(tt * 0.9) * 0.015, 'YXZ');   // +X pitch lifts the bow (−Z), +Z roll lifts starboard (+X)
     if (hasFn(b, 'animate')) { try { b.animate(tt); } catch (err) { /* cosmetic */ } }
     // rider: same LOD / shadow / nameplate rules as walkers (the sit state keeps the rig animated at LOD ≤ 1)
     const cam = cameraOf();
@@ -1995,7 +1995,7 @@
       for (let i = 0; i < nearList.length; i++) {
         const e = nearList[i];
         e._d2 = _dist2sq(p.pos.x, p.pos.z, e.pos.x, e.pos.z);
-        if (!e._near) {                                   // sailors are never "near" (no physics) but row a visible boat
+        if (!e._near || e.sailing) {                      // sailors skip physics (the next scan clears _near) but row a visible boat
           if (e.sailing || e.boatRig) { try { sailStep(e, dt, t); } catch (err) { report(err, 'sailStep'); } }
           continue;
         }
