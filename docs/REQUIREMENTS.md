@@ -40,5 +40,5 @@
 - [x] R41 Save/load (localStorage), continue from main menu.
 - [x] R42 Journal (J) also lists EVERY quest still left to do (including locked ones with their unlock requirement), with remaining counts.
 - [x] R43 Full auto-quest run (B) from a fresh level-1 character ends at 150/150 quests, level 80, wearing the complete Armour of the Lost Kingdom set, with zero errors (tools/verify.js --full-autoquest).
-- [ ] R44 Mouse look works without holding a button once the canvas is clicked (pointer lock), and RMB-drag look works without pointer lock.
+- [x] R44 Mouse look works without holding a button once the canvas is clicked (pointer lock), and RMB-drag look works without pointer lock.
 - [x] R45 Music is audible after the first click (zone theme playing, `G.Audio.currentTheme` set) and changes with zone/combat; SFX fire on actions (swing, hit, footsteps, UI).

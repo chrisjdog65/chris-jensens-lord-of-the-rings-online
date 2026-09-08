@@ -2953,7 +2953,7 @@
     for (const b of batchMeshes) { bm++; if (b.vis) bvis++; if (b.shadow) bshadow++; }
     return {
       buildings: all.length, enterable: enterables.length, doors, virtualLights: lights, pooledLights: pool.length,
-      batches: batches.length, batchedBuildings: batchedBlds, batchMeshes: bm, batchMeshesVisible: bvis, batchShadowCasters: bshadow,
+      batches: batches.length, batchedBuildings: batchedBlds, batchMeshes: bm, batchMeshesVisible: bvis, batchShadowCasters: bshadow, batchMs: Math.round(_batchMs),
       exteriorMeshes: ext, interiorMeshes: inter, cachedRecipes: CACHE.size,
     };
   }
