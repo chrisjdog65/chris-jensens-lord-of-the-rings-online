@@ -919,7 +919,8 @@
   }
   // guard pose: shield arm raised across the chest, weapon arm drawn back, a little crouch — blended over the rig's
   // own animation after rig.play() (the humanoid rig has no 'block' clip; 'block' aliases the short 'hit' flinch)
-  const GUARD = { armL: [0.95, 0.4, -0.5], forearmL: [1.35, 0.15, 0.3], handL: [-0.25, 0, 0], armR: [0.3, 0, 0.3], forearmR: [0.8, 0, 0], torso: [0.08, -0.15, 0] };
+  // joint conventions (14_characters): x = raise forward, left-arm z negative = out from the body (rest −0.22)
+  const GUARD = { armL: [1.05, 0, -0.02], forearmL: [1.45, 0, 0.4], handL: [-0.3, 0, 0], armR: [0.3, 0, 0.35], forearmR: [0.9, 0, -0.05], torso: [0.06, -0.12, 0] };
   const GUARD_KEYS = Object.keys(GUARD);
   function guardPose() {
     const k = S.blockT;

@@ -1620,10 +1620,11 @@
       const rg2 = new T.RingGeometry(R - 0.1, R + 0.35, 28); rg2.rotateX(-HPI); b.piece('ext', 'stone', rg2, 0, H + 1.2, 0, hex, { jit: 0.04 });
       for (let i = 0; i < 12; i++) { const a = i / 12 * TAU; b.box('ext', 'stone', 0.8, 0.8, 0.5, Math.sin(a) * (R + 0.1), H + 1.6, Math.cos(a) * (R + 0.1), hex, { ry: a, jit: 0.05 }); }
       // platform slab (with the stair opening) = the interior's ceiling: never hidden; radial joists under it clear of the opening
-      b.piece('int', 'stone', new T.CylinderGeometry(Ri + 0.02, Ri + 0.02, 0.3, 28, 1, false, PI - 0.5, TAU - 1.6), 0, H - 0.15, 0, 0x7d786f, { jit: 0.04 });
-      for (const ja of [0, 0.7, -0.7, 1.4, -1.4, 2.1, -2.1]) b.box('int', 'wood', 0.14, 0.16, Ri - 0.7, Math.sin(ja) * (Ri / 2 + 0.3), H - 0.38, Math.cos(ja) * (Ri / 2 + 0.3), 0x4a3220, { ry: ja, jit: 0.03 });
-      for (let i = 0; i < 12; i++) { const a0 = (i / 12) * TAU, a1 = ((i + 1) / 12) * TAU, am = (a0 + a1) / 2; let d = Math.atan2(Math.sin(am - PI), Math.cos(am - PI)); if (Math.abs(d) < 0.55) continue; const cx = Math.sin(am) * Ri * 0.55, cz = Math.cos(am) * Ri * 0.55; b.boxCol(cx - 0.9, H - 0.3, cz - 0.9, cx + 0.9, H, cz + 0.9, true); }
-      b.boxCol(-1.2, H - 0.3, -1.2, 1.2, H, 1.2, true);
+      // the opening spans PI-1.4 … PI+0.2: head-room over the last treads (which climb towards PI) and solid floor right after the top one
+      b.piece('int', 'stone', new T.CylinderGeometry(Ri + 0.02, Ri + 0.02, 0.3, 28, 1, false, PI + 0.2, TAU - 1.6), 0, H - 0.15, 0, 0x7d786f, { jit: 0.04 });
+      for (const ja of [0, 0.7, -0.7, 1.4, 2.1, -2.3]) b.box('int', 'wood', 0.14, 0.16, Ri - 0.7, Math.sin(ja) * (Ri / 2 + 0.3), H - 0.38, Math.cos(ja) * (Ri / 2 + 0.3), 0x4a3220, { ry: ja, jit: 0.03 });
+      for (let i = 0; i < 16; i++) { const a0 = (i / 16) * TAU, a1 = ((i + 1) / 16) * TAU, am = (a0 + a1) / 2; const d = Math.atan2(Math.sin(am - PI), Math.cos(am - PI)); if (d > -1.4 && d < 0.2) continue; b.at(0, 0, am); b.boxCol(-0.6, H - 0.3, 0.55, 0.6, H, Ri + 0.1, true, 0.6); b.end(); }
+      b.boxCol(-0.9, H - 0.3, -0.9, 0.9, H, 0.9, true);
       b.cyl('ext', 'wood', 0.05, 0.06, 3.2, 6, 0, H + 1.6, 0, 0x4a3220); b.at(0.55, 0, 0, H + 3.0); b.plane('ext', 'cloth', 1.1, 0.7, 0, -0.35, 0, [0x8c2e2a, 0x3c5c8c, 0x3e6a44][v], { ry: HPI, jit: 0.03 }); b.end();
       F.lantern(b, 'ext', 0, H + 1.25, R - 0.4, { scale: 0.8, intensity: 16 });
       // interior floor + spiral stair around a central column
