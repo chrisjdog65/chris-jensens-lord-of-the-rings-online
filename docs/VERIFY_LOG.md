@@ -67,6 +67,44 @@ would have taken hours. The kill exercised the new failure path: "page closed un
 summary + report still written. A render-scale probe afterwards showed 0.15 fps at 1280×720 vs 0.55 fps at 640×360
 (`jsMs` 7.9 s → 1.2 s per frame; SwiftShader work is accounted inside the JS frame time), hence `--render-scale 0.5`.
 
+## Run 4 (2026-09-07T21:52Z) — 29/33 pass · boot 104 s · quick-start 101 s · calibration 0.00 frames/s → timeouts ×8.0 (game time ×3) · total 2048.4s  · headless throughput 0.65 frames/s (0.123 game-s per wall-s at time ×3, timeouts ×8.0)
+Frame-based waits, calibrated timeouts, quality pinned, render scale 0.5; `--fast --verbose`; 34 min while the box was at load 25–35 (calibration window saw 0 frames → timeouts ×8; measured 0.65 fps over the run). Runner completed and wrote the report (later overwritten by a fix agent's `--only` run, so this block is rebuilt from the log). Zero page/console/G.errors across the run (R02).
+- PASS R01: built file exists; file is a complete single page (one <html>, has </html>); size > 1 MB (engine + game inlined) (+7 checks)
+- PASS R02: all standard panels registered; each panel opens; each panel closes (+2 checks)
+- PASS R03: __T.stats() available; draw calls measurable; draw calls ≤ 600 at high (+3 checks)
+- PASS R04: PostFX pipeline enabled; bloom + FXAA features on; ACES tonemap + sharpen params (+5 checks)
+- PASS R10: found an open spot to run on; W moves forward ≥ 3 m along camera forward (1 game-second); S backpedals ≥ 2.5 m in 2 game-seconds (walk speed) (+3 checks)
+- PASS R11: pointer-lock API wired (G.Input.requestLock/lockSupported); RMB drag turns the camera (yaw changed); RMB vertical drag changes pitch (+2 checks)
+- PASS R12: camera is behind the player (looking along player forward); camera above the player and above terrain; camera follows at (or occlusion-clamped below) the requested distance (+5 checks)
+- PASS R13: roll ready before the test; rolling + invulnerable within a few frames of Q (0.15 game-s); roll moved the player (≈ ROLL_SPEED × ROLL_TIME) (+4 checks)
+- PASS R14: a ranged weapon is equipped (throwing); spawned a target 12 m ahead; target morale dropped within 3 game-s of R (projectile hit) (+1 checks)
+- PASS R15: found a door entity; E toggles the door open state; interact prompt showed the door (+4 checks)
+- PASS R16: I opens #panel-inventory; grid renders exactly 200 slots; player.inventory.length === 200 (+3 checks)
+- PASS R17: found a fishable shore (G.Fishing.canFish ok); standing at the water edge facing water; F starts fishing (state ≠ idle) (+2 checks)
+- PASS R18: open ground found; H mounts the horse (player.mounted); mounted run is faster (≥ 1.3× on foot, ≥ 8 m in 1.2 game-s) (+1 checks)
+- PASS R19: an active quest exists; J opens #panel-journal; journal lists quest entries (+4 checks)
+- FAIL R20: ERROR: elementHandle.click: Element is not attached to the DOM Call log: [2m - attempting click action[22m …
+- PASS R21: C opens #panel-character; 18 equipment slots rendered (G.C.EQUIP_SLOTS = 18); 3D preview present (+3 checks)
+- FAIL R22: completed ≥ 3 quests in 361 s wall / 105 game-s at time ×6 (0 → 2) [{"text":"Slaying Wild Boars 3/6","questId…
+- PASS R23: a tracked quest with a resolvable next objective; M opens #panel-map with a map canvas; map API (worldAt/centerOn) + world map canvas (+3 checks)
+- PASS R24: admin panel opens after typing chris; admin has the required tabs; admin gold API (G.Progress.addGold, used by the Player tab) changes the purse by +5 g (+3 checks)
+- PASS R25: 20 hotbar keys defined (1-0, G T V X Y Z L N O U); 20 hotbar slots, each labelled with its key; every key maps to a KeyboardEvent.code (+3 checks)
+- PASS R26: Space → player rises (jump); Tab targets the nearby monster; Escape closes the open panel (+4 checks)
+- PASS R30: 150 quests (100 story / 50 side); all quest ids unique and indexed; every giver / turn-in NPC exists (+5 checks)
+- PASS R31: G.C.LEVEL_CAP === 80; XP table finite and increasing at 80; setLevel(99) clamps at 80 (and restores) (+2 checks)
+- PASS R32: world size 4096 (±2048 m); zones ≥ 15; towns ≥ 25 (+4 checks)
+- PASS R33: ≥ 7 docks in the registry; dock routes are symmetric; boat API (board / sailTo / pathToZone / instantTravel) (+4 checks)
+- PASS R34: found the Prancing Pony (inn) building; G.Buildings.isInside(player.pos) is the inn; interior NPC within 12 m (innkeeper etc.) (+3 checks)
+- PASS R35: G.AIPlayers.list().length === 150; inspect(id) returns level/stats/equipment; spread over ≥ 8 zones, levels 1–80 (+4 checks)
+- PASS R36: P opens #panel-players; table lists ≥ 150 players (+ you); a row can be selected (+4 checks)
+- PASS R37: New Character opens the creation screen; 10 race cards; 10 class cards (+8 checks)
+- PASS R38: G.Audio.ready after a user gesture; ≥ 60 SFX names; ≥ 15 music themes (+2 checks)
+- FAIL R39: monster killed with hotbar abilities (17.6 game-s, 114 s wall); XP gained from the kill [{"xp":0,"gold":0,"lo…
+- FAIL R40: floating combat text spawns an element [{"layer":true,"before":3}]
+- PASS R41: G.Save.save() writes localStorage[cj_lotro_save_v1]; G.Save.load() returns the snapshot with the current level; exportJSON round-trips through importJSON (+5 checks)
+
+Run 4 root causes: R20 = suite bug (stale element handle after the abilities list re-rendered; fixed — locator click + level restored in `finally`); R39 = suite artefact (R20 left the player at level 12 in level-1 starter gear, so a level-12 bear could not be killed in the budget; fixed — level restore + admin damage ×3 for the fight); R40 = suite bug (float texts are pooled `.ftxt` spans, the check counted children; fixed — checks the text); R22 = bot completed 2 quests in 105 game-s, third needed more game time under load (budget now ≥ 240 game-s).
+
 ## Suite notes
 
 One headless-Chromium scenario per requirement id in `docs/REQUIREMENTS.md`. Usage:

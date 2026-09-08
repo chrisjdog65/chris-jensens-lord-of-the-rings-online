@@ -104,6 +104,10 @@
     blockedT: 0,
     lastInterior: null,
     turnKeys: false,
+    rmbHeld: false,            // right button held since a press that began on the canvas → block
+    blockT: 0,                 // guard-pose blend 0..1
+    resumeAuto: false,         // auto-attack was on when the guard went up → restore on release
+    attackQueued: false, attackQueuedT: 0,   // LMB pressed while the swing timer was running
   };
   P.autoRun = false;
   P.rolling = false;
@@ -196,7 +200,7 @@
       knockback: new THREE.Vector3(0, 0, 0),
       stats: {}, morale: 1, power: 1, alive: true, dead: false, deathTime: 0,
       effects: [], cooldowns: {},
-      target: null, threat: {}, hostile: false, faction: 'free', autoAttack: false, invulnerable: false, casting: null,
+      target: null, threat: {}, hostile: false, faction: 'free', autoAttack: false, invulnerable: false, casting: null, blocking: false,
       mesh: null, rig: null, anim: 'idle', animTime: 0, ai: null,
       xp: Math.max(0, num(spec.xp, 0)), gold: Math.max(0, num(spec.gold, 5 * ((C.MONEY && C.MONEY.SILVER) || 100)) | 0),
       inventory: new Array(nSlots).fill(null), equipment: equipment,
@@ -313,7 +317,8 @@
     S.blockedT = 0; S.interactT = 0; S.zoneT = 0; S.pivotInit = false; S.camSnap = true;
     S.zoom = cam.targetDist; S.camLen = cam.targetDist; cam.dist = cam.targetDist; S.distOut = cam.dist;
     _moveVel.set(0, 0, 0);
-    if (player) { player.invulnerable = false; _prevPos.copy(player.pos); }
+    if (player) { player.invulnerable = false; player.blocking = false; _prevPos.copy(player.pos); }
+    S.rmbHeld = false; S.blockT = 0; S.resumeAuto = false; S.attackQueued = false; S.attackQueuedT = 0;
     P.autoRun = false;
   }
 
@@ -783,8 +788,9 @@
     if (s === 'javelin' || s === 'throwing') return 'stone';
     return 'bolt';
   }
-  function frontHostile(range) {
-    if (!G.Spatial) return null;
+  function frontHostile(range, minDot) {
+    if (!G.Spatial || !player) return null;
+    if (typeof minDot !== 'number') minDot = 0.2;
     const px = player.pos.x, pz = player.pos.z;
     const fx_ = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
     G.Spatial.query(px, pz, range, tabFilter, _qbuf2);
@@ -792,7 +798,7 @@
     for (let i = 0; i < _qbuf2.length; i++) {
       const e = _qbuf2[i]; const dx = e.pos.x - px, dz = e.pos.z - pz; const d = Math.sqrt(dx * dx + dz * dz);
       if (d < 1e-3) { best = e; break; }
-      const dot = (dx * fx_ + dz * fz) / d; if (dot < 0.2) continue;
+      const dot = (dx * fx_ + dz * fz) / d; if (dot < minDot) continue;
       const score = d * (1.6 - dot);
       if (score < bestD) { bestD = score; best = e; }
     }
