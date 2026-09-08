@@ -674,21 +674,33 @@
   }
   function capeGeo(d, col, col2, len) {
     return cached('cape|' + d.key + '|' + col + '|' + col2 + '|' + len.toFixed(2), () => {
-      // a narrow cloth (≈ shoulder width, never wider) that curls forward over the shoulders at the top and
-      // bulges gently backwards towards the hem; hangs from the shoulder line behind the back, hem at mid-shin
-      const w = d.shoulderHalf * 1.55, wrap = d.shoulderHalf * 0.3, bulge = len * 0.045;
-      const g = new THREE.PlaneGeometry(w, len, 6, 10);
+      // A cloak: a cloth pinned at the shoulder line behind the back, never wider than the shoulders, hem at mid-shin
+      // so the legs read below it. Vertical folds are baked into the vertex colours (with the wind shader on top) so
+      // it drapes instead of reading as a flat slab, and the top band is the darker trim/clasp.
+      const w = d.shoulderHalf * 1.5, wrap = d.shoulderHalf * 0.3, bulge = len * 0.045;
+      const g = new THREE.PlaneGeometry(w, len, 8, 10);
       const p = g.getAttribute('position');
       for (let i = 0; i < p.count; i++) {
         const x = p.getX(i), y = p.getY(i); const t = (y + len / 2) / len;         // 1 at the top
         const xn = x / (w / 2);
-        p.setX(i, x * lerp(1.0, 0.9, t));                                        // slightly narrower at the shoulders, never flared past them
-        p.setZ(i, -wrap * xn * xn * (0.35 + 0.65 * t) + bulge * (1 - t) * (1 - t));
+        p.setX(i, x * lerp(1.1, 0.9, t));                                          // pinned narrow at the shoulders, a little wider at the hem
+        // folds: a shallow wave across the cloth that deepens towards the hem, plus the shoulder wrap and back bulge
+        const fold = sin(xn * PI * 2.5) * 0.012 * (1 - t * 0.55) * d.s;
+        p.setZ(i, -wrap * xn * xn * (0.35 + 0.65 * t) + bulge * (1 - t) * (1 - t) + fold);
       }
       g.translate(0, -len / 2, 0); g.computeVertexNormals();
       const c = _paint(g, col);
-      const ca = c.getAttribute('color'); _colTmp.setHex(toHex(col2));
-      for (let i = 0; i < p.count; i++) { if (p.getY(i) > -len * 0.1) { ca.setXYZ(i, _colTmp.r, _colTmp.g, _colTmp.b); } }
+      const ca = c.getAttribute('color');
+      const base = new THREE.Color(), trim = new THREE.Color();
+      base.setHex(toHex(col)); trim.setHex(toHex(col2));
+      const hw = w / 2;
+      for (let i = 0; i < p.count; i++) {
+        const top = p.getY(i) > -len * 0.08;                                        // collar / clasp band
+        const xn = clamp(p.getX(i) / hw, -1, 1);
+        const shade = 0.82 + 0.18 * (0.5 + 0.5 * cos(xn * PI * 2.5));               // fold shading, darkest in the creases
+        const src = top ? trim : base;
+        ca.setXYZ(i, src.r * shade, src.g * shade, src.b * shade);
+      }
       return c;
     });
   }

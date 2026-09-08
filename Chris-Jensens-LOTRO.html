@@ -15982,7 +15982,16 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
             if (h.arch) b.torus('ext', 'wood', h.w / 2 + 0.05, 0.08, s, h.y + h.h - h.w / 2, 0, woodHex, { sz: (t + 0.16) / 0.16 });
             else b.box('ext', 'wood', h.w + fw * 2, fw + 0.04, t + 0.16, s, h.h + 0.06, 0, woodHex);
           }
-          b.box('ext', 'stone', (h.r ? h.r * 2 : h.w) + 0.5, 0.12, 0.9, s, -0.02, -t / 2 - 0.4, 0x8d8579, { jit: 0.06 });
+          // Doorstep. The slab is only decoration, so the walk-in also gets floor colliders in 0.25 m tiers marching
+          // down and out from the threshold: on flat ground the lower tiers are buried and ignored, and on a slope
+          // (where the interior floor can sit ~1 m above the grade outside, far beyond the 0.6 m step-up) they turn
+          // an unclimbable lip into a short flight. Without them a plinthed house is simply not enterable downhill.
+          const dw = (h.r ? h.r * 2 : h.w) + 0.4;
+          b.box('ext', 'stone', dw + 0.1, 0.12, 0.9, s, -0.02, -t / 2 - 0.4, 0x8d8579, { jit: 0.06 });
+          for (let k = 0; k < 5; k++) {
+            const yTop = 0.05 - k * 0.25, z1 = -t / 2 - 0.1 - k * 0.42, z0 = z1 - (k === 0 ? 0.5 : 0.44);
+            b.boxCol(s - dw / 2, yTop - 0.45, z0, s + dw / 2, yTop, k === 0 ? t / 2 : z1, true, 1.2);
+          }
           const dp = sideMap(side, W, D, h.u);
           b.end();
           b.door({ x: dp.x, z: dp.z, ry: c.ry, w: h.r ? h.r * 2 : h.w, h: h.r ? h.r * 2 : h.h, kind: h.kind || (h.r ? 'round' : h.arch ? 'arch' : 'plain'), hinge: h.hinge || -1, leaves: h.leaves || 1, hex: h.doorHex, y: h.r ? h.y - h.r : 0, t });
@@ -16452,7 +16461,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       for (let i = 0; i < idx.length; i += 3) { const a = idx[i], b2 = idx[i + 1], c = idx[i + 2]; if (flat[a] && flat[b2] && flat[c] && (flat[a] === 2 || flat[b2] === 2 || flat[c] === 2)) continue; keep.push(a, b2, c); }
       mg.setIndex(keep);
       b.piece('roof', 'grass', mg, 0, MY, MZ, 0x6f9a48, { jit: 0.06, faceJit: false });
-      b.cyl('roof', 'grass', RX * 1.03, RX * 1.06, 1.2, 32, 0, -0.55, MZ, 0x6b9446, { sz: RZ / RX, jit: 0.05 });  // skirt hides slope gaps
+      b.cyl('roof', 'grass', RX * 1.03, RX * 1.06, 1.2, 32, 0, -0.68, MZ, 0x6b9446, { sz: RZ / RX, jit: 0.05 });  // skirt hides slope gaps; its top stays BELOW the interior floor (0.05) or it z-fights through it whenever the mound is still drawn
       // facade: half-ellipse brick wall with round door & windows
       const a = 5.0, by = 3.9;
       const sh = new T.Shape(); sh.moveTo(-a, -1); sh.lineTo(a, -1); sh.lineTo(a, MY + 0.01); sh.absellipse(0, MY, a, by, 0, PI, false); sh.lineTo(-a, -1);
@@ -18844,21 +18853,33 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
   function capeGeo(d, col, col2, len) {
     return cached('cape|' + d.key + '|' + col + '|' + col2 + '|' + len.toFixed(2), () => {
-      // a narrow cloth (≈ shoulder width, never wider) that curls forward over the shoulders at the top and
-      // bulges gently backwards towards the hem; hangs from the shoulder line behind the back, hem at mid-shin
-      const w = d.shoulderHalf * 1.55, wrap = d.shoulderHalf * 0.3, bulge = len * 0.045;
-      const g = new THREE.PlaneGeometry(w, len, 6, 10);
+      // A cloak: a cloth pinned at the shoulder line behind the back, never wider than the shoulders, hem at mid-shin
+      // so the legs read below it. Vertical folds are baked into the vertex colours (with the wind shader on top) so
+      // it drapes instead of reading as a flat slab, and the top band is the darker trim/clasp.
+      const w = d.shoulderHalf * 1.5, wrap = d.shoulderHalf * 0.3, bulge = len * 0.045;
+      const g = new THREE.PlaneGeometry(w, len, 8, 10);
       const p = g.getAttribute('position');
       for (let i = 0; i < p.count; i++) {
         const x = p.getX(i), y = p.getY(i); const t = (y + len / 2) / len;         // 1 at the top
         const xn = x / (w / 2);
-        p.setX(i, x * lerp(1.0, 0.9, t));                                        // slightly narrower at the shoulders, never flared past them
-        p.setZ(i, -wrap * xn * xn * (0.35 + 0.65 * t) + bulge * (1 - t) * (1 - t));
+        p.setX(i, x * lerp(1.1, 0.9, t));                                          // pinned narrow at the shoulders, a little wider at the hem
+        // folds: a shallow wave across the cloth that deepens towards the hem, plus the shoulder wrap and back bulge
+        const fold = sin(xn * PI * 2.5) * 0.012 * (1 - t * 0.55) * d.s;
+        p.setZ(i, -wrap * xn * xn * (0.35 + 0.65 * t) + bulge * (1 - t) * (1 - t) + fold);
       }
       g.translate(0, -len / 2, 0); g.computeVertexNormals();
       const c = _paint(g, col);
-      const ca = c.getAttribute('color'); _colTmp.setHex(toHex(col2));
-      for (let i = 0; i < p.count; i++) { if (p.getY(i) > -len * 0.1) { ca.setXYZ(i, _colTmp.r, _colTmp.g, _colTmp.b); } }
+      const ca = c.getAttribute('color');
+      const base = new THREE.Color(), trim = new THREE.Color();
+      base.setHex(toHex(col)); trim.setHex(toHex(col2));
+      const hw = w / 2;
+      for (let i = 0; i < p.count; i++) {
+        const top = p.getY(i) > -len * 0.08;                                        // collar / clasp band
+        const xn = clamp(p.getX(i) / hw, -1, 1);
+        const shade = 0.82 + 0.18 * (0.5 + 0.5 * cos(xn * PI * 2.5));               // fold shading, darkest in the creases
+        const src = top ? trim : base;
+        ca.setXYZ(i, src.r * shade, src.g * shade, src.b * shade);
+      }
       return c;
     });
   }
