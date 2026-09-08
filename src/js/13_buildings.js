@@ -2921,8 +2921,11 @@
     }
     const ins = isInside(playerPos);
     if (ins !== playerInside) {
-      if (playerInside) { playerInside.inside = false; playerInside.camInside = false; setRoofSplit(playerInside, false); refreshVis(playerInside); if (typeof G.emit === 'function') G.emit('leaveBuilding', playerInside); }
+      // `playerInside` is published BEFORE either event: a handler asking "am I inside?" while `leaveBuilding`
+      // fires must already see that we are out (that is what kept the tavern music playing out in the street).
+      const prev = playerInside;
       playerInside = ins;
+      if (prev) { prev.inside = false; prev.camInside = false; setRoofSplit(prev, false); refreshVis(prev); if (typeof G.emit === 'function') G.emit('leaveBuilding', prev); }
       if (ins) { ins.inside = true; ins.camInside = cameraInside(ins); setRoofSplit(ins, true); refreshVis(ins); if (typeof G.emit === 'function') G.emit('enterBuilding', ins); }
     }
     if (ins) ins.camInside = cameraInside(ins);   // reported for callers/debug; visibility no longer depends on it
