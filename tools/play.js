@@ -21,13 +21,13 @@ const code = process.argv[2] || "await T.quick(); await T.wait(1000); await T.sh
   page.on('console', m => { if (m.type() === 'error') { const txt = m.text(); if (!/fonts\.googleapis|fonts\.gstatic|Failed to load resource|net::ERR_/.test(txt)) errors.push('[console.error] ' + txt); } });
   page.on('pageerror', e => errors.push('[pageerror] ' + e.message + '\n' + (e.stack || '')));
   await page.goto('file://' + HTML);
-  await page.waitForFunction(() => window.__T && window.__T.ready, { timeout: 60000 });
+  await page.waitForFunction(() => window.__T && window.__T.ready, null, { timeout: 180000 });   // (fn, arg, options) — boot on loaded software GL can take > 60 s
   const T = {
     page,
-    quick: async (opts) => { await page.evaluate((o) => window.__T.quickStart(o || {}), opts || null); await page.waitForFunction(() => window.__T.inGame, { timeout: 60000 }); await page.waitForTimeout(1000); },
+    quick: async (opts) => { await page.evaluate((o) => window.__T.quickStart(o || {}), opts || null); await page.waitForFunction(() => window.__T.inGame, null, { timeout: 180000 }); await page.waitForTimeout(1000); },
     press: async (key, ms = 150) => { await page.keyboard.press(key); await page.waitForTimeout(ms); },
     hold: async (key, ms) => { await page.keyboard.down(key); await page.waitForTimeout(ms); await page.keyboard.up(key); },
-    shot: async (name) => { const p = path.join(OUT, name + '.png'); await page.screenshot({ path: p }); console.log('shot:', p); },
+    shot: async (name) => { const p = path.join(OUT, name + '.png'); await page.screenshot({ path: p, timeout: 180000 }); console.log('shot:', p); },   // a composited frame can take a while on loaded software GL
     eval: (fn, ...a) => page.evaluate(fn, ...a),
     wait: (ms) => page.waitForTimeout(ms),
     log: (...a) => console.log(...a),

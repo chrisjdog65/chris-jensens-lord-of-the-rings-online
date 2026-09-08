@@ -293,7 +293,7 @@ async function quickStart(page, ctx) {
   await page.evaluate(installProbe);
   // Headless software GL renders a 1280×720 'high' frame in 250–800 ms; run the behavioural scenarios at 'low'
   // (R03/R04 switch to 'high' for their own measurements and switch back).
-  await page.evaluate((o) => { try { window.G.PostFX.setQuality('low'); } catch (e) { /* ignore */ } try { window.G.time.scale = o.ts; } catch (e) { /* ignore */ } }, { ts: OPTS.timescale });
+  await page.evaluate((o) => { try { if (window.G.Game) window.G.Game.autoQuality = false; } catch (e) { /* ignore */ } try { window.G.PostFX.setQuality('low'); } catch (e) { /* ignore */ } try { window.G.time.scale = o.ts; } catch (e) { /* ignore */ } }, { ts: OPTS.timescale });
   await page.waitForTimeout(500);
   await applyRenderScale(page);
   ctx.quickStartMs = Date.now() - t0;
@@ -403,7 +403,7 @@ scenario('R02', 'No errors during the run; every panel opens/closes cleanly', as
 });
 
 scenario('R03', 'Performance: ≤ 600 draw calls at high; frame time (report)', async (T, ok) => {
-  await T.evalG(() => { const G = window.G; if (G.PostFX && G.PostFX.setQuality) G.PostFX.setQuality('high'); });
+  await T.evalG(() => { const G = window.G; if (G.Game) G.Game.autoQuality = false; if (G.PostFX && G.PostFX.setQuality) G.PostFX.setQuality('high'); });
   await T.frames(4, 12000);
   const samples = [];
   for (let i = 0; i < 6; i++) {
@@ -423,12 +423,13 @@ scenario('R03', 'Performance: ≤ 600 draw calls at high; frame time (report)', 
   const avgFps = fps.length ? fps.reduce((a, b) => a + b, 0) / fps.length : NaN;
   ok('draw calls measurable', draws.length > 0);
   ok('draw calls ≤ 600 at high', isFinite(maxDraw) && maxDraw <= 600, 'max ' + maxDraw + ' over ' + draws.length + ' samples (quality ' + (samples[0] && samples[0].quality) + ')');
-  ok('adaptive quality API present (G.PostFX.setQuality / G.Game.fps)', await T.evalG(() => !!(window.G.PostFX && window.G.PostFX.setQuality) && typeof (window.G.Game && window.G.Game.fps) !== 'undefined'));
+  ok('quality stayed pinned at high during sampling', samples.every(s => s.quality === 'high'), samples.map(s => s.quality).join(','));
+  ok('adaptive quality API present (G.PostFX.setQuality / G.Game.autoQuality / stepQuality)', await T.evalG(() => !!(window.G.PostFX && window.G.PostFX.setQuality) && !!window.G.Game && 'autoQuality' in window.G.Game && typeof window.G.Game.stepQuality === 'function'));
   ok('frame time (report only; headless software GL, render scale ' + OPTS.renderScale + ')', true, 'avg fps ' + (isFinite(avgFps) ? avgFps.toFixed(1) : '?') + ' ≈ ' + (isFinite(avgFps) && avgFps > 0 ? (1000 / avgFps).toFixed(1) : '?') + ' ms/frame; tris ' + (samples[0] && (samples[0].stats && samples[0].stats.triangles || samples[0].tris)));
 });
 
 scenario('R04', 'Graphics: post-processing, shadows, day/night, weather, water, vegetation, fog', async (T, ok) => {
-  await T.evalG(() => { try { window.G.PostFX.setQuality('high'); } catch (e) { /* ignore */ } });
+  await T.evalG(() => { try { if (window.G.Game) window.G.Game.autoQuality = false; window.G.PostFX.setQuality('high'); } catch (e) { /* ignore */ } });
   await T.frames(2, 8000);
   const r = await T.evalG(() => {
     const G = window.G, P = G.PostFX, R = G.Game && G.Game.renderer, S = G.Game && G.Game.scene;
@@ -443,7 +444,7 @@ scenario('R04', 'Graphics: post-processing, shadows, day/night, weather, water, 
   ok('PostFX pipeline enabled', r.postfx, r);
   ok('bloom + FXAA features on', r.bloom && r.fxaa);
   ok('ACES tonemap + sharpen params', (r.tonemap == null || /aces/i.test(String(r.tonemap)) || r.tonemap === true || typeof r.tonemap === 'number') && (r.sharpen == null || r.sharpen >= 0), { tonemap: r.tonemap, sharpen: r.sharpen });
-  ok('shadows enabled (renderer.shadowMap + sun.castShadow)', r.shadowMap && r.sunShadow);
+  ok('shadows enabled at high (renderer.shadowMap + sun.castShadow)', r.shadowMap && r.sunShadow, { shadowMap: r.shadowMap, sunShadow: r.sunShadow, quality: await T.evalG(() => window.G.state.quality) });
   ok('sky, fog, water, vegetation (with wind) present', r.sky && r.fog && r.water && r.veg && r.wind, r);
   await T.evalG(() => window.G.Sky.setWeather('rain', true)); await T.frames(2);
   const w = await T.evalG(() => ({ state: window.G.state.weather, sky: window.G.Sky.weather, rain: window.G.Sky.rainLevel }));
@@ -1220,7 +1221,7 @@ scenario('R41', 'Save/load: localStorage, export round-trip, Continue from the m
   ok('Continue enters the world (__T.inGame)', !!inGame);
   await T.wait(1500);
   await T.evalG(installProbe);
-  await T.evalG((ts) => { try { window.G.PostFX.setQuality('low'); } catch (e) { /* ignore */ } try { window.G.time.scale = ts; } catch (e) { /* ignore */ } }, OPTS.timescale);
+  await T.evalG((ts) => { try { if (window.G.Game) window.G.Game.autoQuality = false; window.G.PostFX.setQuality('low'); } catch (e) { /* ignore */ } try { window.G.time.scale = ts; } catch (e) { /* ignore */ } }, OPTS.timescale);
   await applyRenderScale(T.page);
   const r = await T.evalG(() => { const p = window.G.state.player; return { level: p.level, gold: p.gold, name: p.name, xp: p.xp, questsDone: window.G.Quests.completion().done, phase: window.G.state.phase }; });
   ok('restored player level / gold / name match', r.level === s.level && r.gold === s.gold && r.name === s.name, { saved: { level: s.level, gold: s.gold, name: s.name }, restored: r });

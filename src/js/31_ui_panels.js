@@ -161,7 +161,9 @@
     api.id = id; api.body = null; api.panel = null; api._justBuilt = false;
     api.isOpen = function () { return _isOpen(id); };
     api.close = function () { return _close(id); };
-    api.refresh = function () { if (api.isOpen()) { try { api.render(); } catch (err) { _report(err, 'panel render ' + id); } } };
+    // an explicit refresh also cancels a pending mark(): the deferred (rAF) rebuild would otherwise re-render the same
+    // panel a frame later and replace DOM the caller may still hold (e.g. a button it is about to click)
+    api.refresh = function () { if (api.isOpen()) { _dirty.delete(api); try { api.render(); } catch (err) { _report(err, 'panel render ' + id); } } };
     api.mark = function () { if (api.isOpen()) { _dirty.add(api); _queueFlush(); } };
     if (typeof api.open !== 'function') api.open = function (arg) { return _open(id, arg); };
     const reg = Object.assign({}, def);
