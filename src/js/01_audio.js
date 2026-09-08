@@ -223,7 +223,7 @@
     const t = nowT();
     musicGain.gain.setTargetAtTime(volCurve(A.volumes.music) * 0.75, t, 0.05);
     sfxGain.gain.setTargetAtTime(volCurve(A.volumes.sfx) * 0.9, t, 0.05);
-    ambientGain.gain.setTargetAtTime(volCurve(A.volumes.sfx) * 0.7, t, 0.05);
+    ambientGain.gain.setTargetAtTime(volCurve(A.volumes.sfx) * 1.4, t, 0.05);   // measured: at 0.7 the wind/bird bed sat ~19 dB under the music and was inaudible
   };
   A.suspend = function () { if (ctx && ctx.state === 'running') ctx.suspend().catch(function () {}); };
   A.resume = function () { if (ctx && ctx.state !== 'running') ctx.resume().catch(function () {}); };
@@ -491,7 +491,7 @@
   def('ui_error', function (v, t, p) {
     const fl = v.lpOut(1200, 1);
     for (let i = 0; i < 2; i++) v.osc({ t: t + i * 0.13, type: 'square', f: 175 * p, dur: 0.08, a: 0.005, r: 0.04, vol: 0.12, dest: fl });
-  }, { pv: 0.01 });
+  }, { pv: 0.01, vol: 2.2 });   // measured 0.097 solo — too soft to read as UI feedback
   def('chat_ping', function (v, t, p) {
     v.osc({ t: t, type: 'sine', f: 880 * p, dur: 0.05, a: 0.005, r: 0.08, vol: 0.2 });
     v.osc({ t: t + 0.07, type: 'sine', f: 1175 * p, dur: 0.06, a: 0.005, r: 0.12, vol: 0.18 });
@@ -501,13 +501,13 @@
   function whoosh(v, t, p, f0, f1, f2, dur, vol, q) {
     v.noise({ t: t, kind: 'white', filter: { type: 'bandpass', f: f0 * p, q: q || 1.2, fenv: [[dur * 0.45, f1 * p], [dur, f2 * p]] }, dur: dur * 0.6, a: dur * 0.3, r: dur * 0.4, vol: vol });
   }
-  def('sword_swing', function (v, t, p) { whoosh(v, t, p, 500, 2600, 700, 0.24, 0.5); whoosh(v, t + 0.02, p, 900, 4000, 1500, 0.2, 0.15, 2); }, { pv: 0.1 });
+  def('sword_swing', function (v, t, p) { whoosh(v, t, p, 500, 2600, 700, 0.24, 0.5); whoosh(v, t + 0.02, p, 900, 4000, 1500, 0.2, 0.15, 2); }, { pv: 0.1, vol: 1.7 });   // measured 0.139 solo, and every call site asks for 0.45–0.55 of it
   def('sword_hit', function (v, t, p) {
     v.fm({ t: t, f: 920 * p, ratio: 2.76, idx: 3.5, idxDecay: 0.08, dur: 0.05, r: 0.28, vol: 0.32 });
     v.fm({ t: t, f: 1480 * p, ratio: 1.41, idx: 2, idxDecay: 0.05, dur: 0.03, r: 0.18, vol: 0.16 });
     v.noise({ t: t, filter: { type: 'bandpass', f: 3200, q: 0.6 }, dur: 0.02, r: 0.07, vol: 0.45 });
     v.osc({ t: t, type: 'sine', f: 140 * p, fenv: [[0.08, 55 * p, 'e']], dur: 0.04, r: 0.1, vol: 0.4 });
-  }, { pv: 0.08, verb: 0.25 });
+  }, { pv: 0.08, verb: 0.25, vol: 0.82 });   // measured 0.608 solo — the loudest cue in the library; trimmed for fight headroom
   def('axe_hit', function (v, t, p) {
     v.osc({ t: t, type: 'sine', f: 120 * p, fenv: [[0.1, 45 * p, 'e']], dur: 0.06, r: 0.14, vol: 0.55 });
     v.noise({ t: t, filter: { type: 'lowpass', f: 900, q: 1 }, dur: 0.05, r: 0.12, vol: 0.5 });
@@ -518,7 +518,7 @@
     v.osc({ t: t, type: 'sine', f: 95 * p, fenv: [[0.12, 38 * p, 'e']], dur: 0.08, r: 0.2, vol: 0.7 });
     v.noise({ t: t, kind: 'brown', filter: { type: 'lowpass', f: 500 }, dur: 0.07, r: 0.15, vol: 0.6 });
     v.noise({ t: t, filter: { type: 'bandpass', f: 1500, q: 1 }, dur: 0.012, r: 0.04, vol: 0.2 });
-  }, { pv: 0.08, verb: 0.15 });
+  }, { pv: 0.08, verb: 0.15, vol: 0.9 });    // measured 0.541 solo
   def('bow_shoot', function (v, t, p) {
     v.pluck({ t: t, f: 105 * p, dur: 0.6, bright: 1, decay: 0.35, vol: 0.5 });
     v.pluck({ t: t + 0.004, f: 158 * p, dur: 0.4, bright: 0.9, decay: 0.2, vol: 0.25 });
@@ -613,7 +613,7 @@
   def('jump', function (v, t, p) {
     whoosh(v, t, p, 350, 1600, 2200, 0.16, 0.22, 1);
     v.osc({ t: t, type: 'triangle', f: 170 * p, fenv: [[0.07, 240 * p]], dur: 0.05, a: 0.01, r: 0.04, vol: 0.08, dest: v.lpOut(800, 1) });
-  }, { pv: 0.08 });
+  }, { pv: 0.08, vol: 2.6 });    // measured 0.077 solo — inaudible under the music bed
   def('land', function (v, t, p) {
     v.osc({ t: t, type: 'sine', f: 85 * p, fenv: [[0.09, 38 * p, 'e']], dur: 0.05, r: 0.12, vol: 0.5 });
     v.noise({ t: t, kind: 'pink', filter: { type: 'lowpass', f: 700 }, dur: 0.04, r: 0.08, vol: 0.4 });
@@ -709,13 +709,13 @@
     v.noise({ t: t, filter: { type: 'bandpass', f: 2200, q: 1.5 }, dur: 0.012, r: 0.04, vol: 0.3 });
     v.osc({ t: t, type: 'sine', f: 300 * p, fenv: [[0.03, 120 * p, 'e']], dur: 0.02, r: 0.05, vol: 0.15 });
     creak(v, t + 0.06, p, 110, 0.75, 0.16, 650, 3, 0.14);
-  }, { pv: 0.1, verb: 0.2 });
+  }, { pv: 0.1, verb: 0.2, vol: 1.7 });   // measured 0.143 solo
   def('door_close', function (v, t, p) {
     creak(v, t, p, 130, 0.3, 0.1, 600, 3, 0.1);
     v.osc({ t: t + 0.3, type: 'sine', f: 110 * p, fenv: [[0.08, 50 * p, 'e']], dur: 0.05, r: 0.15, vol: 0.5 });
     v.noise({ t: t + 0.3, kind: 'pink', filter: { type: 'lowpass', f: 900 }, dur: 0.04, r: 0.1, vol: 0.4 });
     v.noise({ t: t + 0.34, filter: { type: 'bandpass', f: 2600, q: 2 }, dur: 0.01, r: 0.04, vol: 0.25 });
-  }, { pv: 0.1, verb: 0.2 });
+  }, { pv: 0.1, verb: 0.2, vol: 1.7 });   // measured 0.143 solo
   def('horse_mount', function (v, t, p) {
     creak(v, t, p, 180, 0.28, 0.08, 1200, 2, 0.1);
     v.osc({ t: t + 0.22, type: 'sine', f: 90 * p, fenv: [[0.08, 45 * p, 'e']], dur: 0.05, r: 0.12, vol: 0.4 });
@@ -1444,7 +1444,7 @@
     const ch = chords('Em/16 Em/8 C/4 D/4 Am/16 Em/8 C/2 D/2 Em/4', { oct: 3, vel: 0.5 });
     const stabs = seq('_/12 _/3 E4+B4/.5 E4+B4/.5 | _/12 _/2 G4+D5/.5 _/.5 E4+B4/1 | _/12 _/3 A4+E5/.5 A4+E5/.5 | _/12 E4+B4/.5 _/.5 E4+B4/.5 _/.5 E4+B4/2', { vel: 0.9 });
     const horn = seq('_/32 E4/2 G4 A4 | B4/3 A4 | G4/2 E4 G4 | A4/4 | E5/2 D5 B4 | C5/2 B4 A4 | G4 A4 B4 D5 | E5/4', { vel: 0.8 });
-    return { gain: 0.85, tempo: 140, bpb: 4, bars: 16, loop: true, fadeIn: 0.8, tracks: [
+    return { gain: 0.62, tempo: 140, bpb: 4, bars: 16, loop: true, fadeIn: 0.8, tracks: [
       T('lowstrings', riff, { vol: 0.65, gate: 0.7, send: 0.15 }),
       T('bass', transpose(riff, -12), { vol: 0.5, gate: 0.6 }),
       T('strings', ch, { vol: 0.3, send: 0.4 }),
@@ -1465,7 +1465,7 @@
     const hits = seq('_/4 | _/2 D4+F4+A4/.5 _/.5 D4+F4+A4/1 | _/4 | Eb4+G4+Bb4/1 _/1 D4+F4+A4/2 | _/4 | _/2 D4+F4+A4/.5 _/.5 D4+F4+A4/1 | _/4 | C4+Eb4+G4/.5 _/.5 D4+F4+A4/.5 _/.5 A3+D4+F4/2 | ' +
       '_/4 | _/2 F4+A4+D5/.5 _/.5 F4+A4+D5/1 | _/4 | G4+Bb4+D5/1 _/1 F4+A4+D5/2 | _/4 | Eb4+G4+Bb4/.5 _/.5 Eb4+G4+Bb4/.5 _/.5 D4+F4+A4/2 | _/4 | A3+C#4+E4/.5 _/.5 A3+C#4+E4/.5 _/.5 D4+F4+A4/2', { vel: 1 });
     const horn = seq('_/32 A4/2 F4 D4 | Eb5/3 D5 | C5/2 A4 F4 | A4/4 | D5/2 C5 Bb4 | A4/2 G4 F4 | E4/2 F4/2 | D4/4', { vel: 0.85 });
-    return { gain: 0.7, tempo: 150, bpb: 4, bars: 16, loop: true, fadeIn: 0.6, tracks: [
+    return { gain: 0.55, tempo: 150, bpb: 4, bars: 16, loop: true, fadeIn: 0.6, tracks: [
       T('lowstrings', riff, { vol: 0.65, gate: 0.7, send: 0.15 }),
       T('bass', transpose(riff, -12), { vol: 0.5, gate: 0.6 }),
       T('choir', ch, { vol: 0.45, send: 0.6 }),

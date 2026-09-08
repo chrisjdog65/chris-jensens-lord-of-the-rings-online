@@ -476,11 +476,16 @@
   Game.resize = doResize;
 
   // ------------------------------------------------------------------------------------------------ music
+  // 13_buildings emits 'leaveBuilding' BEFORE it clears its own playerInside, so a handler that asks "am I in an
+  // inn?" during that event still sees the inn it just left and the tavern theme never hands back to the zone.
+  // While we handle that event the building being left is masked out here.
+  let _leftBuilding = null;
   function insideInn() {
     const B = G.Buildings;
     if (!B) return false;
     let b = B.playerInside;
     if (!b && has(B, 'isInside') && G.state.player) { try { b = B.isInside(G.state.player.pos); } catch (e) { b = null; } }
+    if (b && b === _leftBuilding) b = null;
     if (!b) return false;
     const r = b.recipe || (b.spec && b.spec.recipe) || (b.data && b.data.recipe) || '';
     return r === 'inn';
@@ -711,7 +716,11 @@
       zoneMusic(false);
     });
     G.on('enterBuilding', function () { if (G.state.phase === 'playing' && !G.state.inCombat && insideInn()) zoneMusic(false); });
-    G.on('leaveBuilding', function () { if (G.state.phase === 'playing' && !G.state.inCombat && G.Audio && G.Audio.currentTheme === 'tavern') zoneMusic(false); });
+    G.on('leaveBuilding', function (b) {
+      if (G.state.phase !== 'playing' || G.state.inCombat || !G.Audio || G.Audio.currentTheme !== 'tavern') return;
+      _leftBuilding = b || null;
+      try { zoneMusic(false); } finally { _leftBuilding = null; }
+    });
     G.on('playerRespawn', function () { if (G.state.phase === 'playing') zoneMusic(true); });
     G.on('menuShown', function () { if (G.state.phase !== 'playing') G.state.phase = 'menu'; framesSinceChange = 0; });
     G.on('createShown', function () { if (G.state.phase !== 'playing') G.state.phase = 'create'; framesSinceChange = 0; });

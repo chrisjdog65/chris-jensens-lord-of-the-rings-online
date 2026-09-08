@@ -43,6 +43,13 @@
 ## 01_audio.js
 - Listener = `G.state.player.pos`; panning uses `G.Player.cam.yaw`. Audio self-subscribes to `weatherChanged` and `dayPhase` for rain/ambient mixes; main must still call `G.Audio.music(zone.music)` on zone change and `G.Audio.ambient(biome, phase)`.
 - Extras: `footstep(groundType, opts)` (handles all G.Terrain.groundType values), `stopLoop(name, fade)`, `setAmbientRain(bool)`, `stopAmbient()`, `duck(bool)`, `has(name)`, `hasTheme(id)`, `stats`, `stopAll()`, `suspend/resume`. Emits `audioReady`, `musicEnded(id)`. `victory`/`death` themes are one-shots (currentTheme clears when done — main should restore the zone theme on `musicEnded`).
+- **In-game audio verification pass (fixes live in 01_audio unless noted):**
+  * `sfx(name)` now enforces a per-name minimum re-trigger gap (`GAP` table, default 45 ms; `stats.suppressed` counts the drops). One `G.Progress.addXP(999999)` used to fire 64 `level_up` voices in one frame (measured) and blow the 24-voice cap; it now plays exactly one. Callers need no change and a suppressed call returns `null`.
+  * Reverb returns are bussed properly: the **music** hall returns into `duckGain → musicGain` and the **SFX** hall/room into `sfxGain`. Before, both returns went straight to master, so the music slider at 0 (and `duck()`) left the reverb tail audible.
+  * One-shot themes really end now: `Player.schedule` returned early once `done`, so `finish()` never ran — `victory`/`death` stayed `currentTheme` forever and `musicEnded` never fired. Confirmed stuck in-game before the fix.
+  * New hooks for tests/tools: `isLooping(name)`, `musicStats()` → `{id, gain, players[], generators}`, and the live bus nodes `ctx/master/comp/musicGain/sfxGain/ambientGain`.
+  * Mix (measured with an AnalyserNode on each bus, defaults music 0.6 / sfx 0.8): quiet exploration music peak 0.20 / master 0.24; a fight music 0.40 vs SFX 0.88 / master 0.69 — nothing clips. Ambient sat 19 dB under the music, so the ambient bus multiplier went 0.7 → 1.4; `combat` theme gain 0.85 → 0.62 and `boss` 0.7 → 0.55 so combat SFX stay on top; per-SFX gains raised for `jump`, `ui_error`, `sword_swing`, `door_open/close` and trimmed for `sword_hit`/`blunt_hit`.
+  * 99_main additionally drives a positional `fire_loop` (the previously unused `fire` ambient bed) at the nearest hearth of the building the player is inside, and `tools/verify.js` gained an **R45** scenario that checks all of this in the running game.
 
 ## 03_data_items.js
 - 1,918 templates, 29 sets. `G.Data.lostKingdom = {armour:{light,medium,heavy}, weapons:{subtype:tid}, jewellery:[8 tids], sets:[5 ids], mount:'mount_lostkingdom'}`; `G.Items.lostKingdomSet(cls)` → 18 instances; `G.Items.starterGear(cls)`.

@@ -1234,9 +1234,139 @@ scenario('R41', 'Save/load: localStorage, export round-trip, Continue from the m
   ctx.reloaded = true;
 }, { timeout: 300000 });
 
+scenario('R45', 'Audio in the running game: zone/combat music, ambient bed, SFX on real actions, mix', async (T, ok, ctx) => {
+  // ---- 1. the engine is live and playing this zone's theme
+  const a0 = await T.evalG(() => {
+    const G = window.G, A = G.Audio;
+    return {
+      ready: A.ready === true, state: A.ctx ? A.ctx.state : 'none', theme: A.currentTheme,
+      zoneTheme: (G.Data.world.zoneById[G.state.zone] || {}).music || null,
+      beds: Object.keys(A.ambientState.beds), notes: A.stats.notes,
+      music: A.musicStats ? A.musicStats() : null,
+    };
+  });
+  ok('AudioContext is running and G.Audio.ready', a0.ready && a0.state === 'running', a0.state);
+  ok('zone theme is playing (currentTheme === zone.music)', !!a0.theme && a0.theme === a0.zoneTheme, { theme: a0.theme, zone: a0.zoneTheme });
+  ok('the music engine is scheduling notes', a0.notes > 0 && !!a0.music && a0.music.players.length === 1, { notes: a0.notes, players: a0.music && a0.music.players.length });
+  ok('an ambient bed is running', a0.beds.length > 0, a0.beds);
+
+  // ---- 2. instrument G.Audio.sfx, then drive real gameplay through it
+  await T.evalG(() => {
+    const A = window.G.Audio;
+    if (!A.__r45raw) A.__r45raw = A.sfx;
+    window.__r45 = [];
+    A.sfx = function (n, o) { const r = A.__r45raw.call(A, n, o); window.__r45.push(n + (r ? '' : '!')); return r; };
+  });
+  const mark = () => T.evalG(() => window.__r45.length);
+  const since = async (i) => await T.evalG((k) => window.__r45.slice(k), i);
+
+  let m = await mark();
+  await T.holdGame('KeyW', 2.5, 40000);
+  const steps = (await since(m)).filter(n => /^footstep_/.test(n));
+  ok('running fires one footstep per stride', steps.length >= 2, steps.slice(0, 8).join(','));
+
+  m = await mark();
+  await T.evalG(() => { window.G.UI.openPanel('character'); });
+  await T.frames(2);
+  await T.evalG(() => { window.G.UI.closePanel('character'); });
+  await T.frames(2);
+  const ui = await since(m);
+  ok('panel open/close play ui_open / ui_close', ui.indexOf('ui_open') >= 0 && ui.indexOf('ui_close') >= 0, ui.join(','));
+
+  // a hostile in reach: swing, hit, and the combat theme
+  await T.evalG(() => {
+    const G = window.G, P = G.state.player;
+    G.state.godMode = true;
+    const e = G.Monsters.spawnAt(G.Data.world.monsterTypes[0].id, P.pos.x + 2, P.pos.z + 0.4, { level: Math.max(1, P.level) });
+    if (e) { e.maxMorale = 9e5; e.morale = 9e5; e.dmg = 1; G.Player.setTarget(e); window.__r45mob = e.id; }
+  });
+  await T.frames(2);
+  m = await mark();
+  for (let i = 0; i < 4; i++) {
+    await T.evalG(() => { const p = window.G.state.player; p.nextSwing = 0; if (p.target) window.G.Combat.basicAttack(p, p.target); });
+    await T.frames(3);
+  }
+  const hits = await since(m);
+  ok('melee swings play sword_swing + an impact', hits.indexOf('sword_swing') >= 0 && hits.some(n => /_hit$/.test(n)), hits.slice(0, 8).join(','));
+
+  m = await mark();
+  await T.evalG(() => { const G = window.G; G.state.godMode = false; G.Combat.damage(G.state.player.target || null, G.state.player, 25, 'common', { raw: true }); });
+  await T.frames(3);
+  ok('taking damage plays hurt', (await since(m)).indexOf('hurt') >= 0);
+  await T.evalG(() => { const G = window.G, p = G.state.player; G.state.godMode = true; p.morale = (p.stats && p.stats.maxMorale) || p.maxMorale || 100; });
+
+  const inCombat = await T.waitGame(() => window.G.Audio.currentTheme === 'combat' || window.G.Audio.currentTheme === 'boss', 8, 30000);
+  ok('combat starts the combat theme', !!inCombat, await T.evalG(() => window.G.Audio.currentTheme));
+
+  await T.evalG(() => { const G = window.G; for (const e of G.Monsters.all().slice()) G.Monsters.despawn(e); G.Player.setTarget(null); });
+  const back = await T.waitGame((z) => (!window.G.state.inCombat && window.G.Audio.currentTheme === z) ? window.G.Audio.currentTheme : null, 20, 90000, a0.zoneTheme);
+  ok('the zone theme returns after combatEnd', back === a0.zoneTheme, { theme: back, want: a0.zoneTheme });
+
+  // ---- 3. one cue per event: a burst of identical calls must not stack 20 voices
+  const burst = await T.evalG(() => {
+    const A = window.G.Audio, before = A.stats.suppressed;
+    let played = 0;
+    for (let i = 0; i < 20; i++) if (A.__r45raw.call(A, 'level_up', { vol: 0.05 })) played++;
+    return { played: played, suppressed: A.stats.suppressed - before };
+  });
+  ok('20 level_up calls in one frame play exactly one voice', burst.played === 1 && burst.suppressed === 19, burst);
+
+  // ---- 4. the victory fanfare is a one-shot that hands the zone theme back (musicEnded)
+  await T.evalG(() => window.G.Audio.music('victory'));
+  await T.wait(500);
+  const vic = await T.evalG(() => window.G.Audio.currentTheme);
+  const restored = await T.waitGame((z) => window.G.Audio.currentTheme === z ? z : null, 1e9, 70000, a0.zoneTheme);
+  ok('victory plays and then restores the zone theme', vic === 'victory' && restored === a0.zoneTheme, { victory: vic, after: restored });
+
+  // ---- 5. mix: music sits below SFX, nothing clips, the sliders really move the output
+  const mix = await T.evalG(async () => {
+    const A = window.G.Audio, ctx = A.ctx;
+    const sink = ctx.createGain(); sink.gain.value = 0; sink.connect(ctx.destination);
+    function tap(node) { const an = ctx.createAnalyser(); an.fftSize = 2048; an.smoothingTimeConstant = 0; node.connect(an); an.connect(sink); return { an: an, b: new Float32Array(an.fftSize), p: 0 }; }
+    const t = { music: tap(A.musicGain), sfx: tap(A.sfxGain), amb: tap(A.ambientGain), master: tap(A.comp) };
+    const p = window.G.state.player;
+    async function run(ms, fire) {
+      for (const k in t) t[k].p = 0;
+      const t0 = performance.now();
+      while (performance.now() - t0 < ms) {
+        if (fire) { A.__r45raw.call(A, 'sword_hit', { vol: 1 }); A.__r45raw.call(A, 'footstep_grass', {}); }
+        for (const k in t) { const x = t[k]; x.an.getFloatTimeDomainData(x.b); for (let i = 0; i < x.b.length; i++) { const v = Math.abs(x.b[i]); if (v > x.p) x.p = v; } }
+        await new Promise(r => setTimeout(r, 20));
+      }
+      const o = {}; for (const k in t) o[k] = +t[k].p.toFixed(4); return o;
+    }
+    const quiet = await run(4000, false);
+    const loud = await run(4000, true);
+    A.setVolumes(0, 0.8); await new Promise(r => setTimeout(r, 900));
+    const noMusic = await run(2500, false);
+    A.setVolumes(0.6, 0); await new Promise(r => setTimeout(r, 900));
+    const noSfx = await run(2500, true);
+    const s = window.G.state.settings || {};
+    A.setVolumes(s.music == null ? 0.6 : s.music, s.sfx == null ? 0.8 : s.sfx);
+    void p;
+    return { quiet: quiet, loud: loud, noMusic: noMusic, noSfx: noSfx };
+  });
+  ok('music sits below SFX when both play', mix.loud.music < mix.loud.sfx, { music: mix.loud.music, sfx: mix.loud.sfx });
+  ok('nothing clips at the master bus (peak < 0.95)', mix.quiet.master < 0.95 && mix.loud.master < 0.95, { quiet: mix.quiet.master, loud: mix.loud.master });
+  ok('music slider at 0 silences the music bus', mix.noMusic.music < 0.002, mix.noMusic);
+  ok('effects slider at 0 silences the SFX bus', mix.noSfx.sfx < 0.002, mix.noSfx);
+  T.log('   mix peaks: quiet ' + JSON.stringify(mix.quiet) + '  active ' + JSON.stringify(mix.loud));
+
+  // ---- restore
+  await T.evalG(() => {
+    const G = window.G, A = G.Audio;
+    if (A.__r45raw) { A.sfx = A.__r45raw; delete A.__r45raw; }
+    G.state.godMode = false;
+    for (const e of G.Monsters.all().slice()) G.Monsters.despawn(e);
+    G.Player.setTarget(null);
+    const s = G.state.settings || {};
+    A.setVolumes(s.music == null ? 0.6 : s.music, s.sfx == null ? 0.8 : s.sfx);
+  });
+}, { timeout: 300000 });
+
 // ------------------------------------------------------------------------------------------------ runner
 const ORDER = ['R37', 'R01', 'R03', 'R04', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15', 'R16', 'R17', 'R18', 'R19', 'R20', 'R21', 'R23', 'R24', 'R25', 'R26',
-  'R30', 'R31', 'R32', 'R33', 'R34', 'R35', 'R36', 'R38', 'R39', 'R40', 'R22', 'R02', 'R41'];
+  'R30', 'R31', 'R32', 'R33', 'R34', 'R35', 'R36', 'R38', 'R39', 'R40', 'R45', 'R22', 'R02', 'R41'];
 const ALL_IDS = SC.map(s => s.id).sort();
 
 async function runScenario(sc, page, ctx) {
