@@ -297,7 +297,10 @@
     const hotbar = [];
     for (let i = 0; i < HOTBAR_SIZE; i++) { const id = Array.isArray(p.hotbar) ? p.hotbar[i] : null; hotbar.push(typeof id === 'string' && id ? id : null); }
     return {
-      pos: { x: num(p.pos && p.pos.x, 0), y: num(p.pos && p.pos.y, 0), z: num(p.pos && p.pos.z, 0) },
+      // Saving mid-voyage would reload the player floating in open water with no boat, so
+      // record the nearest shore instead (an explicit Save Now is the only way to get here;
+      // autosave and the unload flush already refuse while sailing).
+      pos: shorePos(p),
       yaw: num(p.yaw, 0),
       level: clamp(int(p.level, 1), 1, LEVEL_CAP), xp: Math.max(0, num(p.xp, 0)), gold: Math.max(0, int(p.gold, 0)),
       morale: num(p.morale, 0), power: num(p.power, 0),
@@ -312,6 +315,25 @@
     };
   }
   /** Build the JSON-safe snapshot of the running game (null without a player). Throws only on programmer error. */
+  // Land position to persist: the player's own spot, unless they are afloat.
+  function shorePos(p) {
+    const at = { x: num(p.pos && p.pos.x, 0), y: num(p.pos && p.pos.y, 0), z: num(p.pos && p.pos.z, 0) };
+    const afloat = !!(G.Boats && (G.Boats.sailing || G.Boats.travelling)) ||
+      !!(G.Terrain && typeof G.Terrain.isWater === 'function' && G.Terrain.isWater(at.x, at.z));
+    if (!afloat) return at;
+    let best = null;
+    if (G.Physics && typeof G.Physics.nearestFree === 'function') {
+      try { best = G.Physics.nearestFree(at.x, at.z, (p.radius || 0.4) + 0.2); } catch (e) { best = null; }
+    }
+    if (best && G.Terrain && typeof G.Terrain.isWater === 'function' && G.Terrain.isWater(best.x, best.z)) best = null;
+    if (!best && G.Boats && typeof G.Boats.nearestDock === 'function') {
+      try { const d = G.Boats.nearestDock(p.pos); if (d && d.pos) best = { x: d.pos.x, z: d.pos.z }; } catch (e) { /* ignore */ }
+    }
+    if (!best) return at;
+    const y = (G.Physics && typeof G.Physics.groundY === 'function') ? G.Physics.groundY(best.x, best.z) : at.y;
+    return { x: num(best.x, at.x), y: num(y, at.y), z: num(best.z, at.z) };
+  }
+
   function snapshot() {
     const p = player(); if (!p) return null;
     const st = G.state || {};
