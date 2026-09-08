@@ -692,18 +692,28 @@
     if (!mode) return { y0, y1, vault: false };
     const beamHex = o.beamHex || o.rafterHex || o.timberHex || 0x4a3220;
     if (mode === 'vault' && o.peak) {
+      // The vault is the exterior roof's own underside, re-built from the SAME span/length/curve and dropped just
+      // below it — deriving it from the wall height instead made a shallower (and, on a curved roof, differently
+      // bowed) surface that pushed up through the tiles. Ribs are narrow slices of that same chevron, so they hug
+      // the curve exactly; purlins and ties are straight members and are only used where the roof is straight.
       const vHex = o.vaultHex === undefined ? 0xa88a62 : o.vaultHex, vMat = o.vaultMat || 'planks';
-      b.piece('int', vMat, chevronRoofGeo(across + t, y0, y1, 0.08, along + t, !!o.curvedRoof), 0, 0, 0, vHex, { ry: ridgeX ? -HPI : 0, jit: 0.03, faceJit: false });
+      const curved = !!o.curvedRoof, ov = o.overhang === undefined ? 0.5 : o.overhang;
+      const k = (o.peak - H) / (across / 2), ye = H - k * ov;
+      const span = across + 2 * ov, len = along + 2 * ov, drop = rth + 0.03;
+      const ey = ye - drop, ry = o.peak - drop;                       // vault eave / ridge heights
+      b.piece('int', vMat, chevronRoofGeo(span, ey, ry, 0.08, len, curved), 0, 0, 0, vHex, { ry: ridgeX ? -HPI : 0, jit: 0.03, faceJit: false });
       b.at(0, 0, ridgeX ? -HPI : 0);          // cursor frame: ridge along local z, slopes along local ±x
-      const half = across / 2 + t / 2, rise = y1 - y0, sl = Math.sqrt(half * half + rise * rise), ang = Math.atan2(rise, half);
-      const nr = Math.max(2, Math.round(along / 1.4));
-      for (let i = 0; i <= nr; i++) {
-        const z = -along / 2 + t / 2 + 0.1 + (along - t - 0.2) * i / nr;
-        for (const s of [-1, 1]) b.box('int', 'wood', sl - 0.15, 0.14, 0.12, s * half / 2, y0 + rise / 2 - 0.16, z, beamHex, { rz: -s * ang, jit: 0.02 });   // rafters
+      const nr = Math.max(2, Math.round(along / 1.5));
+      for (let i = 0; i <= nr; i++) {         // rafters: 0.16 m slices of the same chevron, 0.02 lower
+        const z = -along / 2 + t / 2 + 0.15 + (along - t - 0.3) * i / nr;
+        b.piece('int', 'wood', chevronRoofGeo(span - 0.04, ey - 0.02, ry - 0.02, 0.22, 0.16, curved), 0, 0, z, beamHex, { jit: 0.02, faceJit: false });
       }
-      for (const f of [0.34, 0.68]) for (const s of [-1, 1]) b.box('int', 'wood', 0.14, 0.14, along + t - 0.1, s * half * (1 - f), y0 + rise * f - 0.3, 0, beamHex, { jit: 0.02 });   // purlins
-      b.box('int', 'wood', 0.2, 0.2, along + t - 0.1, 0, y1 - 0.3, 0, beamHex, { jit: 0.02 });                                                                  // ridge beam
-      if (o.ties !== false) { const nt = Math.max(1, Math.round(along / 2.6)); for (let i = 1; i < nt; i++) b.box('int', 'wood', across - t + 0.02, 0.22, 0.2, 0, y0 - 0.19, -along / 2 + (along / nt) * i, beamHex, { jit: 0.02 }); }   // tie beams
+      b.box('int', 'wood', 0.2, 0.22, len - 0.2, 0, ry - 0.24, 0, beamHex, { jit: 0.02 });                       // ridge beam
+      if (!curved) {
+        const half = span / 2, rise = ry - ey;
+        for (const f of [0.34, 0.68]) for (const s of [-1, 1]) b.box('int', 'wood', 0.14, 0.14, len - 0.2, s * half * (1 - f), ey + rise * f - 0.28, 0, beamHex, { jit: 0.02 });   // purlins
+        if (o.ties !== false) { const nt = Math.max(1, Math.round(along / 2.6)); for (let i = 1; i < nt; i++) b.box('int', 'wood', across - t + 0.02, 0.22, 0.2, 0, y0 - 0.19, -along / 2 + (along / nt) * i, beamHex, { jit: 0.02 }); }   // tie beams at the wall head
+      }
       b.end();
       b.boxCol(-W / 2 + t / 2, y0, -D / 2 + t / 2, W / 2 - t / 2, y0 + 0.1, D / 2 - t / 2, false, 4);
       return { y0, y1, vault: true };
@@ -2267,7 +2277,7 @@
     bld.group.visible = band < 3;
     const intVis = band === 0 || inside;
     if (bld.int) bld.int.visible = intVis;
-    if (bld.roof) bld.roof.visible = !(inside && bld.camInside);   // the shell drops only once the camera has followed the player in (what you see overhead is the interior ceiling, which never hides)
+    if (bld.roof) bld.roof.visible = !inside;   // only the exterior shell hides while you are inside — what you see overhead is the interior ceiling, which never hides, so a chase camera pushed out through a wall still looks into the room instead of at a closed box
     for (const c of bld.ceilings) c.group.visible = intVis;         // an upper storey is the floor below's ceiling — never hidden by height
     for (const d of bld.doors) for (const p of d.pivots) p.group.visible = band < 2;
     for (const sm of bld.signMeshes) sm.visible = band < 2;
@@ -2750,7 +2760,7 @@
       playerInside = ins;
       if (ins) { ins.inside = true; ins.camInside = cameraInside(ins); refreshVis(ins); if (typeof G.emit === 'function') G.emit('enterBuilding', ins); }
     }
-    if (ins) { const ci = cameraInside(ins); if (ci !== ins.camInside) { ins.camInside = ci; refreshVis(ins); } }
+    if (ins) ins.camInside = cameraInside(ins);   // reported for callers/debug; visibility no longer depends on it
     updateDoors(dt, px, py, pz);
     _lightTimer -= dt;
     if (_lightTimer <= 0) { _lightTimer = 0.2; assignLights(px, py + 1, pz); }

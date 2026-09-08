@@ -1012,7 +1012,7 @@
   (function () {
   const AQ = { active: false, paused: false, speed: 3, log: [], stats: { ticks: 0, chained: 0, teleports: 0, nudges: 0, forced: 0, fights: 0, kills: 0, deaths: 0, errors: 0, spawns: 0, boats: 0, packKills: 0 } };
   const LOG_MAX = 50;
-  const FIGHT_FRAMES = 3;          // rendered frames of real combat before the engine finishes a foe at speed 10
+  const FIGHT_FRAMES = 2;          // rendered frames of real combat before the engine finishes a foe at speed 10
   const S = {
     planKind: '', questId: null, objIndex: -1, planKey: '', planT: 0, planDirty: true,
     attemptStart: 0, lastProg: -1, text: '', step: '', lastTextKey: '',
@@ -1040,7 +1040,17 @@
   function inCombat(p) { if (hasFn(G.Combat, 'inCombatFor')) { try { return !!G.Combat.inCombatFor(p); } catch (e) { return false; } } return !!(G.state && G.state.inCombat); }
   function dismount() { const p = player(); if (p && p.mounted && hasFn(G.Player, 'dismount')) { try { G.Player.dismount(); } catch (e) { /* ignore */ } } }
   function autoStop() { if (G.Player && G.Player.autoMoving && hasFn(G.Player, 'autoStop')) { try { G.Player.autoStop(); } catch (e) { /* ignore */ } } }
-  function facePoint(x, z) { const p = player(); if (!p) return; const dx = x - p.pos.x, dz = z - p.pos.z; if (dx * dx + dz * dz > 1e-4) p.yaw = Math.atan2(-dx, -dz); }
+  /** Face (x, z) with the body AND the chase camera. Modules that ask "what is the player looking at?" read
+   *  G.Player.getForward() — which is built from the CAMERA yaw (26_fishing_boats' canFish/castPoint do exactly
+   *  that) — so turning only `player.yaw` leaves them probing wherever the camera was left pointing. */
+  function faceYaw(yaw) {
+    const p = player(); if (!p) return;
+    p.yaw = yaw;
+    const c = G.Player && G.Player.cam;
+    if (c && typeof c.yaw === 'number') c.yaw = yaw;
+    if (p.rig && p.rig.group && p.rig.group.rotation) p.rig.group.rotation.y = yaw;
+  }
+  function facePoint(x, z) { const p = player(); if (!p) return; const dx = x - p.pos.x, dz = z - p.pos.z; if (dx * dx + dz * dz > 1e-4) faceYaw(Math.atan2(-dx, -dz)); }
   /** Something changed instantly (teleport, accept, kill, …): let the next tick run in this very frame. */
   function chain() { S.chain = true; }
 
@@ -1444,7 +1454,7 @@
   }
 
   // ------------------------------------------------------------------------------------------------ objective steps
-  function sub() { if (!S.sub) S.sub = { arrivedT: -1, lastSpawnT: -1e9, missSince: -1, inside: false, tries: 0, shore: null, shoreBad: 0, lastTry: -1e9, spawned: 0, castT: -1, hunt: null, warned: false }; return S.sub; }
+  function sub() { if (!S.sub) S.sub = { arrivedT: -1, lastSpawnT: -1e9, missSince: -1, inside: false, tries: 0, shore: null, shoreTried: null, shoreBad: 0, lastTry: -1e9, spawned: 0, castT: -1, castF: -1, hunt: null, warned: false }; return S.sub; }
   function flashDialogue(ent, text) {
     const D = G.UI && G.UI.Dialogue; if (!D || !hasFn(D, 'open') || !ent || now() - S.flashT < 0.7) return;
     S.flashT = now();
@@ -1570,7 +1580,9 @@
     const res = goTo(o.pos.x, o.pos.z, Math.max(1.5, r * 0.6), { key: 'explore', tpRadius: Math.max(1, r * 0.4) });
     if (res === 'arrived' || pdist(o.pos.x, o.pos.z) <= r) { onExplore(player().pos); if (!objDone(q, state[q.id], S.objIndex)) forceObjective(q.id, S.objIndex, 'explore radius reached', 1); chain(); }
   }
-  function _shorePoint(spot, from) {
+  /** A dry, walkable point on the bank with open water 2-6 m in front of it (the probe Fishing itself uses).
+   *  `avoid` lists bank points already tried and rejected, so a retry never returns the same one. */
+  function _shorePoint(spot, from, avoid) {
     const cx = spot.x, cz = spot.z; const r0 = Math.max(4, num(spot.spot && spot.spot.radius, 12));
     let best = null, bd = Infinity;
     for (let rr = r0 + 1; rr <= r0 + 16; rr += 1.5) {
@@ -1582,6 +1594,7 @@
         let water = false; for (let d = 2; d <= 6 && !water; d += 2) if (isWaterAt(x + dx / l * d, z + dz / l * d)) water = true;
         if (!water) continue;
         if (hasFn(G.Physics, 'isFree') && !G.Physics.isFree(x, z, 0.4)) continue;
+        if (avoid && avoid.length) { let near = false; for (let i = 0; i < avoid.length && !near; i++) if (dist2(x, z, avoid[i].x, avoid[i].z) < 4) near = true; if (near) continue; }
         const d = from ? dist2(from.x, from.z, x, z) : rr;
         if (d < bd) { bd = d; best = { x: x, z: z, fx: cx, fz: cz }; }
       }
@@ -1594,17 +1607,19 @@
     const spot = spotPosOf(o.spot, p.pos);
     const name = spot && spot.spot ? spot.spot.name : 'the water';
     if (!spot) { forceObjective(q.id, S.objIndex, 'no fishing spot exists', 1); return; }
-    if (!u.shore) { u.shore = _shorePoint(spot, p.pos); if (!u.shore) { u.shore = { x: spot.x, z: spot.z, fx: spot.x, fz: spot.z, fallback: true }; logLine('no shore point found near ' + name + ' — using the spot itself'); } }
+    if (!u.shore) { if (!u.shoreTried) u.shoreTried = []; u.shore = _shorePoint(spot, p.pos, u.shoreTried); if (!u.shore) { u.shore = { x: spot.x, z: spot.z, fx: spot.x, fz: spot.z, fallback: true }; logLine('no shore point found near ' + name + ' — using the spot itself'); } }
     setText('fish:' + q.id + ':' + progressOf(q.id, S.objIndex), 'Fishing at ' + name + ' ' + progressOf(q.id, S.objIndex) + '/' + objCount(o), describeObjective(q, S.objIndex));
     const F = G.Fishing;
     if (F && F.state && F.state !== 'idle') {
       if (G.Player.autoMoving) autoStop();
-      if (u.castT < 0) u.castT = now();
-      const perCatch = blaze ? 8 : Math.max(12, 40 / sp);                      // a cycle is ≈ 5 game-s for the auto angler
-      if (now() - u.castT > perCatch) { u.castT = -1; if (hasFn(F, 'cancel')) { try { F.cancel(false); } catch (e) { /* ignore */ } } F.autoActive = false; forceObjective(q.id, S.objIndex, 'the fish would not bite at ' + name, 1); }
+      if (u.castT < 0) { u.castT = now(); u.castF = frameNo(); }
+      // A cast is ≈ 6 game-s for the auto angler; blazing speed budgets it in FRAMES so one stubborn fish cannot
+      // swallow the run (the catch is then credited by the watchdog and the line recast).
+      const over = blaze ? (frameNo() - u.castF > 10) : (now() - u.castT > Math.max(12, 40 / sp));
+      if (over) { u.castT = -1; if (hasFn(F, 'cancel')) { try { F.cancel(false); } catch (e) { /* ignore */ } } F.autoActive = false; forceObjective(q.id, S.objIndex, 'the fish would not bite at ' + name, 1); }
       return;
     }
-    u.castT = -1;
+    u.castT = -1; u.castF = -1;
     const r = goTo(u.shore.x, u.shore.z, 1.2, { key: 'shore', tpRadius: 0.8 });
     if (r !== 'arrived') return;
     if (G.Player.autoMoving) autoStop();
@@ -1613,11 +1628,25 @@
     if (now() - u.lastTry < 0.6) return;
     u.lastTry = now();
     if (!F || !hasFn(F, 'autoFish')) { forceObjective(q.id, S.objIndex, 'fishing is not available', 1); return; }
+    // Fishing decides from where we LOOK, not where the shore point said the water was: sweep the facing until it
+    // agrees before blaming the spot (costs no frames — canFish is a pure query).
+    if (hasFn(F, 'canFish')) {
+      let c = null; try { c = F.canFish(); } catch (e) { c = null; }
+      if (c && !c.ok) {
+        const p0 = p.yaw; let turned = false;
+        for (let i = 1; i <= 16 && !turned; i++) {
+          faceYaw(p0 + i * (TAU / 16));
+          try { c = F.canFish(); } catch (e) { c = null; }
+          if (c && c.ok) turned = true;
+        }
+        if (!turned) { faceYaw(p0); u.tries = 3; u.shoreBad++; if (u.shore && !u.shore.fallback) (u.shoreTried = u.shoreTried || []).push({ x: u.shore.x, z: u.shore.z }); u.shore = null; logLine('no water in reach of ' + name + ' from here (' + ((c && c.reason) || 'unknown') + ') — trying another shore'); if (u.shoreBad >= 6) { u.shoreBad = 0; forceObjective(q.id, S.objIndex, 'no usable shore at ' + name, 1); } return; }
+      }
+    }
     let ok = false;
     try { ok = !!F.autoFish(); } catch (e) { report(e, 'AutoQuest.autoFish'); ok = false; }
-    if (ok) { u.tries = 0; u.castT = now(); return; }
+    if (ok) { u.tries = 0; u.castT = now(); u.castF = frameNo(); return; }
     u.tries++;
-    if (u.tries >= 3) { u.tries = 0; u.shoreBad++; u.shore = null; logLine('cannot fish from here — trying another spot on the shore'); if (u.shoreBad >= 4) { u.shoreBad = 0; forceObjective(q.id, S.objIndex, 'no usable shore at ' + name, 1); } }
+    if (u.tries >= 3) { u.tries = 0; u.shoreBad++; if (u.shore && !u.shore.fallback) (u.shoreTried = u.shoreTried || []).push({ x: u.shore.x, z: u.shore.z }); u.shore = null; logLine('cannot fish from here — trying another spot on the shore'); if (u.shoreBad >= 4) { u.shoreBad = 0; forceObjective(q.id, S.objIndex, 'no usable shore at ' + name, 1); } }
   }
   function forceObjective(id, i, why, n) {
     const q = byId[id], st = state[id]; if (!q || !st || st.status !== 'active') return;

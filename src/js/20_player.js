@@ -20,7 +20,9 @@
    setScene(scene), resize(w,h), snapCamera(), dispose(), player (getter), rig (getter), mountSpeed(tid),
    autoRun (bool), rolling (bool), firstPerson (bool), moveInput {x,z} (last frame's world-space input direction).
    Events emitted: targetChanged(ent|null), mounted(bool), zoneChanged(zoneId), playerRespawn, autoMoveArrived,
-   autoMoveStopped. Assumptions about other modules: see the header of each guarded call (every cross-module call
+   autoMoveStopped, blockingChanged(bool). Private helper owned here (not in the spec): `_rmbRaw` — a document-level
+   mousedown/mouseup listener that tracks the right button for the block, because `G.Input.mouse.buttons` is not
+   maintained while the pointer is locked. Assumptions about other modules: see the header of each guarded call (every cross-module call
    checks for existence). No per-frame allocations: every vector/array/object used in update() is module-level. ==== */
 (function () {
   'use strict';
@@ -135,6 +137,21 @@
   Object.defineProperty(P, 'player', { get: function () { return player; }, enumerable: true });
   Object.defineProperty(P, 'rig', { get: function () { return rig; }, enumerable: true });
   Object.defineProperty(P, 'mountRig', { get: function () { return mountRig; }, enumerable: true });
+
+  // Private right-button tracking (`_rmb*`, owned here — see the header note). G.Input.mouse.buttons is the shared
+  // source of truth for click edges, but a HELD button must survive both a slow frame and pointer lock (where the
+  // browser stops maintaining the buttons bitmask on the events core listens to), so the controller reads the button
+  // straight from the DOM. Cleared on mouseup, window blur and tab hide so the guard can never stick.
+  let _rmbRaw = false;
+  function _onRawDown(e) { if (e && e.button === 2) _rmbRaw = true; }
+  function _onRawUp(e) { if (e && e.button === 2) _rmbRaw = false; }
+  function _clearRaw() { _rmbRaw = false; }
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('mousedown', _onRawDown, true);
+    document.addEventListener('mouseup', _onRawUp, true);
+    window.addEventListener('blur', _clearRaw);
+    document.addEventListener('visibilitychange', function () { if (document.hidden) _clearRaw(); });
+  }
 
   function uiOpen() { return !!(G.UI && typeof G.UI.anyOpen === 'function' && G.UI.anyOpen()); }
   function typing() { return !!(G.Input && G.Input.typing); }
@@ -1332,7 +1349,7 @@
     // right button held = block; the RMB camera drag keeps working meanwhile. This reads the button LEVEL
     // (I.mouseDown(2)), never the press edge: an edge that lands mid-frame is cleared by Input.endFrame() before any
     // update sees it, which at a low frame rate loses the guard entirely.
-    if (I) S.rmbHeld = I.mouseDown(2) && !open && !typ;
+    if (I) S.rmbHeld = (_rmbRaw || I.mouseDown(2)) && !open && !typ;
     setBlocking(S.rmbHeld && controls && !S.rolling && !pl.mounted && !pl.swimming && !pl.casting && G.state.phase === 'playing');
     S.blockT = clamp(S.blockT + (pl.blocking ? dt / 0.12 : -dt / 0.15), 0, 1);
 
