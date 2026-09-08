@@ -28,7 +28,8 @@
      onDamaged(ent, src, amount)  Combat hook (fight back / wake up)     setScene(scene)
      all (array of entities), fellowships (array), count, chatLog (last 60 lines sent), FELLOWSHIP_NAMES
    Entity extras written here (kind:'aiplayer'): fullName, surname, persona, fellowshipId, kills, questsDone, deaths, fish,
-     playTime, activity, zone (home zone id), townId, mounted, mountRig, sailing, chatTimer, ai {state, phase, …}, online.
+     playTime, activity, zone (home zone id), townId, mounted, mountRig, sailing, boatRig (rowboat while sailing in view),
+     chatTimer, ai {state, phase, …}, online.
    Assumptions (all guarded): G.Data.randomName/randomFullName/stats.compute/xp/abilitiesFor/titles, G.Items.generate/bestSet/
      isTwoHanded/get, G.Data.world (zones/towns/roads/docks/spawns/fishingSpots/pois/monsterTypes), G.Terrain.height/isWater/
      zoneAt, G.Physics.moveEntity/groundY/isFree/nearestFree, G.Veg.treesNear, G.Chars.buildHumanoid/buildHorse/updateNameplate,
@@ -1286,8 +1287,88 @@
   }
   function syncRig(e) {
     const rig = e.rig; if (!rig) return;
+    if (e.boatRig && rig.group.parent === e.boatRig.seat) return;            // seated in a rowboat: sailStep() places the boat
     if (e.mounted && e.mountRig && rig.group.parent !== root) { const h = e.mountRig; h.group.position.copy(e.pos); h.group.rotation.y = e.yaw; }
     else { rig.group.position.copy(e.pos); rig.group.rotation.y = e.yaw; }
+  }
+
+  // ------------------------------------------------------------------------------------------------ near simulation: boats
+  // A sailing AI inside render distance rows a real rowboat (G.Chars.buildBoat, one per AI, cached while it is in view and
+  // disposed with the rig or when it steps ashore). The rider rig sits on boat.seat; the hull rides the water shader's
+  // waves through G.Boats.waveHeight (a gentle swell when that is unavailable), pitches/rolls with the local slope, the
+  // oars animate via boat.animate(t) and the bow eases toward the travel direction. Only nearList entries pay for it.
+  const SAIL_SLOTS = [[3.2, -2.5], [-3.2, -2.5], [3.2, -7], [-3.2, -7], [0, -9.5]];   // [right, forward] formation offsets (m)
+  function sailFollow(e, leader) {
+    // fellowship members row in a stable formation beside / behind the leader's boat (slot = member's formation index)
+    const ly = typeof leader._boatYaw === 'number' ? leader._boatYaw : leader.yaw;
+    const s = SAIL_SLOTS[Math.max(0, Math.round(num(e.formation, 0))) % SAIL_SLOTS.length];
+    const fx = -Math.sin(ly), fz = -Math.cos(ly), rx = Math.cos(ly), rz = -Math.sin(ly);
+    e.pos.x = leader.pos.x + rx * s[0] + fx * s[1]; e.pos.z = leader.pos.z + rz * s[0] + fz * s[1]; e.pos.y = num(C.SEA_LEVEL, 0);
+    e.yaw = leader.yaw;
+    if (G.Spatial && hasFn(G.Spatial, 'update')) G.Spatial.update(e);
+  }
+  function waveH(x, z, t) {
+    const B = G.Boats;
+    if (B && hasFn(B, 'waveHeight')) { try { const v = B.waveHeight(x, z); if (typeof v === 'number' && isFinite(v)) return v; } catch (err) { /* fall through */ } }
+    return Math.sin(t * 1.1 + x * 0.21 + z * 0.13) * 0.07 + Math.sin(t * 0.7 + x * 0.05 - z * 0.09) * 0.05;
+  }
+  function ensureBoat(e) {
+    if (e.boatRig) return e.boatRig;
+    if (!root || !G.Chars || !hasFn(G.Chars, 'buildBoat')) return null;
+    if (frameBuilds >= RIG_BUILDS_PER_FRAME) return null;
+    let b = null;
+    try { b = G.Chars.buildBoat('rowboat'); } catch (err) { report(err, 'buildBoat'); b = null; }
+    frameBuilds++;
+    if (!b || !b.group) return null;
+    if (!b.seat) { b.seat = new THREE.Group(); b.seat.position.set(0, 0.33, 0.1); b.group.add(b.seat); }
+    b.group.name = 'ai_boat_' + e.id;
+    b.group.position.set(e.pos.x, num(C.SEA_LEVEL, 0), e.pos.z); b.group.rotation.set(0, e.yaw, 0);
+    root.add(b.group);
+    e.boatRig = b; e._boatPhase = ((e.seed >>> 0) % 628) / 100; if (typeof e._boatYaw !== 'number') e._boatYaw = e.yaw;
+    counters.boats++;
+    return b;
+  }
+  function disposeBoat(e) {
+    const b = e.boatRig; if (!b) return;
+    const rig = e.rig;
+    if (rig && rig.group && rig.group.parent === b.seat) {         // put the rider back on its feet in the world
+      b.seat.remove(rig.group); if (root) root.add(rig.group);
+      e.pos.y = e.sailing ? num(C.SEA_LEVEL, 0) : terrainY(e.pos.x, e.pos.z);
+      rig.group.position.set(e.pos.x, e.pos.y, e.pos.z); rig.group.rotation.set(0, e.yaw, 0); rig.group.scale.set(1, 1, 1);
+      if (hasFn(rig, 'setAnim')) rig.setAnim('idle', true);
+    }
+    try { if (b.group && b.group.parent) b.group.parent.remove(b.group); if (hasFn(b, 'dispose')) b.dispose(); } catch (err) { report(err, 'boat.dispose'); }
+    e.boatRig = null;
+  }
+  function sailStep(e, dt, t) {
+    if (!e.sailing || e.dead || !root) { if (e.boatRig) disposeBoat(e); return; }
+    if (e._d2 > RENDER_DROP * RENDER_DROP) { if (e.boatRig) disposeBoat(e); return; }
+    const rig = e.rig;
+    if (!rig) { if (e.boatRig) disposeBoat(e); return; }                      // no rig within the budget → nothing to seat
+    if (e._d2 > RENDER_DIST * RENDER_DIST && !e.boatRig) return;
+    const b = ensureBoat(e); if (!b) return;
+    if (rig.group.parent !== b.seat) {
+      if (rig.group.parent) rig.group.parent.remove(rig.group);
+      b.seat.add(rig.group); rig.group.position.set(0, -0.08, 0); rig.group.rotation.set(0, 0, 0); rig.group.scale.set(1, 1, 1);
+      if (hasFn(rig, 'setMounted')) rig.setMounted(false);
+      if (hasFn(rig, 'setAnim')) rig.setAnim('sit', true);
+    } else if (rig.state !== 'sit' && !rig.oneShot && hasFn(rig, 'setAnim')) rig.setAnim('sit', true);
+    // heading eases toward the travel direction; hull follows the water surface (height + local slope → pitch/roll)
+    if (typeof e._boatYaw !== 'number') e._boatYaw = e.yaw;
+    e._boatYaw = alerp(e._boatYaw, e.yaw, Math.min(1, dt * 2.5));
+    const yaw = e._boatYaw, x = e.pos.x, z = e.pos.z, tt = t + (e._boatPhase || 0);
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    const hC = waveH(x, z, tt), hF = waveH(x + fx * 1.4, z + fz * 1.4, tt), hR = waveH(x + rx * 0.7, z + rz * 0.7, tt);
+    const g = b.group;
+    g.position.set(x, num(C.SEA_LEVEL, 0) + hC - BOAT_DRAFT, z);
+    g.rotation.set(Math.atan2(hC - hF, 1.4) * 0.8 + Math.sin(tt * 1.3) * 0.012, yaw, Math.atan2(hR - hC, 0.7) * 0.8 + Math.sin(tt * 0.9) * 0.015, 'YXZ');
+    if (hasFn(b, 'animate')) { try { b.animate(tt); } catch (err) { /* cosmetic */ } }
+    // rider: same LOD / shadow / nameplate rules as walkers (the sit state keeps the rig animated at LOD ≤ 1)
+    const cam = cameraOf();
+    const level = _applyRigLod(e, rig, _camDist(cam, e), e._rank, _lodQuality());
+    if (level !== 2 && hasFn(rig, 'play')) { try { rig.play(dt, e); } catch (err) { report(err, 'rig.play'); } }
+    const np = rig.nameplate;
+    if (np) { const vis = e._d2 < NAMEPLATE_DIST * NAMEPLATE_DIST; np.visible = vis; if (vis && cam && G.Chars && hasFn(G.Chars, 'updateNameplate')) { try { G.Chars.updateNameplate(np, cam); } catch (err) { /* ignore */ } } }
   }
   const _aiFilter = (x) => x.kind === 'aiplayer' && x.online !== false;
   function scanNear(px, pz) {
@@ -1310,10 +1391,10 @@
   function rigBudget() {
     if (!root || !ensureScene()) return;
     const drop2 = RENDER_DROP * RENDER_DROP, keep2 = RENDER_DIST * RENDER_DIST;
-    for (let i = rigList.length - 1; i >= 0; i--) { const e = rigList[i]; if (e._d2 > drop2 || e._rank >= MAX_RIGS + 4 || e.sailing) disposeRig(e); }
+    for (let i = rigList.length - 1; i >= 0; i--) { const e = rigList[i]; if (e._d2 > drop2 || e._rank >= MAX_RIGS + 4) disposeRig(e); }
     for (let i = 0; i < nearList.length && i < MAX_RIGS && frameBuilds < RIG_BUILDS_PER_FRAME; i++) {
-      const e = nearList[i];
-      if (e.rig || e.sailing || e._d2 > keep2 || rigCount >= MAX_RIGS) continue;
+      const e = nearList[i];                              // sailors get a rig too: sailStep() seats it in a rowboat
+      if (e.rig || e._d2 > keep2 || rigCount >= MAX_RIGS) continue;
       buildRig(e);
     }
   }
@@ -1912,8 +1993,13 @@
       if (scanT <= 0) { scanT = 0.5; scanNear(p.pos.x, p.pos.z); }
       rigBudget();
       for (let i = 0; i < nearList.length; i++) {
-        const e = nearList[i]; if (!e._near) continue;
+        const e = nearList[i];
         e._d2 = _dist2sq(p.pos.x, p.pos.z, e.pos.x, e.pos.z);
+        if (!e._near) {                                   // sailors are never "near" (no physics) but row a visible boat
+          if (e.sailing || e.boatRig) { try { sailStep(e, dt, t); } catch (err) { report(err, 'sailStep'); } }
+          continue;
+        }
+        if (e.boatRig) disposeBoat(e);                    // stepped ashore: back on foot
         try { nearStep(e, dt, t); } catch (err) { report(err, 'nearStep'); }
       }
     }
