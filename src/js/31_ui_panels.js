@@ -324,7 +324,9 @@
 /* ---- journal ---- */
 .pn-journal .panel-body { padding: 8px 10px 6px; }
 .jn-cols { display: flex; gap: 10px; flex: 1; min-height: 0; }
-.jn-left { flex: 0 0 300px; display: flex; flex-direction: column; min-height: 0; }
+.jn-left { flex: 0 0 322px; display: flex; flex-direction: column; min-height: 0; }
+.pn-journal .tabs { padding: 0 2px; }
+.pn-journal .tabs .tab { padding: 6px 7px; letter-spacing: .03em; }   /* four tabs must stay on one row */
 .jn-list { overflow-y: auto; min-height: 0; flex: 1; padding-right: 3px; }
 .jn-group { font-family: var(--font-head); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); padding: 6px 4px 3px; border-bottom: 1px solid var(--border); margin: 4px 0 3px; }
 .jn-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid transparent; border-radius: 3px; cursor: pointer; }
@@ -338,7 +340,7 @@
 .jn-row .jn-star { color: var(--gold-bright); font-size: 12px; }
 .jn-row .jn-giver { font-size: 11px; color: rgba(184,173,148,.7); }
 /* Remaining tab: wider list, two-line rows with a status chip and zone · giver · requirement */
-.jn-left.wide { flex-basis: 350px; }
+.jn-left.wide { flex-basis: 358px; }
 .jn-remhead { font-size: 12px; color: var(--parch-dim); padding: 4px 6px 5px; border-bottom: 1px solid var(--border); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .jn-remhead b { color: var(--gold-bright); font-size: 13px; }
 .jn-remhead .jn-remsub { color: rgba(184,173,148,.75); }
