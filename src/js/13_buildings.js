@@ -2374,29 +2374,77 @@
     return true;
   }
 
-  /* ---- static batching (props merged per town into one mesh per material) ---- */
+  /* ---- static batching -------------------------------------------------------------------------------
+     Every building's EXTERIOR shell (plus the roof of anything you cannot walk into) is merged per
+     (spatial cell of BATCH_CELL m × material × shadow class) into one mesh, so a town draws in a couple of
+     dozen calls instead of one per wall. What stays per building: interiors (`int`/`upper`/ceilings — they
+     toggle with distance and with `inside`), the roof of an enterable (it must hide when YOU are inside it),
+     door leaves (they swing), banners (their vertex shader sways them in their own model frame) and signs
+     (per-text material, hidden past the near band). Colliders, spots, lights and `isInside` are untouched:
+     they come from `cached.meta`, never from the meshes.                                                  */
+  function batchBoundsOf(geo) {
+    geo.computeBoundingBox(); geo.computeBoundingSphere();
+    const bb = geo.boundingBox;
+    return { minx: bb.min.x, maxx: bb.max.x, minz: bb.min.z, maxz: bb.max.z, box: bb.clone(), sphere: geo.boundingSphere.clone() };
+  }
   function batchStatic(list, label) {
-    const buckets = {}; const batched = [];
+    if (!Array.isArray(list) || !list.length) return null;
+    const cells = new Map(); const batched = [];
     for (const bld of list) {
-      if (!bld || !bld.static || bld.doors.length || bld.batched || !bld.ext) continue;
+      if (!bld || bld.batched || !bld.group) continue;
+      const roofOK = !!(bld.roof && !bld.enterable);      // an enterable's roof still has to vanish while the player is inside
+      if (!bld.ext && !roofOK) continue;
       bld.group.updateMatrixWorld(true);
-      for (const mesh of bld.ext.children) {
-        if (!mesh.isMesh || !mesh.geometry) continue;
-        const g = mesh.geometry.clone(); g.applyMatrix4(mesh.matrixWorld);
-        const key = mesh.material.name.replace(/^bld_/, '');
-        (buckets[key] || (buckets[key] = [])).push(g);
+      const ck = Math.floor(bld.x / BATCH_CELL) + ',' + Math.floor(bld.z / BATCH_CELL);
+      let cell = cells.get(ck); if (!cell) { cell = {}; cells.set(ck, cell); }
+      let tookExt = 0, tookRoof = 0;
+      for (const sub of [bld.ext, roofOK ? bld.roof : null]) {
+        if (!sub) continue;
+        for (const mesh of sub.children) {
+          if (!mesh.isMesh || !mesh.geometry || !mesh.material || mesh.userData.noBatch) continue;
+          const mat = String(mesh.material.name || '').replace(/^bld_/, '');
+          if (!mat || mat === 'banner') continue;
+          const g = mesh.geometry.clone(); g.applyMatrix4(mesh.matrixWorld);
+          // One bucket per (cell, material): small props ride along in the wall geometry's draw call, so keeping them
+          // out of the shadow map would cost a whole extra mesh. A bucket only stays out of the shadow pass when
+          // NOTHING in it casts (a cell of nothing but crates, fences, lamps and signs).
+          const bucket = cell[mat] || (cell[mat] = { mat, cast: false, geos: [] });
+          bucket.cast = bucket.cast || !!mesh.userData.canCast;
+          bucket.geos.push(g);
+          mesh.visible = false; mesh.castShadow = false; mesh.userData.canCast = false;
+          if (sub === bld.ext) tookExt++; else tookRoof++;
+        }
       }
+      if (!tookExt && !tookRoof) continue;
+      if (bld.ext && tookExt === bld.ext.children.length) { bld.ext.visible = false; bld.extBatched = true; }
+      if (roofOK && tookRoof === bld.roof.children.length) { bld.roof.visible = false; bld.roofBatched = true; }
       batched.push(bld);
     }
     if (!batched.length) return null;
     const grp = new T.Group(); grp.name = 'batch:' + (label || '');
-    for (const key in buckets) {
-      const geo = mergeGeos(buckets[key]); if (!geo) continue;
-      const mesh = new T.Mesh(geo, getMat(key)); mesh.castShadow = key !== 'glass' && key !== 'water'; mesh.receiveShadow = true;
-      grp.add(mesh);
+    grp.matrixAutoUpdate = false; grp.updateMatrix();
+    for (const cell of cells.values()) {
+      for (const key in cell) {
+        const bucket = cell[key];
+        const geo = mergeGeos(bucket.geos); if (!geo) continue;
+        const mesh = new T.Mesh(geo, getMat(bucket.mat));
+        mesh.name = bucket.mat + (bucket.cast ? '' : ':noshadow');
+        mesh.matrixAutoUpdate = false; mesh.updateMatrix();      // merged in world space: the batch group is identity
+        mesh.receiveShadow = true; mesh.castShadow = bucket.cast;
+        grp.add(mesh);
+        const b = batchBoundsOf(geo);
+        b.mesh = mesh; b.shadowable = bucket.cast; b.shadow = bucket.cast; b.vis = true;
+        batchMeshes.push(b);
+      }
     }
     root.add(grp);
-    for (const bld of batched) { bld.ext.visible = false; bld.batched = grp; }
+    for (const bld of batched) {
+      bld.batched = grp;
+      bld.shadowParts = null;                                     // recollected lazily: the merged meshes are out of it now
+      bld.fullyBatched = bld.extBatched && (bld.roofBatched || !bld.roof) && !bld.int && !bld.upper &&
+        !bld.ceilings.length && !bld.doors.length && !bld.signMeshes.length && !bld.horses.length && !bld.hearths.length;
+      refreshVis(bld);
+    }
     batches.push(grp);
     return grp;
   }
@@ -2493,6 +2541,7 @@
       bld.dockId = d.id; d.building = bld; d.deckY = deckY;
       placed.push(bld);
     }
+    batchStatic(placed, 'docks');
     return placed;
   }
   function buildPOI(poi) {
@@ -2534,6 +2583,7 @@
       if (poi.kind !== 'camp' && poi.name) put({ recipe: 'sign', x: px + 5, z: pz + 5, yaw: -PI / 4, text: poi.name });
     }
     poi.buildingsPlaced = placed;
+    batchStatic(placed, 'poi:' + (poi.id || (px + ',' + pz)));
     return placed;
   }
   function build(sc) {
@@ -2753,6 +2803,70 @@
     return null;
   }
 
+  /* ---- batch culling + shadow-caster budget ------------------------------------------------------------
+     The sun's shadow camera only covers ±70 m around the player, so anything further out is paying for a
+     depth pass nobody can see. Every merged batch and every leftover per-building shell is switched by its
+     distance to the player (hysteresis so nothing flickers on the boundary); between SHADOW_OFF and
+     SHADOW_MAX the real shadow frustum decides, which is what keeps the long shadows of a low sun.        */
+  const _sunFr = new T.Frustum(), _sunM = new T.Matrix4(), _shSph = new T.Sphere();
+  let _sunFrOK = false;
+  function updateSunFrustum() {
+    _sunFrOK = false;
+    const S = G.Sky, sun = S && S.sun;
+    if (!sun || !sun.castShadow || !sun.shadow || !sun.shadow.camera) return;
+    const c = sun.shadow.camera;
+    if (!c.projectionMatrix || !c.matrixWorldInverse) return;
+    _sunM.multiplyMatrices(c.projectionMatrix, c.matrixWorldInverse);
+    _sunFr.setFromProjectionMatrix(_sunM);
+    _sunFrOK = true;
+  }
+  function updateBatches(px, pz) {
+    if (!batchMeshes.length) return;
+    const fog = scene && scene.fog;
+    const cull = Math.min(FAR_DIST, (fog && fog.far ? fog.far + 40 : FAR_DIST));
+    for (let i = 0; i < batchMeshes.length; i++) {
+      const b = batchMeshes[i];
+      const dx = px < b.minx ? b.minx - px : px > b.maxx ? px - b.maxx : 0;
+      const dz = pz < b.minz ? b.minz - pz : pz > b.maxz ? pz - b.maxz : 0;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      const vis = d < cull;
+      if (vis !== b.vis) { b.vis = vis; b.mesh.visible = vis; }
+      if (!b.shadowable) continue;
+      let on = b.shadow;
+      if (d < SHADOW_ON) on = true;
+      else if (d > SHADOW_OFF) on = (vis && d < SHADOW_MAX && _sunFrOK) ? _sunFr.intersectsBox(b.box) : false;
+      if (on !== b.shadow) { b.shadow = on; b.mesh.castShadow = on; }
+    }
+  }
+  function collectShadowParts(bld) {
+    const out = [];
+    for (const sub of [bld.ext, bld.roof, bld.upper]) {
+      if (!sub) continue;
+      for (const m of sub.children) if (m.isMesh && m.userData.canCast) out.push(m);
+    }
+    for (const d of bld.doors) for (const p of d.pivots) for (const m of p.group.children) if (m.isMesh) out.push(m);
+    return out;
+  }
+  function updateBuildingShadow(bld, d2) {
+    let parts = bld.shadowParts;
+    if (parts === null) parts = bld.shadowParts = collectShadowParts(bld);
+    if (!parts.length) return;
+    let on = bld.shadowOn;
+    if (d2 < SHADOW_ON2) on = true;
+    else if (d2 > SHADOW_OFF2) {
+      on = false;
+      if (d2 < SHADOW_MAX2 && _sunFrOK) {
+        const m = bld.cached.meta, half = Math.max(1, (m.maxY - m.minY) * 0.5);
+        _shSph.center.set(bld.x, bld.y + m.minY + half, bld.z);
+        _shSph.radius = Math.sqrt(bld.radius2 + half * half);
+        on = _sunFr.intersectsSphere(_shSph);
+      }
+    }
+    if (on === bld.shadowOn) return;
+    bld.shadowOn = on;
+    for (let i = 0; i < parts.length; i++) parts[i].castShadow = on;
+  }
+
   /* ---- main update ---- */
   function update(playerPos, dt) {
     dt = (typeof dt === 'number' && dt === dt) ? dt : 0;
@@ -2764,6 +2878,8 @@
     if (!playerPos || typeof playerPos.x !== 'number') playerPos = (G.state && G.state.player && G.state.player.pos) || null;
     if (!playerPos) { updateDoors(dt, 1e9, 0, 1e9); flickerLights(); return; }
     const px = playerPos.x, py = playerPos.y, pz = playerPos.z;
+    updateSunFrustum();
+    updateBatches(px, pz);
     nearN = 0;
     for (let i = 0; i < all.length; i++) {
       const bld = all[i];
@@ -2771,6 +2887,8 @@
       bld.d2 = d2;
       const band = d2 < NEAR_DIST * NEAR_DIST ? 0 : d2 < INT_DIST * INT_DIST ? 1 : d2 < FAR_DIST * FAR_DIST ? 2 : 3;
       if (band !== bld.band) { bld.band = band; refreshVis(bld); }
+      if (band < 3 && !bld.fullyBatched) updateBuildingShadow(bld, d2);
+      else if (bld.shadowOn && bld.shadowParts) { bld.shadowOn = false; for (const m of bld.shadowParts) m.castShadow = false; }
       if (d2 < 150 * 150) { if (nearN < near.length) near[nearN] = bld; else near.push(bld); nearN++; }
     }
     const ins = isInside(playerPos);
@@ -2789,9 +2907,21 @@
   }
   function setLightsEnabled(on) { lightsEnabled = !!on; if (!lightsEnabled) for (const slot of pool) slot.light.intensity = 0; }
   function stats() {
-    let ext = 0, inter = 0, doors = 0, lights = 0;
-    for (const bld of all) { if (!bld.batched && bld.ext) ext += bld.ext.children.length + (bld.roof ? bld.roof.children.length : 0); if (bld.int) inter += bld.int.children.length; doors += bld.doors.length; lights += bld.lights.length; }
-    return { buildings: all.length, enterable: enterables.length, doors, virtualLights: lights, pooledLights: pool.length, batches: batches.length, exteriorMeshes: ext, interiorMeshes: inter, cachedRecipes: CACHE.size };
+    let ext = 0, inter = 0, doors = 0, lights = 0, batchedBlds = 0;
+    for (const bld of all) {
+      if (bld.batched) batchedBlds++;
+      if (bld.ext && bld.ext.visible !== false) for (const m of bld.ext.children) { if (m.visible) ext++; }
+      if (bld.roof && !bld.roofBatched) ext += bld.roof.children.length;
+      if (bld.int) inter += bld.int.children.length;
+      doors += bld.doors.length; lights += bld.lights.length;
+    }
+    let bm = 0, bshadow = 0, bvis = 0;
+    for (const b of batchMeshes) { bm++; if (b.vis) bvis++; if (b.shadow) bshadow++; }
+    return {
+      buildings: all.length, enterable: enterables.length, doors, virtualLights: lights, pooledLights: pool.length,
+      batches: batches.length, batchedBuildings: batchedBlds, batchMeshes: bm, batchMeshesVisible: bvis, batchShadowCasters: bshadow,
+      exteriorMeshes: ext, interiorMeshes: inter, cachedRecipes: CACHE.size,
+    };
   }
 
   if (typeof G.on === 'function') G.on('sceneReady', function (sc) { if (sc && sc.isScene) init(sc); });

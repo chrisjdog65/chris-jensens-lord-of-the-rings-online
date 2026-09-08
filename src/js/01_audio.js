@@ -187,7 +187,7 @@
     master.connect(comp); comp.connect(ctx.destination);
     musicGain = gainN(0.4); duckGain = gainN(1); sfxGain = gainN(0.7); ambientGain = gainN(0.5);
     duckGain.connect(musicGain); musicGain.connect(master); sfxGain.connect(master); ambientGain.connect(master);
-    A.musicGain = musicGain; A.sfxGain = sfxGain; A.ambientGain = ambientGain; A.ctx = ctx;
+    A.musicGain = musicGain; A.sfxGain = sfxGain; A.ambientGain = ambientGain; A.ctx = ctx; A.master = master; A.comp = comp;
     // reverbs: short room for SFX, long hall for music/ambience
     verbRoom = mk(ctx.createConvolver()); verbRoom.buffer = impulseBuf(1.1, 3.2, 0.5);
     verbHall = mk(ctx.createConvolver()); verbHall.buffer = impulseBuf(2.8, 2.6, 0.35);
@@ -1097,8 +1097,10 @@
   INST.cymbal = function (v, e) { v.noise({ t: e.t, filter: { type: 'highpass', f: 4000, q: 0.5 }, dur: 0.05, a: 0.005, r: 1.4 * e.v + 0.3, vol: 0.3 * e.v }); v.fm({ t: e.t, f: 3500, ratio: 1.48, idx: 2, idxDecay: 0.3, dur: 0.05, r: 1.0, vol: 0.05 * e.v }); };
 
   // ---- Player: schedules one theme with look-ahead on the audio clock ----
+  const livePlayers = new Set();
   function Player(id, th) {
     this.id = id; this.th = th; this.dead = false; this.done = false;
+    livePlayers.add(this);
     this.gain = gainN(0); this.gain.connect(duckGain);
     this.tracks = th.tracks.map(function (tr) {
       const g = gainN(tr.vol == null ? 0.6 : tr.vol), pn = panN(tr.pan || 0), send = gainN(tr.send == null ? 0.25 : tr.send);
@@ -1147,7 +1149,7 @@
     },
     finish: function () { const self = this; this.kill(); if (current === self) { current = null; A.currentTheme = null; if (G.emit) G.emit('musicEnded', self.id); } },
     kill: function () {
-      if (this.dead) return; this.dead = true; generators.delete(this.gen);
+      if (this.dead) return; this.dead = true; generators.delete(this.gen); livePlayers.delete(this);
       for (const tr of this.tracks) for (const n of tr.nodes) { try { if (n) n.disconnect(); } catch (e) {} }
       try { this.gain.disconnect(); } catch (e) {}
     },
@@ -1175,6 +1177,12 @@
   A.stopMusic = function (fade) { wantTheme = null; if (current) current.fadeOut(fade == null ? 2 : fade); current = null; A.currentTheme = null; };
   A.duck = function (on) { A.ducked = !!on; if (!ctx) return; duckGain.gain.setTargetAtTime(on ? 0.3 : 1, nowT(), 0.35); };
   A.themes = [];
+  // debug/verification hook: what the music engine is actually running right now
+  A.musicStats = function () {
+    const out = { id: current ? current.id : null, done: current ? !!current.done : false, gain: current ? +current.gain.gain.value.toFixed(4) : 0, players: [], generators: generators.size };
+    livePlayers.forEach(function (p) { out.players.push({ id: p.id, dead: !!p.dead, done: !!p.done, gain: +p.gain.gain.value.toFixed(4), cur: p === current }); });
+    return out;
+  };
   function theme(id, fn) { THEMES[id] = fn; A.themes.push(id); }
 
   // ================================================================================================
