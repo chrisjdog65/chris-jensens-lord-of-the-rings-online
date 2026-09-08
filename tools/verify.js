@@ -1311,6 +1311,40 @@ scenario('R45', 'Audio in the running game: zone/combat music, ambient bed, SFX 
   });
   ok('20 level_up calls in one frame play exactly one voice', burst.played === 1 && burst.suppressed === 19, burst);
 
+  // ---- fishing cues. Fishing spots keep their position in `pos: {x, z}`, NOT `x`/`z` — reading s.x/s.z lands the
+  // player on NaN and canFish() always refuses, which is what made this look silent in earlier manual probes.
+  const fish = await T.evalG(() => {
+    const W = window.G.Data.world, spots = W.fishingSpots || [];
+    const water = (x, z) => (W.isWater ? W.isWater(x, z) : false);
+    for (let i = 0; i < Math.min(25, spots.length); i++) {
+      const c = spots[i].pos; if (!c) continue;
+      for (let a = 0; a < 24; a++) {
+        const th = a / 24 * Math.PI * 2;
+        for (let r = 3; r <= 16; r++) {
+          const x = c.x + Math.cos(th) * r, z = c.z + Math.sin(th) * r;
+          if (water(x, z)) continue;                       // stand on land
+          const dx = c.x - x, dz = c.z - z, len = Math.hypot(dx, dz) || 1, fx = dx / len, fz = dz / len;
+          let near = false;
+          for (let d = 2; d <= 6 && !near; d++) if (water(x + fx * d, z + fz * d)) near = true;
+          if (!near) continue;
+          window.G.Player.teleport(x, z, Math.atan2(-fx, -fz));   // yaw 0 faces -Z; forward = (-sin, -cos)
+          if (window.G.Fishing.canFish().ok) return { spot: spots[i].id, x: Math.round(x), z: Math.round(z) };
+        }
+      }
+    }
+    return null;
+  });
+  if (!fish) T.log('   no reachable fishing shore found — skipping the fishing cue check');
+  else {
+    await T.frames(2);
+    m = await mark();
+    await T.evalG(() => window.G.Fishing.autoFish());
+    await T.waitGame(() => window.G.Fishing.state !== 'idle', 4, 20000);
+    const cast = await since(m);
+    ok('casting a line plays fish_cast', cast.indexOf('fish_cast') >= 0, { spot: fish.spot, heard: cast.join(',') });
+    await T.evalG(() => { window.G.Fishing.autoActive = false; if (window.G.Fishing.state !== 'idle') window.G.Fishing.cancel(false); });
+  }
+
   // ---- 4. the victory fanfare is a one-shot that hands the zone theme back (musicEnded)
   await T.evalG(() => window.G.Audio.music('victory'));
   await T.wait(500);
