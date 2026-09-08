@@ -1296,6 +1296,22 @@ scenario('R39', 'Combat: abilities, XP, loot; death and respawn', async (T, ok) 
   const mech = await T.evalG(() => { const G = window.G; return { effects: !!(G.Combat.addEffect && G.Combat.removeEffect), crit: !!(G.Combat.lastHit && 'crit' in G.Combat.lastHit), cds: !!G.Combat.cooldownLeft, vendors: G.Data.world.npcs.some(n => (n.roles || []).some(r => /vendor/.test(r))), trainers: G.Data.world.npcs.some(n => (n.roles || []).indexOf('trainer') >= 0) }; });
   ok('buffs/debuffs, crits, cooldowns, vendors, trainers exist', mech.effects && mech.crit && mech.cds && mech.vendors && mech.trainers, mech);
   // death + respawn
+  // Towns are safe ground by design (22_monsters leashes any monster whose target stands in one),
+  // and quickStart drops the player in Archet, so step into the wilds before testing death.
+  await T.evalG(() => { const G = window.G, p = G.state.player;
+    if (G.Monsters.inTown && G.Monsters.inTown(p.pos.x, p.pos.z)) {
+      const t = G.Data.world.townById[G.state.zone] || null;
+      let a = 0, d = 0, done = false;
+      for (d = 90; d <= 400 && !done; d += 40) {
+        for (a = 0; a < 8; a++) {
+          const x = p.pos.x + Math.cos(a * Math.PI / 4) * d, z = p.pos.z + Math.sin(a * Math.PI / 4) * d;
+          if (!G.Monsters.inTown(x, z) && !G.Terrain.isWater(x, z)) { G.Player.teleport(x, z); done = true; break; }
+        }
+      }
+    }
+  });
+  await T.frames(2);
+  ok('player is outside any town before the death test', await T.evalG(() => { const G = window.G, p = G.state.player; return !(G.Monsters.inTown && G.Monsters.inTown(p.pos.x, p.pos.z)); }));
   const boss = await T.evalG(() => { const G = window.G; G.state.godMode = false; G.state.damageMult = 1; G.state.player.target = null; const id = window.__V.spawn({ dist: 1.5, level: 80, boss: true }); const m = window.__V.ent(id); if (m && G.Monsters.setTarget) G.Monsters.setTarget(m, G.state.player); if (m) G.Player.setTarget(m); return { id, name: m && m.name, level: m && m.level, deaths: G.state.stats.deaths }; });
   ok('spawned a level-80 boss adjacent', !!boss.id, boss);
   let died = await T.waitGame(() => { const p = window.G.state.player; return (p.dead || p.alive === false) ? true : null; }, 20, 45000);
