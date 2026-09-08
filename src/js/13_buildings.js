@@ -2389,8 +2389,10 @@
     return { minx: bb.min.x, maxx: bb.max.x, minz: bb.min.z, maxz: bb.max.z, box: bb.clone(), sphere: geo.boundingSphere.clone() };
   }
   function newCell() { return { ext: {}, roof: {}, rec: { meshes: [], blds: [], split: false, inside: 0 } }; }
+  let _batchMs = 0;
   function batchStatic(list, label) {
     if (!Array.isArray(list) || !list.length) return null;
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;   // profiling only
     const cells = new Map(); const batched = [];
     for (const bld of list) {
       if (!bld || bld.batched || !bld.group) continue;
@@ -2461,6 +2463,7 @@
       refreshVis(bld);
     }
     batches.push(grp);
+    if (t0) _batchMs += (performance.now() - t0);
     return grp;
   }
   /* The player stepped in/out of a building whose roof lives in a cell batch: swap that batch for the cell's
@@ -2621,7 +2624,7 @@
     for (const t of (W.towns || [])) n += buildTown(t).length;
     for (const p of (W.pois || [])) n += buildPOI(p).length;
     n += buildDocks(W.docks || []).length;
-    log('[Buildings] built', n, 'structures,', all.length, 'total');
+    log('[Buildings] built', n, 'structures,', all.length, 'total;', batchMeshes.length, 'merged meshes in', batches.length, 'batches (' + Math.round(_batchMs) + ' ms)');
     return n;
   }
   function init(sc) {
