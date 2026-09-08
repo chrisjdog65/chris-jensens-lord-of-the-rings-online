@@ -2099,10 +2099,21 @@
   /* Runtime: instancing, doors, colliders, lights, update loop, world builders                        */
   /* ------------------------------------------------------------------------------------------------ */
   const root = new T.Group(); root.name = 'buildings';
-  const all = [], byId = {}, enterables = [], batches = [];
+  const all = [], byId = {}, enterables = [], batches = [], batchMeshes = [];
   const CACHE = new Map(), DOOR_CACHE = new Map(), SIGN_MAT = new Map();
   let scene = null, playerInside = null, lightsEnabled = true, _time = 0, _lightTimer = 0, _doorTimer = 0, horsesBroken = false;
   const NEAR_DIST = 60, INT_DIST = 320, FAR_DIST = 900, LIGHT_DIST = 60, FX_DIST = 70, FX_DROP = 95;
+  /* Batching / shadow budget. Exteriors are merged per (spatial cell × material × shadow class): one cell is
+     BATCH_CELL m across, so a town collapses from hundreds of meshes into a couple of dozen. The sun's shadow
+     camera is ±70 m around the player (see G.Sky SHADOW_BOUNDS), so only batches/buildings whose bounds come
+     within SHADOW_ON of it need castShadow; SHADOW_OFF gives the hysteresis band, and anything inside
+     SHADOW_MAX is still tested against the real shadow frustum so a low sun keeps its long shadows. */
+  const BATCH_CELL = 120;
+  const SHADOW_ON = 82, SHADOW_OFF = 104, SHADOW_MAX = 430;
+  const SHADOW_ON2 = SHADOW_ON * SHADOW_ON, SHADOW_OFF2 = SHADOW_OFF * SHADOW_OFF, SHADOW_MAX2 = SHADOW_MAX * SHADOW_MAX;
+  const NO_CAST_MAT = { glass: 1, water: 1, lampglow: 1, elfglow: 1, ember: 1, banner: 1 };   // glow/transparent bits + swaying cloth (its depth pass does not sway)
+  const NO_SHADOW_RECIPE = { crate: 1, barrel: 1, hay: 1, cart: 1, fence: 1, sign: 1, lamp: 1, anvil: 1, campfire: 1, banner: 1 };   // small props: their shadows are invisible next to the buildings around them
+  const canCast = (mat, recipeName) => !NO_CAST_MAT[mat] && !NO_SHADOW_RECIPE[recipeName];
   const POOL_SIZE = 6;
   const pool = [];
   const _v = new T.Vector3();
@@ -2306,13 +2317,18 @@
       colliders: [], colRegistered: false, lights: [], hearths: [], smokes: [], interiorSpots: [], signMeshes: [], horses: [],
       npcInside: spec.npcInside || [], town: spec.town || null, poi: spec.poi || null, spec, cached,
       enterable: !!(recipe.enterable && m.interior), static: !!recipe.static, batched: null,
+      extBatched: false, roofBatched: false, fullyBatched: false, shadowParts: null, shadowOn: true,
       band: -1, inside: false, camInside: false, d2: Infinity,
     };
     for (const grp in cached.groups) {
       const sub = new T.Group(); sub.name = grp;
+      const outer = grp === 'ext' || grp === 'roof';                 // only the outside shell is lit by the sun …
       for (const part of cached.groups[grp]) {
         const mesh = new T.Mesh(part.geo, getMat(part.mat));
-        mesh.castShadow = part.mat !== 'glass' && part.mat !== 'water'; mesh.receiveShadow = true;
+        mesh.receiveShadow = true;
+        // … interiors sit under a ceiling the shell already shadows, so they never cast (272 casters was the bigger half of the cost)
+        if (outer && canCast(part.mat, recipe.name)) { mesh.castShadow = true; mesh.userData.canCast = true; }
+        else mesh.castShadow = false;
         sub.add(mesh);
       }
       group.add(sub);
