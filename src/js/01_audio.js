@@ -4,8 +4,10 @@
    Public API (SPEC §5.9): init(), ready, sfx(name, {pos, vol, pitch, loop}) → handle|null, stopLoop(name),
    music(themeId), stopMusic(), currentTheme, duck(bool), setVolumes(music, sfx), ambient(biome, phase),
    setAmbientRain(bool). Extras (documented here, harmless if unused): footstep(groundType, opts),
-   update(dt) (positional loop refresh; also self-driven), stats {nodes, voices}, names (SFX list),
-   themes (theme id list), has(name), suspend()/resume(), stopAll(). Self-initialises on the first
+   update(dt) (positional loop refresh; also self-driven), stats {nodes, voices, notes, suppressed},
+   names (SFX list), themes (theme id list), has(name), hasTheme(id), musicStats() (verification hook:
+   {id, gain, players[], generators}), suspend()/resume(), stopAll(), and the live bus nodes
+   ctx/master/comp/musicGain/sfxGain/ambientGain for metering. Self-initialises on the first
    pointerdown/keydown. Silent-safe: every call returns immediately while the context does not exist
    (the last requested theme/ambient mix is remembered and applied once audio becomes ready).
    Private helpers prefixed `_` are copies of nothing owned by other modules; only `G.state`, `G.on`,
@@ -35,7 +37,10 @@
   // ------------------------------------------------------------------------------------------------
   let ctx = null;           // AudioContext (lazy)
   let master, comp, musicGain, duckGain, sfxGain, ambientGain;
-  let verbRoom, verbHall, roomSend, hallSend;   // convolvers + their input send gains
+  let verbRoom, verbHall, verbHallS, roomSend, hallSend, hallSendS;   // convolvers + their input send gains
+                                                // (hallSend = music hall, returns INTO the music bus so the music
+                                                //  slider and ducking apply to the tail; hallSendS = SFX hall,
+                                                //  returns into the SFX bus for the same reason)
   const bufCache = new Map();                   // generated buffers (noise, KS strings, hit patterns, impulses)
   const shaperCache = new Map();
   const voices = [];                            // active SFX voices (concurrency cap)
@@ -49,7 +54,7 @@
 
   A.ready = false;
   A.currentTheme = null;
-  A.stats = { nodes: 0, voices: 0, notes: 0 };
+  A.stats = { nodes: 0, voices: 0, notes: 0, suppressed: 0 };
   A.volumes = { music: 0.6, sfx: 0.8 };
   A.ducked = false;
 
@@ -191,10 +196,12 @@
     // reverbs: short room for SFX, long hall for music/ambience
     verbRoom = mk(ctx.createConvolver()); verbRoom.buffer = impulseBuf(1.1, 3.2, 0.5);
     verbHall = mk(ctx.createConvolver()); verbHall.buffer = impulseBuf(2.8, 2.6, 0.35);
-    roomSend = gainN(1); hallSend = gainN(1);
-    const roomOut = gainN(0.55), hallOut = gainN(0.6);
+    verbHallS = mk(ctx.createConvolver()); verbHallS.buffer = impulseBuf(1.8, 2.4, 0.4);
+    roomSend = gainN(1); hallSend = gainN(1); hallSendS = gainN(1);
+    const roomOut = gainN(0.55), hallOut = gainN(0.75), hallOutS = gainN(0.8);
     roomSend.connect(verbRoom); verbRoom.connect(roomOut); roomOut.connect(sfxGain);
-    hallSend.connect(verbHall); verbHall.connect(hallOut); hallOut.connect(master);
+    hallSend.connect(verbHall); verbHall.connect(hallOut); hallOut.connect(duckGain);      // music tails follow the music fader + duck
+    hallSendS.connect(verbHallS); verbHallS.connect(hallOutS); hallOutS.connect(sfxGain);  // sfx tails follow the sfx fader
     noiseBuf('white'); noiseBuf('pink'); noiseBuf('brown');
     A.ready = true;
     const s = settings();
@@ -376,7 +383,7 @@
     shaper: function (amt) { return this.track(shaperN(amt)); },
     lfo: function (o) { const l = this.track(oscN(o.type || 'sine', o.rate, o.t)); const g = this.track(gainN(o.depth)); l.connect(g); g.connect(o.param); l.start(o.t); if (o.stop) l.stop(o.stop); return l; },
     // reverb send: amount 0..1, room (sfx) or hall
-    verb: function (amount, hall) { const g = this.track(gainN(amount)); this.out.connect(g); g.connect(hall ? hallSend : roomSend); return g; },
+    verb: function (amount, hall) { const g = this.track(gainN(amount)); this.out.connect(g); g.connect(hall ? hallSendS : roomSend); return g; },
     refreshSpatial: function () {
       if (!ctx || !this.pos) return;
       spatial(this.pos, _sp);
@@ -406,8 +413,20 @@
   // ------------------------------------------------------------------------------------------------
   // SFX dispatch
   // ------------------------------------------------------------------------------------------------
-  const SFX = {};          // name → { pv: pitchVariance, verb, hall, fn(v, t, p, o) }
+  const SFX = {};          // name → { pv: pitchVariance, verb, hall, gap, fn(v, t, p, o) }
   function def(name, fn, opts) { SFX[name] = Object.assign({ fn: fn, pv: 0.06 }, opts || {}); }
+  // Minimum re-trigger gap per SFX name (seconds). Stops a caller that fires the same cue many times in one
+  // frame (e.g. 60 level-ups from one addXP, a cleave hitting five targets) from stacking identical voices —
+  // phase-identical copies only sum into a click and evict everything else through the voice cap.
+  const DEFAULT_GAP = 0.045;
+  const GAP = {
+    level_up: 1.6, achievement: 0.9, quest_complete: 0.9, quest_accept: 0.45, quest_progress: 0.3,
+    coin: 0.14, loot: 0.12, equip: 0.1, ui_open: 0.12, ui_close: 0.12, ui_error: 0.25, chat_ping: 0.3,
+    death: 0.35, hurt: 0.2, thunder: 0.6, horse_neigh: 0.5, horse_mount: 0.35, boat_bell: 0.5,
+    fish_cast: 0.3, fish_bite: 0.3, fish_catch: 0.4, fish_fail: 0.4, admin_open: 0.4, door_open: 0.2, door_close: 0.2,
+    wolf_howl: 0.35, bear_roar: 0.35, troll_roar: 0.35, boar_grunt: 0.3, spider_hiss: 0.3, orc_growl: 0.3, wight_moan: 0.4,
+  };
+  const lastStart = new Map();
 
   A.sfx = function (name, o) {
     if (!ctx || !A.ready || !name) return null;
@@ -418,6 +437,10 @@
     if (_sp.gain <= 0.005) return null;
     const isLoop = !!(o.loop || d.loop);
     if (isLoop && loops.has(name)) { const ex = loops.get(name); if (ex && !ex.dead) { if (o.pos) ex.pos = o.pos; return ex; } }
+    if (!isLoop) {                                   // anti machine-gun: collapse identical cues fired together
+      const tn = nowT(), gap = d.gap == null ? (GAP[name] == null ? DEFAULT_GAP : GAP[name]) : d.gap;
+      if (gap > 0) { const prev = lastStart.get(name); if (prev != null && tn - prev < gap) { A.stats.suppressed++; return null; } lastStart.set(name, tn); }
+    }
     // concurrency cap: drop the oldest non-loop voice
     while (voices.length >= MAX_VOICES) {
       let idx = -1; for (let i = 0; i < voices.length; i++) if (!voices[i].loop) { idx = i; break; }
@@ -1115,7 +1138,10 @@
   }
   Player.prototype = {
     schedule: function (now, until) {
-      if (this.dead || this.done) return;
+      if (this.dead) return;
+      // a finished one-shot (victory/death) still has to be retired: its tail must run out, then finish() clears
+      // currentTheme and emits musicEnded so main can bring the zone theme back.
+      if (this.done) { if (this.endAt != null && nowT() > this.endAt) this.finish(); return; }
       const th = this.th, spb = this.spb, lb = this.loopBeats; let guard = 0;
       while (guard++ < 64) {
         let allDone = true;

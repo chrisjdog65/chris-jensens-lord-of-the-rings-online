@@ -1585,8 +1585,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
    Public API (SPEC §5.9): init(), ready, sfx(name, {pos, vol, pitch, loop}) → handle|null, stopLoop(name),
    music(themeId), stopMusic(), currentTheme, duck(bool), setVolumes(music, sfx), ambient(biome, phase),
    setAmbientRain(bool). Extras (documented here, harmless if unused): footstep(groundType, opts),
-   update(dt) (positional loop refresh; also self-driven), stats {nodes, voices}, names (SFX list),
-   themes (theme id list), has(name), suspend()/resume(), stopAll(). Self-initialises on the first
+   update(dt) (positional loop refresh; also self-driven), stats {nodes, voices, notes, suppressed},
+   names (SFX list), themes (theme id list), has(name), hasTheme(id), musicStats() (verification hook:
+   {id, gain, players[], generators}), suspend()/resume(), stopAll(), and the live bus nodes
+   ctx/master/comp/musicGain/sfxGain/ambientGain for metering. Self-initialises on the first
    pointerdown/keydown. Silent-safe: every call returns immediately while the context does not exist
    (the last requested theme/ambient mix is remembered and applied once audio becomes ready).
    Private helpers prefixed `_` are copies of nothing owned by other modules; only `G.state`, `G.on`,
@@ -1616,7 +1618,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   // ------------------------------------------------------------------------------------------------
   let ctx = null;           // AudioContext (lazy)
   let master, comp, musicGain, duckGain, sfxGain, ambientGain;
-  let verbRoom, verbHall, roomSend, hallSend;   // convolvers + their input send gains
+  let verbRoom, verbHall, verbHallS, roomSend, hallSend, hallSendS;   // convolvers + their input send gains
+                                                // (hallSend = music hall, returns INTO the music bus so the music
+                                                //  slider and ducking apply to the tail; hallSendS = SFX hall,
+                                                //  returns into the SFX bus for the same reason)
   const bufCache = new Map();                   // generated buffers (noise, KS strings, hit patterns, impulses)
   const shaperCache = new Map();
   const voices = [];                            // active SFX voices (concurrency cap)
@@ -1630,7 +1635,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 
   A.ready = false;
   A.currentTheme = null;
-  A.stats = { nodes: 0, voices: 0, notes: 0 };
+  A.stats = { nodes: 0, voices: 0, notes: 0, suppressed: 0 };
   A.volumes = { music: 0.6, sfx: 0.8 };
   A.ducked = false;
 
@@ -1772,10 +1777,12 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     // reverbs: short room for SFX, long hall for music/ambience
     verbRoom = mk(ctx.createConvolver()); verbRoom.buffer = impulseBuf(1.1, 3.2, 0.5);
     verbHall = mk(ctx.createConvolver()); verbHall.buffer = impulseBuf(2.8, 2.6, 0.35);
-    roomSend = gainN(1); hallSend = gainN(1);
-    const roomOut = gainN(0.55), hallOut = gainN(0.6);
+    verbHallS = mk(ctx.createConvolver()); verbHallS.buffer = impulseBuf(1.8, 2.4, 0.4);
+    roomSend = gainN(1); hallSend = gainN(1); hallSendS = gainN(1);
+    const roomOut = gainN(0.55), hallOut = gainN(0.75), hallOutS = gainN(0.8);
     roomSend.connect(verbRoom); verbRoom.connect(roomOut); roomOut.connect(sfxGain);
-    hallSend.connect(verbHall); verbHall.connect(hallOut); hallOut.connect(master);
+    hallSend.connect(verbHall); verbHall.connect(hallOut); hallOut.connect(duckGain);      // music tails follow the music fader + duck
+    hallSendS.connect(verbHallS); verbHallS.connect(hallOutS); hallOutS.connect(sfxGain);  // sfx tails follow the sfx fader
     noiseBuf('white'); noiseBuf('pink'); noiseBuf('brown');
     A.ready = true;
     const s = settings();
@@ -1957,7 +1964,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     shaper: function (amt) { return this.track(shaperN(amt)); },
     lfo: function (o) { const l = this.track(oscN(o.type || 'sine', o.rate, o.t)); const g = this.track(gainN(o.depth)); l.connect(g); g.connect(o.param); l.start(o.t); if (o.stop) l.stop(o.stop); return l; },
     // reverb send: amount 0..1, room (sfx) or hall
-    verb: function (amount, hall) { const g = this.track(gainN(amount)); this.out.connect(g); g.connect(hall ? hallSend : roomSend); return g; },
+    verb: function (amount, hall) { const g = this.track(gainN(amount)); this.out.connect(g); g.connect(hall ? hallSendS : roomSend); return g; },
     refreshSpatial: function () {
       if (!ctx || !this.pos) return;
       spatial(this.pos, _sp);
@@ -1987,8 +1994,20 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   // ------------------------------------------------------------------------------------------------
   // SFX dispatch
   // ------------------------------------------------------------------------------------------------
-  const SFX = {};          // name → { pv: pitchVariance, verb, hall, fn(v, t, p, o) }
+  const SFX = {};          // name → { pv: pitchVariance, verb, hall, gap, fn(v, t, p, o) }
   function def(name, fn, opts) { SFX[name] = Object.assign({ fn: fn, pv: 0.06 }, opts || {}); }
+  // Minimum re-trigger gap per SFX name (seconds). Stops a caller that fires the same cue many times in one
+  // frame (e.g. 60 level-ups from one addXP, a cleave hitting five targets) from stacking identical voices —
+  // phase-identical copies only sum into a click and evict everything else through the voice cap.
+  const DEFAULT_GAP = 0.045;
+  const GAP = {
+    level_up: 1.6, achievement: 0.9, quest_complete: 0.9, quest_accept: 0.45, quest_progress: 0.3,
+    coin: 0.14, loot: 0.12, equip: 0.1, ui_open: 0.12, ui_close: 0.12, ui_error: 0.25, chat_ping: 0.3,
+    death: 0.35, hurt: 0.2, thunder: 0.6, horse_neigh: 0.5, horse_mount: 0.35, boat_bell: 0.5,
+    fish_cast: 0.3, fish_bite: 0.3, fish_catch: 0.4, fish_fail: 0.4, admin_open: 0.4, door_open: 0.2, door_close: 0.2,
+    wolf_howl: 0.35, bear_roar: 0.35, troll_roar: 0.35, boar_grunt: 0.3, spider_hiss: 0.3, orc_growl: 0.3, wight_moan: 0.4,
+  };
+  const lastStart = new Map();
 
   A.sfx = function (name, o) {
     if (!ctx || !A.ready || !name) return null;
@@ -1999,6 +2018,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     if (_sp.gain <= 0.005) return null;
     const isLoop = !!(o.loop || d.loop);
     if (isLoop && loops.has(name)) { const ex = loops.get(name); if (ex && !ex.dead) { if (o.pos) ex.pos = o.pos; return ex; } }
+    if (!isLoop) {                                   // anti machine-gun: collapse identical cues fired together
+      const tn = nowT(), gap = d.gap == null ? (GAP[name] == null ? DEFAULT_GAP : GAP[name]) : d.gap;
+      if (gap > 0) { const prev = lastStart.get(name); if (prev != null && tn - prev < gap) { A.stats.suppressed++; return null; } lastStart.set(name, tn); }
+    }
     // concurrency cap: drop the oldest non-loop voice
     while (voices.length >= MAX_VOICES) {
       let idx = -1; for (let i = 0; i < voices.length; i++) if (!voices[i].loop) { idx = i; break; }
@@ -2678,8 +2701,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   INST.cymbal = function (v, e) { v.noise({ t: e.t, filter: { type: 'highpass', f: 4000, q: 0.5 }, dur: 0.05, a: 0.005, r: 1.4 * e.v + 0.3, vol: 0.3 * e.v }); v.fm({ t: e.t, f: 3500, ratio: 1.48, idx: 2, idxDecay: 0.3, dur: 0.05, r: 1.0, vol: 0.05 * e.v }); };
 
   // ---- Player: schedules one theme with look-ahead on the audio clock ----
+  const livePlayers = new Set();
   function Player(id, th) {
     this.id = id; this.th = th; this.dead = false; this.done = false;
+    livePlayers.add(this);
     this.gain = gainN(0); this.gain.connect(duckGain);
     this.tracks = th.tracks.map(function (tr) {
       const g = gainN(tr.vol == null ? 0.6 : tr.vol), pn = panN(tr.pan || 0), send = gainN(tr.send == null ? 0.25 : tr.send);
@@ -2694,7 +2719,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
   Player.prototype = {
     schedule: function (now, until) {
-      if (this.dead || this.done) return;
+      if (this.dead) return;
+      // a finished one-shot (victory/death) still has to be retired: its tail must run out, then finish() clears
+      // currentTheme and emits musicEnded so main can bring the zone theme back.
+      if (this.done) { if (this.endAt != null && nowT() > this.endAt) this.finish(); return; }
       const th = this.th, spb = this.spb, lb = this.loopBeats; let guard = 0;
       while (guard++ < 64) {
         let allDone = true;
@@ -2728,7 +2756,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     },
     finish: function () { const self = this; this.kill(); if (current === self) { current = null; A.currentTheme = null; if (G.emit) G.emit('musicEnded', self.id); } },
     kill: function () {
-      if (this.dead) return; this.dead = true; generators.delete(this.gen);
+      if (this.dead) return; this.dead = true; generators.delete(this.gen); livePlayers.delete(this);
       for (const tr of this.tracks) for (const n of tr.nodes) { try { if (n) n.disconnect(); } catch (e) {} }
       try { this.gain.disconnect(); } catch (e) {}
     },
@@ -2756,6 +2784,12 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   A.stopMusic = function (fade) { wantTheme = null; if (current) current.fadeOut(fade == null ? 2 : fade); current = null; A.currentTheme = null; };
   A.duck = function (on) { A.ducked = !!on; if (!ctx) return; duckGain.gain.setTargetAtTime(on ? 0.3 : 1, nowT(), 0.35); };
   A.themes = [];
+  // debug/verification hook: what the music engine is actually running right now
+  A.musicStats = function () {
+    const out = { id: current ? current.id : null, done: current ? !!current.done : false, gain: current ? +current.gain.gain.value.toFixed(4) : 0, players: [], generators: generators.size };
+    livePlayers.forEach(function (p) { out.players.push({ id: p.id, dead: !!p.dead, done: !!p.done, gain: +p.gain.gain.value.toFixed(4), cur: p === current }); });
+    return out;
+  };
   function theme(id, fn) { THEMES[id] = fn; A.themes.push(id); }
 
   // ================================================================================================
@@ -17691,7 +17725,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const intVis = band === 0 || inside;
     if (bld.int) bld.int.visible = intVis;
     if (bld.extBatched) bld.ext.visible = false;
-    if (bld.roof) bld.roof.visible = bld.roofBatched ? false : !inside;   // only the exterior shell hides while you are inside — what you see overhead is the interior ceiling, which never hides, so a chase camera pushed out through a wall still looks into the room instead of at a closed box
+    // a batched roof is drawn by its cell batch, except while that cell is split (someone is inside one of its buildings)
+    if (bld.roof) bld.roof.visible = bld.roofBatched ? !!(bld.roofCell && bld.roofCell.split && !inside && band < 3) : !inside;   // only the exterior shell hides while you are inside — what you see overhead is the interior ceiling, which never hides, so a chase camera pushed out through a wall still looks into the room instead of at a closed box
     for (const c of bld.ceilings) c.group.visible = intVis;         // an upper storey is the floor below's ceiling — never hidden by height
     for (const d of bld.doors) for (const p of d.pivots) p.group.visible = band < 2;
     for (const sm of bld.signMeshes) sm.visible = band < 2;
@@ -17720,7 +17755,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       colliders: [], colRegistered: false, lights: [], hearths: [], smokes: [], interiorSpots: [], signMeshes: [], horses: [],
       npcInside: spec.npcInside || [], town: spec.town || null, poi: spec.poi || null, spec, cached,
       enterable: !!(recipe.enterable && m.interior), static: !!recipe.static, batched: null,
-      extBatched: false, roofBatched: false, fullyBatched: false, shadowParts: null, shadowOn: true,
+      extBatched: false, roofBatched: false, roofCell: null, fullyBatched: false, shadowParts: null, shadowOn: true,
       band: -1, inside: false, camInside: false, d2: Infinity,
     };
     for (const grp in cached.groups) {
@@ -17787,19 +17822,23 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const bb = geo.boundingBox;
     return { minx: bb.min.x, maxx: bb.max.x, minz: bb.min.z, maxz: bb.max.z, box: bb.clone(), sphere: geo.boundingSphere.clone() };
   }
+  function newCell() { return { ext: {}, roof: {}, rec: { meshes: [], blds: [], split: false, inside: 0 } }; }
   function batchStatic(list, label) {
     if (!Array.isArray(list) || !list.length) return null;
     const cells = new Map(); const batched = [];
     for (const bld of list) {
       if (!bld || bld.batched || !bld.group) continue;
-      const roofOK = !!(bld.roof && !bld.enterable);      // an enterable's roof still has to vanish while the player is inside
-      if (!bld.ext && !roofOK) continue;
+      if (!bld.ext && !bld.roof) continue;
       bld.group.updateMatrixWorld(true);
       const ck = Math.floor(bld.x / BATCH_CELL) + ',' + Math.floor(bld.z / BATCH_CELL);
-      let cell = cells.get(ck); if (!cell) { cell = {}; cells.set(ck, cell); }
+      let cell = cells.get(ck); if (!cell) { cell = newCell(); cells.set(ck, cell); }
+      // An enterable's roof goes into the cell's own ROOF batch, which is split back into its per-building meshes
+      // while the player is inside one of them (that is the only time a single roof has to vanish on its own).
+      const split = !!(bld.roof && bld.enterable);
       let tookExt = 0, tookRoof = 0;
-      for (const sub of [bld.ext, roofOK ? bld.roof : null]) {
+      for (const sub of [bld.ext, bld.roof]) {
         if (!sub) continue;
+        const isRoof = sub === bld.roof;
         for (const mesh of sub.children) {
           if (!mesh.isMesh || !mesh.geometry || !mesh.material || mesh.userData.noBatch) continue;
           const mat = String(mesh.material.name || '').replace(/^bld_/, '');
@@ -17808,33 +17847,43 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
           // One bucket per (cell, material): small props ride along in the wall geometry's draw call, so keeping them
           // out of the shadow map would cost a whole extra mesh. A bucket only stays out of the shadow pass when
           // NOTHING in it casts (a cell of nothing but crates, fences, lamps and signs).
-          const bucket = cell[mat] || (cell[mat] = { mat, cast: false, geos: [] });
+          const into = (isRoof && split) ? cell.roof : cell.ext;
+          const bucket = into[mat] || (into[mat] = { mat, cast: false, geos: [] });
           bucket.cast = bucket.cast || !!mesh.userData.canCast;
           bucket.geos.push(g);
-          mesh.visible = false; mesh.castShadow = false; mesh.userData.canCast = false;
-          if (sub === bld.ext) tookExt++; else tookRoof++;
+          if (isRoof && split) { mesh.castShadow = false; }        // shown again only while the cell is split; gated then by shadowParts
+          else { mesh.visible = false; mesh.castShadow = false; mesh.userData.canCast = false; }
+          if (isRoof) tookRoof++; else tookExt++;
         }
       }
       if (!tookExt && !tookRoof) continue;
       if (bld.ext && tookExt === bld.ext.children.length) { bld.ext.visible = false; bld.extBatched = true; }
-      if (roofOK && tookRoof === bld.roof.children.length) { bld.roof.visible = false; bld.roofBatched = true; }
+      if (bld.roof && tookRoof === bld.roof.children.length) {
+        bld.roof.visible = false; bld.roofBatched = true;
+        if (split) { bld.roofCell = cell.rec; cell.rec.blds.push(bld); }
+      }
       batched.push(bld);
     }
     if (!batched.length) return null;
     const grp = new T.Group(); grp.name = 'batch:' + (label || '');
     grp.matrixAutoUpdate = false; grp.updateMatrix();
     for (const cell of cells.values()) {
-      for (const key in cell) {
-        const bucket = cell[key];
-        const geo = mergeGeos(bucket.geos); if (!geo) continue;
-        const mesh = new T.Mesh(geo, getMat(bucket.mat));
-        mesh.name = bucket.mat + (bucket.cast ? '' : ':noshadow');
-        mesh.matrixAutoUpdate = false; mesh.updateMatrix();      // merged in world space: the batch group is identity
-        mesh.receiveShadow = true; mesh.castShadow = bucket.cast;
-        grp.add(mesh);
-        const b = batchBoundsOf(geo);
-        b.mesh = mesh; b.shadowable = bucket.cast; b.shadow = bucket.cast; b.vis = true;
-        batchMeshes.push(b);
+      for (const which of ['ext', 'roof']) {
+        const buckets = cell[which];
+        for (const key in buckets) {
+          const bucket = buckets[key];
+          const geo = mergeGeos(bucket.geos); if (!geo) continue;
+          const mesh = new T.Mesh(geo, getMat(bucket.mat));
+          mesh.name = (which === 'roof' ? 'roof:' : '') + bucket.mat + (bucket.cast ? '' : ':noshadow');
+          mesh.matrixAutoUpdate = false; mesh.updateMatrix();      // merged in world space: the batch group is identity
+          mesh.receiveShadow = true; mesh.castShadow = bucket.cast;
+          grp.add(mesh);
+          const b = batchBoundsOf(geo);
+          b.mesh = mesh; b.shadowable = bucket.cast; b.shadow = bucket.cast; b.vis = true;
+          b.cell = which === 'roof' ? cell.rec : null;
+          batchMeshes.push(b);
+          if (b.cell) b.cell.meshes.push(b);
+        }
       }
     }
     root.add(grp);
@@ -17847,6 +17896,18 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     batches.push(grp);
     return grp;
+  }
+  /* The player stepped in/out of a building whose roof lives in a cell batch: swap that batch for the cell's
+     per-building roof meshes so only THEIR roof disappears, and swap back on the way out. */
+  function setRoofSplit(bld, on) {
+    const rec = bld && bld.roofCell; if (!rec) return;
+    rec.inside += on ? 1 : -1;
+    if (rec.inside < 0) rec.inside = 0;
+    const split = rec.inside > 0;
+    if (split === rec.split) return;
+    rec.split = split;
+    for (const b of rec.meshes) { const vis = b.vis && !split; if (b.mesh.visible !== vis) b.mesh.visible = vis; }
+    for (const b of rec.blds) refreshVis(b);
   }
 
   /* ---- world builders ---- */
@@ -18230,7 +18291,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       const dz = pz < b.minz ? b.minz - pz : pz > b.maxz ? pz - b.maxz : 0;
       const d = Math.sqrt(dx * dx + dz * dz);
       const vis = d < cull;
-      if (vis !== b.vis) { b.vis = vis; b.mesh.visible = vis; }
+      if (vis !== b.vis) { b.vis = vis; b.mesh.visible = vis && !(b.cell && b.cell.split); }
       if (!b.shadowable) continue;
       let on = b.shadow;
       if (d < SHADOW_ON) on = true;
@@ -18245,6 +18306,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       for (const m of sub.children) if (m.isMesh && m.userData.canCast) out.push(m);
     }
     for (const d of bld.doors) for (const p of d.pivots) for (const m of p.group.children) if (m.isMesh) out.push(m);
+    for (let i = 0; i < out.length; i++) out[i].castShadow = bld.shadowOn;   // batching may have cleared them: start from a known state
     return out;
   }
   function updateBuildingShadow(bld, d2) {
@@ -18293,9 +18355,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     const ins = isInside(playerPos);
     if (ins !== playerInside) {
-      if (playerInside) { playerInside.inside = false; playerInside.camInside = false; refreshVis(playerInside); if (typeof G.emit === 'function') G.emit('leaveBuilding', playerInside); }
+      if (playerInside) { playerInside.inside = false; playerInside.camInside = false; setRoofSplit(playerInside, false); refreshVis(playerInside); if (typeof G.emit === 'function') G.emit('leaveBuilding', playerInside); }
       playerInside = ins;
-      if (ins) { ins.inside = true; ins.camInside = cameraInside(ins); refreshVis(ins); if (typeof G.emit === 'function') G.emit('enterBuilding', ins); }
+      if (ins) { ins.inside = true; ins.camInside = cameraInside(ins); setRoofSplit(ins, true); refreshVis(ins); if (typeof G.emit === 'function') G.emit('enterBuilding', ins); }
     }
     if (ins) ins.camInside = cameraInside(ins);   // reported for callers/debug; visibility no longer depends on it
     updateDoors(dt, px, py, pz);

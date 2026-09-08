@@ -2291,7 +2291,8 @@
     const intVis = band === 0 || inside;
     if (bld.int) bld.int.visible = intVis;
     if (bld.extBatched) bld.ext.visible = false;
-    if (bld.roof) bld.roof.visible = bld.roofBatched ? false : !inside;   // only the exterior shell hides while you are inside — what you see overhead is the interior ceiling, which never hides, so a chase camera pushed out through a wall still looks into the room instead of at a closed box
+    // a batched roof is drawn by its cell batch, except while that cell is split (someone is inside one of its buildings)
+    if (bld.roof) bld.roof.visible = bld.roofBatched ? !!(bld.roofCell && bld.roofCell.split && !inside && band < 3) : !inside;   // only the exterior shell hides while you are inside — what you see overhead is the interior ceiling, which never hides, so a chase camera pushed out through a wall still looks into the room instead of at a closed box
     for (const c of bld.ceilings) c.group.visible = intVis;         // an upper storey is the floor below's ceiling — never hidden by height
     for (const d of bld.doors) for (const p of d.pivots) p.group.visible = band < 2;
     for (const sm of bld.signMeshes) sm.visible = band < 2;
@@ -2320,7 +2321,7 @@
       colliders: [], colRegistered: false, lights: [], hearths: [], smokes: [], interiorSpots: [], signMeshes: [], horses: [],
       npcInside: spec.npcInside || [], town: spec.town || null, poi: spec.poi || null, spec, cached,
       enterable: !!(recipe.enterable && m.interior), static: !!recipe.static, batched: null,
-      extBatched: false, roofBatched: false, fullyBatched: false, shadowParts: null, shadowOn: true,
+      extBatched: false, roofBatched: false, roofCell: null, fullyBatched: false, shadowParts: null, shadowOn: true,
       band: -1, inside: false, camInside: false, d2: Infinity,
     };
     for (const grp in cached.groups) {
@@ -2387,19 +2388,23 @@
     const bb = geo.boundingBox;
     return { minx: bb.min.x, maxx: bb.max.x, minz: bb.min.z, maxz: bb.max.z, box: bb.clone(), sphere: geo.boundingSphere.clone() };
   }
+  function newCell() { return { ext: {}, roof: {}, rec: { meshes: [], blds: [], split: false, inside: 0 } }; }
   function batchStatic(list, label) {
     if (!Array.isArray(list) || !list.length) return null;
     const cells = new Map(); const batched = [];
     for (const bld of list) {
       if (!bld || bld.batched || !bld.group) continue;
-      const roofOK = !!(bld.roof && !bld.enterable);      // an enterable's roof still has to vanish while the player is inside
-      if (!bld.ext && !roofOK) continue;
+      if (!bld.ext && !bld.roof) continue;
       bld.group.updateMatrixWorld(true);
       const ck = Math.floor(bld.x / BATCH_CELL) + ',' + Math.floor(bld.z / BATCH_CELL);
-      let cell = cells.get(ck); if (!cell) { cell = {}; cells.set(ck, cell); }
+      let cell = cells.get(ck); if (!cell) { cell = newCell(); cells.set(ck, cell); }
+      // An enterable's roof goes into the cell's own ROOF batch, which is split back into its per-building meshes
+      // while the player is inside one of them (that is the only time a single roof has to vanish on its own).
+      const split = !!(bld.roof && bld.enterable);
       let tookExt = 0, tookRoof = 0;
-      for (const sub of [bld.ext, roofOK ? bld.roof : null]) {
+      for (const sub of [bld.ext, bld.roof]) {
         if (!sub) continue;
+        const isRoof = sub === bld.roof;
         for (const mesh of sub.children) {
           if (!mesh.isMesh || !mesh.geometry || !mesh.material || mesh.userData.noBatch) continue;
           const mat = String(mesh.material.name || '').replace(/^bld_/, '');
@@ -2408,33 +2413,43 @@
           // One bucket per (cell, material): small props ride along in the wall geometry's draw call, so keeping them
           // out of the shadow map would cost a whole extra mesh. A bucket only stays out of the shadow pass when
           // NOTHING in it casts (a cell of nothing but crates, fences, lamps and signs).
-          const bucket = cell[mat] || (cell[mat] = { mat, cast: false, geos: [] });
+          const into = (isRoof && split) ? cell.roof : cell.ext;
+          const bucket = into[mat] || (into[mat] = { mat, cast: false, geos: [] });
           bucket.cast = bucket.cast || !!mesh.userData.canCast;
           bucket.geos.push(g);
-          mesh.visible = false; mesh.castShadow = false; mesh.userData.canCast = false;
-          if (sub === bld.ext) tookExt++; else tookRoof++;
+          if (isRoof && split) { mesh.castShadow = false; }        // shown again only while the cell is split; gated then by shadowParts
+          else { mesh.visible = false; mesh.castShadow = false; mesh.userData.canCast = false; }
+          if (isRoof) tookRoof++; else tookExt++;
         }
       }
       if (!tookExt && !tookRoof) continue;
       if (bld.ext && tookExt === bld.ext.children.length) { bld.ext.visible = false; bld.extBatched = true; }
-      if (roofOK && tookRoof === bld.roof.children.length) { bld.roof.visible = false; bld.roofBatched = true; }
+      if (bld.roof && tookRoof === bld.roof.children.length) {
+        bld.roof.visible = false; bld.roofBatched = true;
+        if (split) { bld.roofCell = cell.rec; cell.rec.blds.push(bld); }
+      }
       batched.push(bld);
     }
     if (!batched.length) return null;
     const grp = new T.Group(); grp.name = 'batch:' + (label || '');
     grp.matrixAutoUpdate = false; grp.updateMatrix();
     for (const cell of cells.values()) {
-      for (const key in cell) {
-        const bucket = cell[key];
-        const geo = mergeGeos(bucket.geos); if (!geo) continue;
-        const mesh = new T.Mesh(geo, getMat(bucket.mat));
-        mesh.name = bucket.mat + (bucket.cast ? '' : ':noshadow');
-        mesh.matrixAutoUpdate = false; mesh.updateMatrix();      // merged in world space: the batch group is identity
-        mesh.receiveShadow = true; mesh.castShadow = bucket.cast;
-        grp.add(mesh);
-        const b = batchBoundsOf(geo);
-        b.mesh = mesh; b.shadowable = bucket.cast; b.shadow = bucket.cast; b.vis = true;
-        batchMeshes.push(b);
+      for (const which of ['ext', 'roof']) {
+        const buckets = cell[which];
+        for (const key in buckets) {
+          const bucket = buckets[key];
+          const geo = mergeGeos(bucket.geos); if (!geo) continue;
+          const mesh = new T.Mesh(geo, getMat(bucket.mat));
+          mesh.name = (which === 'roof' ? 'roof:' : '') + bucket.mat + (bucket.cast ? '' : ':noshadow');
+          mesh.matrixAutoUpdate = false; mesh.updateMatrix();      // merged in world space: the batch group is identity
+          mesh.receiveShadow = true; mesh.castShadow = bucket.cast;
+          grp.add(mesh);
+          const b = batchBoundsOf(geo);
+          b.mesh = mesh; b.shadowable = bucket.cast; b.shadow = bucket.cast; b.vis = true;
+          b.cell = which === 'roof' ? cell.rec : null;
+          batchMeshes.push(b);
+          if (b.cell) b.cell.meshes.push(b);
+        }
       }
     }
     root.add(grp);
@@ -2447,6 +2462,18 @@
     }
     batches.push(grp);
     return grp;
+  }
+  /* The player stepped in/out of a building whose roof lives in a cell batch: swap that batch for the cell's
+     per-building roof meshes so only THEIR roof disappears, and swap back on the way out. */
+  function setRoofSplit(bld, on) {
+    const rec = bld && bld.roofCell; if (!rec) return;
+    rec.inside += on ? 1 : -1;
+    if (rec.inside < 0) rec.inside = 0;
+    const split = rec.inside > 0;
+    if (split === rec.split) return;
+    rec.split = split;
+    for (const b of rec.meshes) { const vis = b.vis && !split; if (b.mesh.visible !== vis) b.mesh.visible = vis; }
+    for (const b of rec.blds) refreshVis(b);
   }
 
   /* ---- world builders ---- */
@@ -2830,7 +2857,7 @@
       const dz = pz < b.minz ? b.minz - pz : pz > b.maxz ? pz - b.maxz : 0;
       const d = Math.sqrt(dx * dx + dz * dz);
       const vis = d < cull;
-      if (vis !== b.vis) { b.vis = vis; b.mesh.visible = vis; }
+      if (vis !== b.vis) { b.vis = vis; b.mesh.visible = vis && !(b.cell && b.cell.split); }
       if (!b.shadowable) continue;
       let on = b.shadow;
       if (d < SHADOW_ON) on = true;
@@ -2845,6 +2872,7 @@
       for (const m of sub.children) if (m.isMesh && m.userData.canCast) out.push(m);
     }
     for (const d of bld.doors) for (const p of d.pivots) for (const m of p.group.children) if (m.isMesh) out.push(m);
+    for (let i = 0; i < out.length; i++) out[i].castShadow = bld.shadowOn;   // batching may have cleared them: start from a known state
     return out;
   }
   function updateBuildingShadow(bld, d2) {
@@ -2893,9 +2921,9 @@
     }
     const ins = isInside(playerPos);
     if (ins !== playerInside) {
-      if (playerInside) { playerInside.inside = false; playerInside.camInside = false; refreshVis(playerInside); if (typeof G.emit === 'function') G.emit('leaveBuilding', playerInside); }
+      if (playerInside) { playerInside.inside = false; playerInside.camInside = false; setRoofSplit(playerInside, false); refreshVis(playerInside); if (typeof G.emit === 'function') G.emit('leaveBuilding', playerInside); }
       playerInside = ins;
-      if (ins) { ins.inside = true; ins.camInside = cameraInside(ins); refreshVis(ins); if (typeof G.emit === 'function') G.emit('enterBuilding', ins); }
+      if (ins) { ins.inside = true; ins.camInside = cameraInside(ins); setRoofSplit(ins, true); refreshVis(ins); if (typeof G.emit === 'function') G.emit('enterBuilding', ins); }
     }
     if (ins) ins.camInside = cameraInside(ins);   // reported for callers/debug; visibility no longer depends on it
     updateDoors(dt, px, py, pz);
