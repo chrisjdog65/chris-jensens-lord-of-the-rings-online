@@ -1586,7 +1586,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
    music(themeId), stopMusic(), currentTheme, duck(bool), setVolumes(music, sfx), ambient(biome, phase),
    setAmbientRain(bool). Extras (documented here, harmless if unused): footstep(groundType, opts),
    update(dt) (positional loop refresh; also self-driven), stats {nodes, voices, notes, suppressed},
-   names (SFX list), themes (theme id list), has(name), hasTheme(id), musicStats() (verification hook:
+   names (SFX list), themes (theme id list), has(name), hasTheme(id), isLooping(name), musicStats() (hook:
    {id, gain, players[], generators}), suspend()/resume(), stopAll(), and the live bus nodes
    ctx/master/comp/musicGain/sfxGain/ambientGain for metering. Self-initialises on the first
    pointerdown/keydown. Silent-safe: every call returns immediately while the context does not exist
@@ -2042,6 +2042,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return v;
   };
   A.stopLoop = function (name, fade) { const v = loops.get(name); if (v) v.stop(fade); };
+  A.isLooping = function (name) { const v = loops.get(name); return !!(v && !v.dead && v.loop); };
   A.stopAll = function () { for (let i = voices.length - 1; i >= 0; i--) voices[i].kill(); };
   A.has = function (name) { return !!SFX[name]; };
   A.footstep = function (ground, o) {
@@ -44326,6 +44327,8 @@ textarea.adm-ta { width: 100%; height: 150px; font-family: Consolas, Menlo, mono
      startFromSave() → bool      G.Save.load → Player.create(charSpec) → Quests.init → Save.apply → … → gameStart
      toMenu(), toCharCreate(), restart()      tear the session down (save first for toMenu) and change phase
      zoneMusic(force?)           G.Audio.music(zone theme | 'tavern' inside inns) + G.Audio.ambient(biome, G.Sky.phase);
+                                 the playing loop also drives a positional 'fire_loop' at the nearest hearth of the
+                                 building the player is inside (started/stopped here, synthesised by 01_audio);
                                  re-run on zoneChanged / dayPhase / musicEnded / enter & leave buildings (skipped in combat & while sailing)
      togglePause(), setPaused(bool), paused
      fps (EMA), frameMs (EMA wall ms per frame), jsMs (EMA JS ms per frame), drawCalls, triangles (last rendered frame)
@@ -44638,8 +44641,34 @@ textarea.adm-ta { width: 100%; height: 150px; font-family: Consolas, Menlo, mono
     run('Sky', G.Sky, 'update', dt, pos);
     run('FX', G.FX, 'update', dt, camera);
     G.emit('update', dt);
+    updateFireLoop(dt);
     run('UI', G.UI, 'update', dt);
     run('Audio', G.Audio, 'update', dt);
+  }
+
+  // Hearth crackle: one positional 'fire_loop' voice (01_audio's fire bed) follows the nearest lit hearth of the
+  // building the player is standing in — inn fireplaces, cottage hearths. Audio owns the sound; main only says
+  // where the fire is, and stops the loop as soon as the player steps back outside.
+  const _fireOpts = { pos: null, loop: true, vol: 0.6 };
+  let fireT = 0, fireOn = false;
+  function updateFireLoop(dt) {
+    const A = G.Audio;
+    if (!A || !A.ready || !has(A, 'sfx')) return;
+    fireT -= dt; if (fireT > 0) return;
+    fireT = 0.35;
+    const B = G.Buildings, p = G.state.player;
+    const bld = (B && p && p.pos) ? B.playerInside : null;
+    let best = null, bd = 12 * 12;
+    if (bld && bld.hearths) {
+      for (let i = 0; i < bld.hearths.length; i++) {
+        const h = bld.hearths[i];
+        if (!h || !h.pos || h.kind === 'smoke') continue;
+        const dx = h.pos.x - p.pos.x, dz = h.pos.z - p.pos.z, d2 = dx * dx + dz * dz;
+        if (d2 < bd) { bd = d2; best = h; }
+      }
+    }
+    if (best) { _fireOpts.pos = best.pos; try { A.sfx('fire_loop', _fireOpts); fireOn = true; } catch (e) { report(e, 'Game.fireLoop'); } }
+    else if (fireOn) { fireOn = false; try { if (has(A, 'stopLoop')) A.stopLoop('fire_loop', 0.7); } catch (e) { /* ignore */ } }
   }
 
   function updateMenu(dt) {
@@ -44859,6 +44888,7 @@ textarea.adm-ta { width: 100%; height: 150px; font-family: Consolas, Menlo, mono
     } catch (e) { report(e, 'Game.teardown.ui'); }
     try { if (G.Input && has(G.Input, 'exitLock')) G.Input.exitLock(); } catch (e) { /* ignore */ }
     try { if (G.Audio && has(G.Audio, 'stopMusic')) G.Audio.stopMusic(1); } catch (e) { /* ignore */ }
+    try { if (G.Audio && has(G.Audio, 'stopLoop')) { G.Audio.stopLoop('fire_loop', 0.4); fireOn = false; } } catch (e) { /* ignore */ }
     try { if (G.Player && has(G.Player, 'dispose')) G.Player.dispose(); } catch (e) { report(e, 'Game.teardown.player'); }
     try { if (G.Monsters && has(G.Monsters, 'init') && Game.sessions > 0) G.Monsters.init(scene); } catch (e) { report(e, 'Game.teardown.monsters'); }
     try { if (G.FX && has(G.FX, 'setBeacon')) G.FX.setBeacon(null); } catch (e) { /* ignore */ }

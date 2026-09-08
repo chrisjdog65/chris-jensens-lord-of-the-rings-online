@@ -5,7 +5,7 @@
    music(themeId), stopMusic(), currentTheme, duck(bool), setVolumes(music, sfx), ambient(biome, phase),
    setAmbientRain(bool). Extras (documented here, harmless if unused): footstep(groundType, opts),
    update(dt) (positional loop refresh; also self-driven), stats {nodes, voices, notes, suppressed},
-   names (SFX list), themes (theme id list), has(name), hasTheme(id), musicStats() (verification hook:
+   names (SFX list), themes (theme id list), has(name), hasTheme(id), isLooping(name), musicStats() (hook:
    {id, gain, players[], generators}), suspend()/resume(), stopAll(), and the live bus nodes
    ctx/master/comp/musicGain/sfxGain/ambientGain for metering. Self-initialises on the first
    pointerdown/keydown. Silent-safe: every call returns immediately while the context does not exist
@@ -461,6 +461,7 @@
     return v;
   };
   A.stopLoop = function (name, fade) { const v = loops.get(name); if (v) v.stop(fade); };
+  A.isLooping = function (name) { const v = loops.get(name); return !!(v && !v.dead && v.loop); };
   A.stopAll = function () { for (let i = voices.length - 1; i >= 0; i--) voices[i].kill(); };
   A.has = function (name) { return !!SFX[name]; };
   A.footstep = function (ground, o) {
