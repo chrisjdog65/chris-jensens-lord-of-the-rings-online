@@ -1357,7 +1357,12 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 
     requestLock: function () {
       const c = Input.canvas;
-      if (!c || Input.mouse.locked || !Input.lockSupported) return false;
+      if (!c || !Input.lockSupported) return false;
+      // Re-derive the flag first: it can drift out of sync with the document (a stale pointerlockerror for a
+      // superseded request, a lock taken before init). Asking again while the canvas is ALREADY locked resolves
+      // without ever firing pointerlockchange, which would leave mouse look dead for good.
+      syncLock();
+      if (Input.mouse.locked) return false;
       const plain = function () { try { const q = c.requestPointerLock(); if (q && typeof q.catch === 'function') q.catch(noop); } catch (_) { /* denied */ } };
       try {
         const p = c.requestPointerLock({ unadjustedMovement: true });
@@ -1367,7 +1372,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     },
     exitLock: function () {
       try { if (document.pointerLockElement) document.exitPointerLock(); } catch (_) { /* ignore */ }
-      if (!document.pointerLockElement) Input.mouse.locked = false;
+      syncLock();   // the change event follows asynchronously; this only catches an already-released lock
     },
 
     onSequence: function (seq, fn) {
@@ -1562,7 +1567,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   function onContextMenu(e) {
     if ((Input.canvas && e.target === Input.canvas) || Input._rmbMoved || Input.mouse.locked) { e.preventDefault(); Input._rmbMoved = false; }
   }
-  function onLockChange() {
+  /** Make Input.mouse.locked agree with the document; announce it only when it really changed. */
+  function syncLock() {
     const locked = !!Input.canvas && document.pointerLockElement === Input.canvas;
     if (locked === Input.mouse.locked) return;
     Input.mouse.locked = locked;
@@ -1570,8 +1576,12 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     Input._rmbDrag = false;
     G.emit('pointerLock', locked);
   }
+  function onLockChange() { syncLock(); }
   function onLockError() {
-    Input.mouse.locked = false;
+    // The error may belong to a superseded request (asking with unadjustedMovement first, then plain) and can land
+    // while the canvas is already locked. Never force the flag false from here: a live lock reported as unlocked
+    // hides the cursor with a frozen camera, and no later pointerlockchange would ever correct it.
+    syncLock();
   }
 
   G.log('core ready', G.VERSION);
