@@ -668,6 +668,10 @@
     const pl = player(); const rig = rigOf(pl);
     if (!pl || !pl.pos || pl.dead || pl.alive === false || pl.mounted || pl.swimming) { cancel(false); return; }
     if (G.Boats && (G.Boats.sailing || G.Boats.travelling)) { cancel(false); return; }
+    // The cast point sits 2–7 m ahead of the angler and fishing pins the player in place, so any real distance means
+    // something teleported them (stable ride, quest hand-off, respawn, admin). Reel in instead of leaving the bobber
+    // and the line stretched across Middle-earth with the state stuck on 'waiting'.
+    { const ddx = pl.pos.x - Fishing.castPoint.x, ddz = pl.pos.z - Fishing.castPoint.z; if (ddx * ddx + ddz * ddz > 400) { cancel(false); return; } }
     FS.t += dt;
     facePlayerToCast();
     if (pl.vel) { pl.vel.x = 0; pl.vel.z = 0; }

@@ -2162,8 +2162,24 @@
   Object.defineProperty(Dg, 'npc', { get: function () { return DG.npc; } });
   Dg.onClose = function () {
     if (DG.closeTimer) { clearTimeout(DG.closeTimer); DG.closeTimer = 0; }
-    const npc = DG.npc; DG.npc = null; DG.view = 'main'; DG.quest = null;
+    const npc = DG.npc; DG.npc = null; DG.view = 'main'; DG.quest = null; DG._far = 0;
     if (npc && _has(G.NPCs, 'endTalk')) { try { G.NPCs.endTalk(npc); } catch (err) { _report(err, 'endTalk'); } }
+  };
+  /** A conversation ends once the player is no longer beside the NPC — the vendor already does this. Without it,
+   *  dying mid-talk (retreat teleports you to the rally point) or any other teleport left the window open and fully
+   *  usable from the far side of Middle-earth: accept/turn in quests, train, open the trade or travel window. */
+  Dg.update = function (dt) {
+    if (!Dg.isOpen()) { DG._far = 0; return; }
+    const npc = DG.npc, p = _player();
+    if (!npc || !npc.pos || typeof npc.pos.x !== 'number' || !p || !p.pos) return;   // showQuest() builds a posless stub
+    const d = G.dist2 ? G.dist2(p.pos.x, p.pos.z, npc.pos.x, npc.pos.z) : 0;
+    if (d <= 12) { DG._far = 0; return; }
+    DG._far = _num(DG._far) + dt;
+    if (DG._far <= 0.3) return;
+    DG._far = 0;
+    const nm = npc.name || 'them';
+    Dg.close();
+    _notify('You are too far from ' + nm + ' to keep talking.', 'info');
   };
   definePanel('dialogue', Dg, { title: 'Conversation', width: 580, pos: 'center', modal: true, remember: false });
 
@@ -2438,7 +2454,23 @@
     return true;
   };
   Tr.fade = function (on, dur, cb) { _fade(on, dur, cb); };
-  Tr.onClose = function () { const npc = TR.npc; TR.npc = null; if (npc && _has(G.NPCs, 'endTalk')) { try { G.NPCs.endTalk(npc); } catch (_) { /* ignore */ } } };
+  /** Same rule for the travel list: a stable master / boatmaster you have left behind cannot sell you a ride.
+   *  (TR.busy is the panel's own ride teleport, which closes the window itself.) */
+  Tr.update = function (dt) {
+    if (!Tr.isOpen() || TR.busy) { TR._far = 0; return; }
+    const p = _player(); if (!p || !p.pos) return;
+    const at = (TR.npc && TR.npc.pos) || (TR.dock && TR.dock.pos) || null;
+    if (!at || typeof at.x !== 'number') return;
+    const d = G.dist2 ? G.dist2(p.pos.x, p.pos.z, at.x, at.z) : 0;
+    if (d <= (TR.mode === 'dock' ? 24 : 12)) { TR._far = 0; return; }
+    TR._far = _num(TR._far) + dt;
+    if (TR._far <= 0.3) return;
+    TR._far = 0;
+    const what = TR.mode === 'dock' ? 'the harbour' : 'the stables';
+    Tr.close();
+    _notify('You leave ' + what + '.', 'info');
+  };
+  Tr.onClose = function () { const npc = TR.npc; TR.npc = null; TR._far = 0; if (npc && _has(G.NPCs, 'endTalk')) { try { G.NPCs.endTalk(npc); } catch (_) { /* ignore */ } } };
   definePanel('travel', Tr, { title: 'Travel', width: 500, pos: 'center', remember: false });
 
   // ================================================================================================ SETTINGS (Esc)
@@ -2606,6 +2638,8 @@
       Mp.update(dt);
       Pl.update(dt);
       Vd.update(dt);
+      Dg.update(dt);
+      Tr.update(dt);
     } catch (err) { if (!G.__panelsErr) { G.__panelsErr = true; _report(err, 'panels update'); } }
   });
   G.log('31_ui_panels ready');
