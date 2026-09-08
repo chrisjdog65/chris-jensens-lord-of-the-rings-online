@@ -1703,6 +1703,19 @@
     const q = pl.questId ? byId[pl.questId] : null;
     logLine('plan: ' + pl.kind + (q ? ' "' + q.name + '"' : '') + (pl.objIndex >= 0 && q ? ' → ' + describeObjective(q, pl.objIndex) : ''));
   }
+  /** While we are standing at an NPC, do ALL of its business: hand in everything it is waiting for and take
+   *  everything it is offering. Costs no extra frames and is what a player does at a quest hub — and the overlapping
+   *  objectives (same foes, same zone) then progress together, because Quests credits every active quest on a kill. */
+  function hubBusiness(npcId, why) {
+    if (!npcId) return 0;
+    let n = 0;
+    const ready = turnins(npcId);
+    for (let i = 0; i < ready.length; i++) { const id = ready[i]; if (turnIn(id, bestChoice(id), { auto: true })) { n++; logLine('…and turned in "' + byId[id].name + '" while here'); } }
+    const offer = available(npcId);
+    for (let i = 0; i < offer.length; i++) { const id = offer[i]; if (accept(id, { silent: true })) { n++; logLine('…and took "' + byId[id].name + '" while here'); } }
+    if (n) { S.planDirty = true; chain(); }
+    return n;
+  }
   function stepTurnIn(q) {
     const npcId = q.turnin || q.giver;
     const n = posOfNpc(npcId);
@@ -1713,6 +1726,7 @@
     const ok = turnIn(q.id, bestChoice(q.id), { auto: true });
     logLine((ok ? 'turned in "' : 'turn-in FAILED "') + q.name + '" at ' + n.name);
     if (!ok && state[q.id] && state[q.id].status === 'complete') turnIn(q.id, bestChoice(q.id), { auto: true, force: true });
+    hubBusiness(npcId, 'turnin');
     S.planDirty = true; chain();
   }
   function stepAcquire(q) {
@@ -1724,6 +1738,7 @@
     const ok = accept(q.id);
     logLine((ok ? 'accepted "' : 'accept FAILED "') + q.name + '" from ' + n.name);
     if (!ok) accept(q.id, { force: true });
+    hubBusiness(q.giver, 'acquire');
     S.planDirty = true; chain();
   }
   function finish() {
