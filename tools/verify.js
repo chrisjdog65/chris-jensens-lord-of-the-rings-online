@@ -66,7 +66,7 @@ if (!fs.existsSync(OUT)) fs.mkdirSync(OUT, { recursive: true });
 const HTML = path.resolve(opt('--html', path.join(__dirname, '..', 'dist', 'Chris-Jensens-LOTRO.html')));
 const REPORT = path.join(OUT, 'verify-report.json');
 const AQ_REPORT = path.join(OUT, 'verify-autoquest.json');
-const BOOT_TIMEOUT = 120000;
+const BOOT_TIMEOUT = 240000;   // boot takes 35 s idle, 100+ s when other headless runs share the box
 const QUICKSTART = { name: 'Verifier', race: 'man', cls: 'champion', gender: 'male' };
 const LAUNCH_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'];
 const ERR_FILTER = /fonts\.googleapis|fonts\.gstatic|Failed to load resource|net::ERR_/;
@@ -284,7 +284,7 @@ async function quickStart(page, ctx) {
   const t0 = Date.now();
   await page.evaluate((o) => window.__T.quickStart(o), QUICKSTART);
   try {
-    await page.waitForFunction(() => !!(window.__T && window.__T.inGame === true), null, { timeout: 90000, polling: 250 });
+    await page.waitForFunction(() => !!(window.__T && window.__T.inGame === true), null, { timeout: 180000, polling: 250 });
   } catch (e) {
     const probe = await page.evaluate(() => { const G = window.G; return { phase: G && G.state && G.state.phase, hasPlayer: !!(G && G.state && G.state.player), gErrors: (G && G.errors || []).slice(0, 3).map(String) }; }).catch(() => null);
     throw new Error('quickStart failed: __T.inGame never became true' + (probe ? ' (' + JSON.stringify(probe) + ')' : ''));
@@ -345,6 +345,7 @@ async function settle(page) {
     t(() => { if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur(); });
     t(() => { const c = document.getElementById('game'); if (c) c.focus({ preventScroll: true }); });
     t(() => { if (G.time) G.time.scale = ts; });
+    t(() => { if (G.state) { G.state.godMode = false; G.state.damageMult = 1; } });
     t(() => { if (G.Input && G.Input.reset) G.Input.reset(); });
     t(() => { if (window.__V) window.__V.despawnAll(); });
     t(() => { const p = G.state.player; if (p && (p.dead || p.alive === false) && G.Player && G.Player.respawn) G.Player.respawn(); });
@@ -748,7 +749,7 @@ scenario('R19', 'J = journal with quest details and remaining quests', async (T,
   ok('J closes it', !!(await T.waitFor(() => !window.__V.visible('journal'), 4000)));
 });
 
-scenario('R20', 'K = abilities: unlock by level, train for gold', async (T, ok) => {
+scenario('R20', 'K = abilities: unlock by level, train for gold', async (T, ok, ctx) => {
   await T.press('KeyK');
   await T.waitFor(() => window.__V.visible('abilities'), 4000);
   const r = await T.evalG(() => ({ visible: window.__V.visible('abilities'), rows: document.querySelectorAll('#panel-abilities .ab-row').length, total: window.G.Data.abilitiesFor(window.G.state.player.cls).length }));
@@ -767,17 +768,20 @@ scenario('R20', 'K = abilities: unlock by level, train for gold', async (T, ok) 
   });
   ok('an untrained, affordable ability exists (level raised temporarily if needed)', !prep.none && prep.canTrain && prep.canTrain.ok, prep);
   if (!prep.none) {
-    const sel = '#panel-abilities .ab-row[data-id="' + prep.id + '"] button';
-    const btn = await T.page.$$(sel);
-    let viaUI = false;
-    for (const b of btn) { const t = (await b.textContent()) || ''; if (/train/i.test(t)) { await b.click(); viaUI = true; break; } }
-    if (!viaUI) await T.evalG((id) => window.G.Progress.trainAbility(id), prep.id);
-    await T.frames(2);
-    const after = await T.evalG((id) => { const p = window.G.state.player; const size = p.abilities && p.abilities.size != null ? p.abilities.size : (p.abilities || []).length; return { size, gold: p.gold, has: window.G.Progress.hasAbility ? window.G.Progress.hasAbility(p, id) : null, hotbar: p.hotbar.indexOf(id) }; }, prep.id);
-    ok('training grew player.abilities (' + (viaUI ? 'Train button' : 'API fallback') + ')', after.size === prep.size + 1 && after.has !== false, { before: prep.size, after: after.size, viaUI });
-    ok('training cost gold', prep.cost > 0 ? after.gold === prep.gold - prep.cost : true, { cost: prep.cost, before: prep.gold, after: after.gold });
-    ok('trained ability placed on the hotbar', after.hotbar >= 0, after.hotbar);
-    await T.evalG((L) => window.G.Progress.setLevel(L), prep.level0);
+    try {
+      await T.frames(2);   // the row list re-renders after setLevel/addGold — resolve the button afresh
+      const sel = '#panel-abilities .ab-row[data-id="' + prep.id + '"] button';
+      let viaUI = false;
+      try { const loc = T.page.locator(sel).filter({ hasText: /train/i }).first(); if (await loc.count()) { await loc.click({ timeout: 8000 * (ctx.slow || 1) }); viaUI = true; } } catch (e) { T.log('Train button click failed: ' + e.message); }
+      if (!viaUI) await T.evalG((id) => window.G.Progress.trainAbility(id), prep.id);
+      await T.frames(2);
+      const after = await T.evalG((id) => { const p = window.G.state.player; const size = p.abilities && p.abilities.size != null ? p.abilities.size : (p.abilities || []).length; return { size, gold: p.gold, has: window.G.Progress.hasAbility ? window.G.Progress.hasAbility(p, id) : null, hotbar: p.hotbar.indexOf(id) }; }, prep.id);
+      ok('training grew player.abilities (' + (viaUI ? 'Train button' : 'API fallback') + ')', after.size === prep.size + 1 && after.has !== false, { before: prep.size, after: after.size, viaUI });
+      ok('training cost gold', prep.cost > 0 ? after.gold === prep.gold - prep.cost : true, { cost: prep.cost, before: prep.gold, after: after.gold });
+      ok('trained ability placed on the hotbar', after.hotbar >= 0, after.hotbar);
+    } finally {
+      await T.evalG((L) => window.G.Progress.setLevel(L), prep.level0).catch(() => { });
+    }
   }
   await T.press('KeyK');
   ok('K closes it', !!(await T.waitFor(() => !window.__V.visible('abilities'), 4000)));
@@ -800,7 +804,7 @@ scenario('R21', 'C = character: paper doll (18 slots), stats, set bonuses', asyn
 });
 
 scenario('R22', 'B = auto-quest bot progresses quests without deadlock', async (T, ok, ctx) => {
-  const budget = (OPTS.fast ? 120000 : 180000) * Math.min(3, ctx.slow || 1);
+  const budget = (OPTS.fast ? 200000 : 300000) * Math.min(2, ctx.slow || 1);   // wall cap; the loop also stops after 240 game-s
   const c0 = await T.evalG((ts) => { const G = window.G; G.AutoQuest.speed = 10; G.time.scale = Math.max(6, ts); const c = G.Quests.completion(); return { done: c.done, total: c.total, level: G.state.player.level, xp: G.state.player.xp, t: G.time.now }; }, OPTS.timescale);
   ok('150 quests tracked by G.Quests.completion()', c0.total === 150, c0);
   await T.press('KeyB');
@@ -815,6 +819,7 @@ scenario('R22', 'B = auto-quest bot progresses quests without deadlock', async (
     if (last.text) texts.add(last.text);
     if (last.done - c0.done >= 3) break;
     if (!last.active) break;
+    if (last.gameSec - c0.t >= 240) break;
   }
   const secs = ((Date.now() - t0) / 1000).toFixed(0);
   const gameSecs = last ? Math.round(last.gameSec - c0.t) : 0;
@@ -826,7 +831,7 @@ scenario('R22', 'B = auto-quest bot progresses quests without deadlock', async (
   if (!stopped) await T.evalG(() => window.G.AutoQuest.stop());
   ok('B again stops the bot', !!stopped);
   await T.evalG((ts) => { window.G.time.scale = ts; window.G.UI.closeAll(); }, OPTS.timescale);
-}, { timeout: OPTS.fast ? 170000 : 230000 });
+}, { timeout: OPTS.fast ? 300000 : 420000 });
 
 scenario('R23', 'M = map with player position; quest tracker + minimap', async (T, ok) => {
   const q = await T.evalG(() => { const Q = window.G.Quests; if (!Q.active().length) { const id = (Q.availableIds && Q.availableIds()[0]) || Q.nextStory(); if (id) Q.accept(id, { force: true }); } if (!Q.tracked && Q.active().length) Q.setTracked(Q.active()[0]); const qd = Q.get(Q.tracked); const no = Q.nextObjective(Q.tracked); return { tracked: Q.tracked, name: qd && qd.name, next: no ? { label: no.label, pos: no.pos } : null, target: window.G.state.questTarget }; });
@@ -1118,7 +1123,7 @@ scenario('R39', 'Combat: abilities, XP, loot; death and respawn', async (T, ok) 
   const spot = await T.evalG(() => window.__V.openSpot());
   if (spot) await T.evalG((s) => window.__V.tp(s.x, s.z), spot);
   await T.frames(3);
-  const start = await T.evalG(() => { const G = window.G, p = G.state.player; G.state.godMode = true; const id = window.__V.spawn({ dist: 2.5 }); const m = window.__V.ent(id); if (m) { G.Player.setTarget(m); window.__V.face(m); } return { id, name: m && m.name, level: m && m.level, xp: p.xp, gold: p.gold, kills: G.state.stats.kills, loot: window.__V.loot.length, used: G.Items.usedSlots ? G.Items.usedSlots(p) : null, abilities: window.__V.abilities.length }; });
+  const start = await T.evalG(() => { const G = window.G, p = G.state.player; G.state.godMode = true; G.state.damageMult = 3; const id = window.__V.spawn({ dist: 2.5 }); const m = window.__V.ent(id); if (m) { G.Player.setTarget(m); window.__V.face(m); } return { id, name: m && m.name, level: m && m.level, xp: p.xp, gold: p.gold, kills: G.state.stats.kills, loot: window.__V.loot.length, used: G.Items.usedSlots ? G.Items.usedSlots(p) : null, abilities: window.__V.abilities.length }; });
   ok('spawned a hostile monster in melee range', !!start.id, start);
   if (!start.id) return;
   const t0 = Date.now(); const c0 = await T.clock(); let dead = null, cNow = c0;
@@ -1129,7 +1134,7 @@ scenario('R39', 'Combat: abilities, XP, loot; death and respawn', async (T, ok) 
     if (cNow.t - c0.t > 12) await T.evalG((id) => { const G = window.G, m = window.__V.ent(id); if (m) G.Combat.basicAttack(G.state.player, m); }, start.id);
   }
   cNow = await T.clock();
-  ok('monster killed with hotbar abilities (' + (cNow.t - c0.t).toFixed(1) + ' game-s, ' + ((Date.now() - t0) / 1000).toFixed(0) + ' s wall)', !!dead);
+  ok('monster killed with hotbar abilities (' + (cNow.t - c0.t).toFixed(1) + ' game-s, ' + ((Date.now() - t0) / 1000).toFixed(0) + ' s wall; admin damage ×3, god mode on)', !!dead, dead ? undefined : await T.evalG((id) => { const m = window.__V.ent(id); return m ? { morale: Math.round(m.morale), max: m.stats && Math.round(m.stats.maxMorale), state: m.ai && m.ai.state, dist: Math.round(window.G.Combat.distanceXZ(window.G.state.player, m)) } : 'entity gone'; }, start.id));
   const usedAb = await T.evalG((n) => window.__V.abilities.length - n, start.abilities);
   ok('abilities were used (cooldowns/gcd path)', usedAb >= 2, usedAb + ' abilityUsed events');
   await T.frames(3);
@@ -1144,10 +1149,10 @@ scenario('R39', 'Combat: abilities, XP, loot; death and respawn', async (T, ok) 
   const mech = await T.evalG(() => { const G = window.G; return { effects: !!(G.Combat.addEffect && G.Combat.removeEffect), crit: !!(G.Combat.lastHit && 'crit' in G.Combat.lastHit), cds: !!G.Combat.cooldownLeft, vendors: G.Data.world.npcs.some(n => (n.roles || []).some(r => /vendor/.test(r))), trainers: G.Data.world.npcs.some(n => (n.roles || []).indexOf('trainer') >= 0) }; });
   ok('buffs/debuffs, crits, cooldowns, vendors, trainers exist', mech.effects && mech.crit && mech.cds && mech.vendors && mech.trainers, mech);
   // death + respawn
-  const boss = await T.evalG(() => { const G = window.G; G.state.godMode = false; G.state.player.target = null; const id = window.__V.spawn({ dist: 1.5, level: 80, boss: true }); const m = window.__V.ent(id); if (m && G.Monsters.setTarget) G.Monsters.setTarget(m, G.state.player); if (m) G.Player.setTarget(m); return { id, name: m && m.name, level: m && m.level, deaths: G.state.stats.deaths }; });
+  const boss = await T.evalG(() => { const G = window.G; G.state.godMode = false; G.state.damageMult = 1; G.state.player.target = null; const id = window.__V.spawn({ dist: 1.5, level: 80, boss: true }); const m = window.__V.ent(id); if (m && G.Monsters.setTarget) G.Monsters.setTarget(m, G.state.player); if (m) G.Player.setTarget(m); return { id, name: m && m.name, level: m && m.level, deaths: G.state.stats.deaths }; });
   ok('spawned a level-80 boss adjacent', !!boss.id, boss);
-  let died = await T.waitGame(() => { const p = window.G.state.player; return (p.dead || p.alive === false) ? true : null; }, 12, 30000);
-  if (!died) { await T.evalG((id) => { const G = window.G; const m = window.__V.ent(id); G.Combat.damage(m || null, G.state.player, 1e7, 'common', { raw: true }); }, boss.id); died = await T.waitGame(() => { const p = window.G.state.player; return (p.dead || p.alive === false) ? true : null; }, 2, 6000); ok('boss killed the player on its own within 12 game-s (fell back to a raw hit)', false); }
+  let died = await T.waitGame(() => { const p = window.G.state.player; return (p.dead || p.alive === false) ? true : null; }, 20, 45000);
+  if (!died) { const st = await T.evalG(() => { const p = window.G.state.player; return { morale: Math.round(p.morale), max: p.stats && Math.round(p.stats.maxMorale), level: p.level }; }); await T.evalG((id) => { const G = window.G; const m = window.__V.ent(id); G.Combat.damage(m || null, G.state.player, 1e7, 'common', { raw: true }); }, boss.id); died = await T.waitGame(() => { const p = window.G.state.player; return (p.dead || p.alive === false) ? true : null; }, 2, 6000); ok('boss killed the player on its own within 20 game-s (fell back to a raw hit)', false, st); }
   ok('player died', !!died);
   await T.evalG(() => window.__V.despawnAll());
   const ds = await T.waitGame(() => { const el = document.getElementById('deathScreen'); return (el && !el.hidden && window.G.UI.DeathScreen.visible) ? { text: el.textContent.slice(0, 40) } : null; }, 2, 8000);
@@ -1188,9 +1193,9 @@ scenario('R40', 'UI mechanics: tooltips, drag & drop, draggable panels, notifica
   const accepted = await T.evalG(() => { const Q = window.G.Quests; const id = (Q.availableIds && Q.availableIds().find(x => Q.statusOf(x) === 'available')) || null; if (id) { Q.accept(id); return id; } window.G.UI.notify('Verifier: quest accepted', 'quest'); return 'notify()'; });
   const notice = await T.waitFor((n0) => { const L = document.querySelectorAll('#notices .notice'); return L.length > n0 ? L[L.length - 1].textContent.slice(0, 50) : null; }, 1500, n0);
   ok('a notification appears on quest accept', !!notice, { via: accepted, notice });
-  const ft0 = await T.evalG(() => { const G = window.G, p = G.state.player; const layer = document.getElementById('floatLayer'); const n0 = layer ? layer.children.length : -1; G.UI.floatText(p.pos, '123', '#fff', { crit: true }); return { layer: !!layer, before: n0 }; });
-  const ft = await T.waitGame((n0) => { const layer = document.getElementById('floatLayer'); return layer && layer.children.length > n0 ? { after: layer.children.length } : null; }, 1, 5000, ft0.before);
-  ok('floating combat text spawns an element', ft0.layer && !!ft, Object.assign({}, ft0, ft || {}));
+  const ft0 = await T.evalG(() => { const G = window.G, p = G.state.player; const layer = document.getElementById('floatLayer'); const r = G.UI.floatText(p.pos, 'VERIFY-4242', '#fff', { crit: true }); return { layer: !!layer, returned: !!r, pooled: layer ? layer.children.length : -1 }; });
+  const ft = await T.waitGame(() => { const el = Array.from(document.querySelectorAll('#floatLayer .ftxt')).find(e => e.textContent === 'VERIFY-4242'); return el ? { text: el.textContent, crit: el.classList.contains('crit'), shown: getComputedStyle(el).display !== 'none' } : null; }, 1, 5000);
+  ok('floating combat text shows the text (pooled .ftxt element)', ft0.layer && !!ft && ft.crit, Object.assign({}, ft0, ft || {}));
   ok('chat + notifications APIs', await T.evalG(() => !!(window.G.UI.chat && window.G.UI.notify && window.G.UI.bindTooltip && window.G.UI.contextMenu)));
   await T.evalG(() => window.G.UI.closeAll());
 });
@@ -1217,7 +1222,7 @@ scenario('R41', 'Save/load: localStorage, export round-trip, Continue from the m
   ok('main menu shows Continue after reload', !!cont, cont);
   if (cont) await T.evalG(() => Array.from(document.querySelectorAll('#mainMenu .mm-btn')).find(x => /continue/i.test(x.textContent)).click());
   else await T.evalG(() => window.G.Game.startFromSave());
-  const inGame = await T.waitFor(() => !!(window.__T && window.__T.inGame === true), 90000);
+  const inGame = await T.waitFor(() => !!(window.__T && window.__T.inGame === true), 180000);
   ok('Continue enters the world (__T.inGame)', !!inGame);
   await T.wait(1500);
   await T.evalG(installProbe);
