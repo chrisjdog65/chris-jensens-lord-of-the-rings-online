@@ -83,6 +83,7 @@
   const RUN_SPEED = C.RUN_SPEED > 0 ? C.RUN_SPEED : 6.5;
   const MOUNT_SPEED = C.MOUNT_SPEED > 0 ? C.MOUNT_SPEED : 15;
   const BOAT_SPEED = 11;
+  const BOAT_DRAFT = 0.10;                    // rowboat hull sits this deep below the wave surface (matches G.Boats' rowboat)
   const MOUNT_MIN_DIST = 100;
   const LEVEL_CAP = C.LEVEL_CAP > 0 ? C.LEVEL_CAP : 80;
   const CHAT_INTERVAL = 25;                   // ≈ one world message per 25 s across the population (× settings.aiChat)
@@ -318,7 +319,7 @@
   const byNameLower = {};
   const fellowships = [];         // { id, name, leaderId, members: [ids] }
   const fellowshipById = {};
-  const counters = { farTicks: 0, nearTicks: 0, rigsBuilt: 0, rigsDisposed: 0, chats: 0, replies: 0, levelUps: 0, kills: 0, deaths: 0, quests: 0, fish: 0, fights: 0, abilities: 0, attacks: 0, heals: 0, emotes: 0, travels: 0, sailings: 0 };
+  const counters = { farTicks: 0, nearTicks: 0, rigsBuilt: 0, rigsDisposed: 0, boats: 0, chats: 0, replies: 0, levelUps: 0, kills: 0, deaths: 0, quests: 0, fish: 0, fights: 0, abilities: 0, attacks: 0, heals: 0, emotes: 0, travels: 0, sailings: 0 };
   const chatLog = [];             // last 60 lines {from, channel, text, at}
   let cursor = 0;                 // far-tick round robin
   let scanT = 0;
@@ -711,7 +712,7 @@
       fellowshipId: null, fellowshipRole: '', formation: 0,
       kills: Math.round(L * L * 2.2 + L * 8 * rng()), questsDone: Math.min(150, Math.round(L * 1.8 + rng() * 3)), deaths: Math.round(L / 7 * (0.4 + rng())),
       fish: ps === 'fisher' ? Math.round(L * 4 + rng() * 40) : Math.round(rng() * L * 0.4), playTime: Math.round(L * L * 40 + rng() * L * 1200 + 600),
-      zone: ctx.zone, townId: ctx.townId, activity: '', mounted: false, mountRig: null, sailing: false, inCombat: false,
+      zone: ctx.zone, townId: ctx.townId, activity: '', mounted: false, mountRig: null, sailing: false, boatRig: null, inCombat: false,
       chatTimer: sr(20, 200), lastLine: '', lastChatAt: -1e9, lastWave: -1e9, lastBow: -1e9, lastDing: -1e9,
       look: null, gearTier: 0, seed: hasFn(G, 'hashStr') ? G.hashStr('ai:' + name) : i * 7919,
       ai: newAiState(), _lastTick: 0, _d2: Infinity, _near: false, _rank: 999, interact: undefined,
@@ -889,7 +890,7 @@
     while (remaining > 0 && a.pathIdx < path.length) {
       const wp = path[a.pathIdx];
       const boat = !!wp.boat;
-      if (boat !== e.sailing) { e.sailing = boat; if (boat) { counters.sailings++; setMounted(e, false); if (e.rig) disposeRig(e); } }
+      if (boat !== e.sailing) { e.sailing = boat; if (boat) { counters.sailings++; setMounted(e, false); e._boatYaw = e.yaw; } }   // the rig stays: sailStep() seats it in a rowboat while in view
       const dx = wp.x - e.pos.x, dz = wp.z - e.pos.z; const d = Math.sqrt(dx * dx + dz * dz);
       if (d <= remaining) { e.pos.x = wp.x; e.pos.z = wp.z; remaining -= d; a.pathIdx++; }
       else { e.pos.x += dx / d * remaining; e.pos.z += dz / d * remaining; e.yaw = _yawTo(dx, dz); remaining = 0; }
@@ -1151,9 +1152,9 @@
     if (a.state !== lstate) { a.state = lstate; a.phase = la.phase; a.spawn = la.spawn; a.grind = la.grind; a.fishSpot = la.fishSpot; a.explore = la.explore; a.spotKind = la.spotKind; a.inInn = la.inInn; a.sit = la.sit && schance(0.8); }
     else { a.phase = la.phase; if (la.state === 'town' && la.phase === 'idle' && !a.sit && la.sit) a.sit = schance(0.6); if (!la.sit) a.sit = false; }
     e.activity = leader.activity;
-    if (!e.sailing && leader.sailing) { if (e.rig) disposeRig(e); }
+    if (!e.sailing && leader.sailing) { setMounted(e, false); e._boatYaw = leader.yaw; }
     e.sailing = leader.sailing;
-    if (e.sailing) { e.pos.x = leader.pos.x + sr(-2, 2); e.pos.z = leader.pos.z + sr(-2, 2); e.pos.y = num(C.SEA_LEVEL, 0); if (G.Spatial && hasFn(G.Spatial, 'update')) G.Spatial.update(e); return; }
+    if (e.sailing) { sailFollow(e, leader); return; }
     if (leader.mounted !== e.mounted && !a.fightTarget && !a.sit) setMounted(e, leader.mounted);
     memberTarget(e, leader, _spot);
     a.goal.x = _spot.x; a.goal.z = _spot.z;
@@ -1246,6 +1247,7 @@
     e.rig = null; e.mesh = null;
     const i = rigList.indexOf(e); if (i >= 0) rigList.splice(i, 1);
     rigCount--; counters.rigsDisposed++;
+    if (e.boatRig) disposeBoat(e);                 // a boat is only ever shown under a rendered rider
   }
   let frameBuilds = 0;          // expensive rig/horse builds this frame (spread over frames to avoid hitches)
   function ensureHorse(e) {
