@@ -2384,9 +2384,9 @@
      (per-text material, hidden past the near band). Colliders, spots, lights and `isInside` are untouched:
      they come from `cached.meta`, never from the meshes.                                                  */
   function batchBoundsOf(geo) {
-    geo.computeBoundingBox(); geo.computeBoundingSphere();
+    geo.computeBoundingBox(); geo.computeBoundingSphere();     // world space: the batch group's matrix is identity
     const bb = geo.boundingBox;
-    return { minx: bb.min.x, maxx: bb.max.x, minz: bb.min.z, maxz: bb.max.z, box: bb.clone(), sphere: geo.boundingSphere.clone() };
+    return { minx: bb.min.x, maxx: bb.max.x, minz: bb.min.z, maxz: bb.max.z, box: bb.clone() };
   }
   function newCell() { return { ext: {}, roof: {}, rec: { meshes: [], blds: [], split: false, inside: 0 } }; }
   let _batchMs = 0;
