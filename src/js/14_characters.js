@@ -566,7 +566,7 @@
       const pelvis = lathe([[hR * 0.55, -s * 0.2], [hR * 0.95, -s * 0.12], [hR, -s * 0.02], [hR * 0.96, s * 0.03], [0.0001, s * 0.04]], 16); pelvis.scale(1, 1, 0.78);
       list.push(_paint(pelvis, col));
       if (variant === 'robe' || variant === 'ragged') {
-        const len = d.hipY * (variant === 'robe' ? 0.95 : 0.75);
+        const len = d.hipY * (variant === 'robe' ? 0.62 : 0.52);   // hem just below the knee (hipY*0.52 = knee height)
         const skirt = cyl(hR * 1.02, hR * 1.55, len, 16, 1, true); skirt.scale(1, 1, 0.82); skirt.translate(0, -len * 0.5 + s * 0.02, 0);
         if (variant === 'ragged') { const p = skirt.getAttribute('position'); for (let i = 0; i < p.count; i++) { if (p.getY(i) < -len * 0.4) { const a = Math.atan2(p.getZ(i), p.getX(i)); p.setY(i, p.getY(i) + Math.abs(sin(a * 5.3)) * len * 0.28); } } skirt.computeVertexNormals(); }
         list.push(_paint(skirt, col));
@@ -674,15 +674,15 @@
   }
   function capeGeo(d, col, col2, len) {
     return cached('cape|' + d.key + '|' + col + '|' + col2 + '|' + len.toFixed(2), () => {
-      // a narrow cloth (≈ shoulder width, slightly flared) that curls forward around the shoulders at the top and
-      // bulges gently backwards towards the hem; hangs from the shoulder line behind the back
-      const w = d.shoulderHalf * 1.75, wrap = d.shoulderHalf * 0.35, bulge = len * 0.07;
+      // a narrow cloth (≈ shoulder width, never wider) that curls forward over the shoulders at the top and
+      // bulges gently backwards towards the hem; hangs from the shoulder line behind the back, hem at mid-shin
+      const w = d.shoulderHalf * 1.55, wrap = d.shoulderHalf * 0.3, bulge = len * 0.045;
       const g = new THREE.PlaneGeometry(w, len, 6, 10);
       const p = g.getAttribute('position');
       for (let i = 0; i < p.count; i++) {
         const x = p.getX(i), y = p.getY(i); const t = (y + len / 2) / len;         // 1 at the top
         const xn = x / (w / 2);
-        p.setX(i, x * lerp(1.12, 0.94, t));
+        p.setX(i, x * lerp(1.0, 0.9, t));                                        // slightly narrower at the shoulders, never flared past them
         p.setZ(i, -wrap * xn * xn * (0.35 + 0.65 * t) + bulge * (1 - t) * (1 - t));
       }
       g.translate(0, -len / 2, 0); g.computeVertexNormals();
@@ -1088,7 +1088,8 @@
     }
     if (changed(['back'])) {
       const bl = look.back;
-      if (bl) { const len = d.hipY * 0.85 + d.torsoLen * 0.9; this.setMesh('cape', this.parts.capeGroup, capeGeo(d, bl.color, hexMul(bl.color, 0.7), len), material(0xffffff, { vertexColors: true, rough: 0.9, double: true, cape: true, emissive: bl.legendary ? 0xff9c3a : 0, emissiveIntensity: bl.legendary ? 0.06 : 0 }), true, { detail: true }); }
+      // cape length: shoulder line → mid-shin, so the legs stay visible below the hem
+      if (bl) { const len = d.hipY * 0.62 + d.torsoLen * 0.98; this.setMesh('cape', this.parts.capeGroup, capeGeo(d, bl.color, hexMul(bl.color, 0.7), len), material(0xffffff, { vertexColors: true, rough: 0.9, double: true, cape: true, emissive: bl.legendary ? 0xff9c3a : 0, emissiveIntensity: bl.legendary ? 0.06 : 0 }), true, { detail: true }); }
       else this.setMesh('cape', this.parts.capeGroup, null);
       this.parts.cape = this.meshes.cape || null;
     }

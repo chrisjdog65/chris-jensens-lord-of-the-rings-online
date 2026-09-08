@@ -39,11 +39,17 @@
      done, total, kind, objIndex}, update(dt), log (ring buffer of the last 50 decisions: {t, text}), stats, plan (read-only).
    Bot tick order: guards (phase/dead/admin/sailing) → housekeeping every 3 s (auto-equip, train, sell junk protecting
      quest items, eat/drink) → combat reflex (monsters targeting us within 12 m / in combat) → plan (turn-ins →
-     tracked/nearest active objective → acquire story-first → finish) → objective step → watchdogs. Travel: goTo() with
-     G.Player.autoMove, boat hops through G.Boats.pathToZone/instantTravel/sailTo, nudge after 4 s/speed without
-     progress, teleport after 8 s/speed, > 1200 m at speed ≥ 3, > 90 s/speed on one target, or > 60 m at speed ≥ 10.
-     Every objective attempt has a total timeout (max(20, 120/speed) s without progress) → G.warn + completeObjective.
-     Fights at speed ≥ 10 that last > 8 s (or > 60 s/speed at lower speeds) finish the foe through G.Combat.kill.
+     tracked/nearest active objective → acquire story-first → finish) → objective step → watchdogs. A tick that changed
+     the world instantly (teleport, accept, turn-in, spawn, kill, talk, force) chains straight into the next tick inside
+     the SAME frame (up to 6 at speed 10, 3 at ≥ 3, 1 at ≤ 2) — the bot's real budget is frames, not seconds, and a
+     software-GL machine renders very few of them. Travel: goTo() with G.Player.autoMove, boat hops through
+     G.Boats.pathToZone/instantTravel/sailTo (islands), nudge after 4 s/speed without progress, teleport (fade FX,
+     landing inside the arrive radius) after 8 s/speed stuck, 90 s/speed on one target, > 200 m at speed ≥ 3, > 1200 m
+     at speed ≤ 2, and for EVERY leg at speed 10 — three teleports that do not get closer fall back to walking.
+     Every objective attempt has a total timeout (12 s at speed 10, else max(20, 120/speed) s without progress) →
+     G.warn + completeObjective. Fights use abilities off cooldown + auto-attack, and are finished through
+     G.Combat.kill after 1.5 s at speed 10 (60 s/speed below it), or at once against a foe that already killed us;
+     at speed 10 the rest of the pack the objective still needs falls with it.
    Private helpers (rule 2, prefixed _): _sellJunkProtected (NPCs.remoteSellJunk cannot exclude quest items),
      _shorePoint (fishing shore search), _rootOwner (Combat's credit rule). Every cross-module call is guarded. ==== */
 (function () {
@@ -995,25 +1001,37 @@
 
   // ================================================================================================ G.AutoQuest
   // (own function scope: the bot's helpers must never shadow the quest machine's — e.g. both have an update())
+  //
+  // Pacing model. Headless / low-end machines may render only a few frames per second while the game clock advances
+  // 0.05 s × G.time.scale per frame, so the bot's real budget is FRAMES, not seconds. Every wait is a game-time
+  // watchdog (never wall clock, never a frame count), and speed ×10 ("blazing") collapses every step into as few
+  // frames as possible: any travel leg teleports (fade FX), foes are stepped up to and finished after a short fight,
+  // and a tick that changed the world instantly (teleport / accept / turn-in / spawn / kill / talk) chains straight
+  // into the next tick within the same frame. Speeds 3–9 teleport only for long legs (> 200 m) or when stuck; speeds
+  // 1–2 are realistic (walk, sail, fight it out) with the same watchdogs as a safety net.
   (function () {
-  const AQ = { active: false, paused: false, speed: 3, log: [], stats: { ticks: 0, teleports: 0, nudges: 0, forced: 0, fights: 0, kills: 0, deaths: 0, errors: 0, spawns: 0 } };
+  const AQ = { active: false, paused: false, speed: 3, log: [], stats: { ticks: 0, chained: 0, teleports: 0, nudges: 0, forced: 0, fights: 0, kills: 0, deaths: 0, errors: 0, spawns: 0, boats: 0, packKills: 0 } };
   const LOG_MAX = 50;
+  const FIGHT_FRAMES = 3;          // rendered frames of real combat before the engine finishes a foe at speed 10
   const S = {
     planKind: '', questId: null, objIndex: -1, planKey: '', planT: 0, planDirty: true,
     attemptStart: 0, lastProg: -1, text: '', step: '', lastTextKey: '',
-    sub: null, target: null, fightStart: 0, fightKey: '', nextAbilityT: 0, potionT: -1e9, foodT: -1e9, houseT: 0,
-    deadSince: -1, respawnedAt: -1e9, errStreak: 0, flashT: -1e9, tpNotifyT: -1e9, stuckNotified: false, lastKillsSeen: 0, deathsOn: Object.create(null),
-    buffCast: Object.create(null), rangedCls: null, rangedFor: null, busyT: 0, statusObj: { questId: null, questName: '', step: '', text: '', pct: 0, done: 0, total: 0, kind: '', objIndex: -1 },
+    sub: null, target: null, fightStart: 0, fightFrame0: 0, fightKey: '', nextAbilityT: 0, potionT: -1e9, foodT: -1e9, houseT: 0,
+    deadSince: -1, respawnedAt: -1e9, errStreak: 0, flashT: -1e9, tpNotifyT: -1e9, stuckNotified: false, lastKillsSeen: 0,
+    deathsOn: Object.create(null), deathTypes: Object.create(null), lastDeathT: -1e9, engageT: -1e9,
+    buffCast: Object.create(null), rangedCls: null, rangedFor: null, busyT: 0, chain: false,
+    statusObj: { questId: null, questName: '', step: '', text: '', pct: 0, done: 0, total: 0, kind: '', objIndex: -1 },
   };
-  const T = { x: NaN, z: NaN, arrive: 1.5, start: 0, bestDist: Infinity, lastProg: 0, nudgeUntil: 0, nudgeX: 0, nudgeZ: 0, nudgeT: -1e9, hops: null, hopI: 0, sailing: false, sailT: 0, sailLabel: '', key: '' };
-  const _hostBuf = [];
+  const T = { x: NaN, z: NaN, arrive: 1.5, start: 0, bestDist: Infinity, lastProg: 0, nudgeUntil: 0, nudgeX: 0, nudgeZ: 0, nudgeT: -1e9, hops: null, hopI: 0, sailing: false, sailT: 0, sailLabel: '', key: '', tpT: -1, tpKey: '', tpFail: 0 };
 
   function logLine(text) {
     const e = { t: now(), text: String(text) };
     AQ.log.push(e); if (AQ.log.length > LOG_MAX) AQ.log.shift();
     log('[AutoQuest]', e.text);
   }
+  function frameNo() { return (G.time && typeof G.time.frame === 'number') ? G.time.frame : 0; }
   function speed() { const s = num(AQ.speed, 3); return s < 1 ? 1 : s > 10 ? 10 : s; }
+  function blazing() { return speed() >= 10; }
   function alive(e) { return !!e && e.alive !== false && !e.dead; }
   function pdist(x, z) { const p = player(); return p && p.pos ? dist2(p.pos.x, p.pos.z, x, z) : Infinity; }
   function setText(key, text, step) { if (key === S.lastTextKey) return; S.lastTextKey = key; S.text = text; S.step = step || text; }
@@ -1023,13 +1041,16 @@
   function dismount() { const p = player(); if (p && p.mounted && hasFn(G.Player, 'dismount')) { try { G.Player.dismount(); } catch (e) { /* ignore */ } } }
   function autoStop() { if (G.Player && G.Player.autoMoving && hasFn(G.Player, 'autoStop')) { try { G.Player.autoStop(); } catch (e) { /* ignore */ } } }
   function facePoint(x, z) { const p = player(); if (!p) return; const dx = x - p.pos.x, dz = z - p.pos.z; if (dx * dx + dz * dz > 1e-4) p.yaw = Math.atan2(-dx, -dz); }
+  /** Something changed instantly (teleport, accept, kill, …): let the next tick run in this very frame. */
+  function chain() { S.chain = true; }
 
   // ------------------------------------------------------------------------------------------------ lifecycle
   function resetState() {
     S.planKind = ''; S.questId = null; S.objIndex = -1; S.planKey = ''; S.planT = 0; S.planDirty = true;
     S.attemptStart = now(); S.lastProg = -1; S.text = ''; S.step = ''; S.lastTextKey = '';
-    S.sub = null; S.target = null; S.fightStart = 0; S.fightKey = ''; S.nextAbilityT = 0; S.houseT = 0; S.deadSince = -1; S.errStreak = 0; S.busyT = 0; S.deathsOn = Object.create(null); S.respawnedAt = -1e9;
-    T.x = T.z = NaN; T.hops = null; T.hopI = 0; T.sailing = false; T.key = ''; T.nudgeUntil = 0;
+    S.sub = null; S.target = null; S.fightStart = 0; S.fightFrame0 = 0; S.fightKey = ''; S.nextAbilityT = 0; S.houseT = 0; S.deadSince = -1; S.errStreak = 0; S.busyT = 0;
+    S.deathsOn = Object.create(null); S.deathTypes = Object.create(null); S.lastDeathT = -1e9; S.respawnedAt = -1e9; S.engageT = -1e9; S.chain = false;
+    T.x = T.z = NaN; T.hops = null; T.hopI = 0; T.sailing = false; T.key = ''; T.nudgeUntil = 0; T.tpT = -1; T.tpKey = ''; T.tpFail = 0;
   }
   function start() {
     if (AQ.active) return true;
@@ -1068,36 +1089,48 @@
   }
 
   // ------------------------------------------------------------------------------------------------ travel primitive
-  function teleportNear(x, z, why) {
+  /** Teleport to free, dry ground within `radius` (default 4 m) of (x, z), arriving from the side we came from.
+   *  `keepRoute` preserves a boat itinerary in progress. Returns true when the player moved. */
+  function teleportNear(x, z, why, radius, keepRoute) {
     const p = player(); if (!p || !hasFn(G.Player, 'teleport')) return false;
+    const rad = Math.max(0.8, num(radius, 4));
+    const a0 = Math.atan2(p.pos.z - z, p.pos.x - x);
     let best = null;
-    for (let i = 0; i < 6 && !best; i++) {
-      const a = rand() * TAU, r = 2 + rand() * 4;
+    for (let i = 0; i < 10 && !best; i++) {
+      const a = a0 + (i === 0 ? 0 : ((i & 1) ? 1 : -1) * Math.ceil(i / 2) * 0.7);
+      const r = rad * (i < 4 ? 0.85 : 0.6);
       const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
-      if (hasFn(G.Physics, 'nearestFree')) { try { const f = G.Physics.nearestFree(px, pz, 0.45); if (f && dist2(f.x, f.z, x, z) <= 8 && !isWaterAt(f.x, f.z)) best = f; } catch (e) { best = null; } }
-      else best = { x: px, z: pz };
+      if (isWaterAt(px, pz)) continue;
+      let f = { x: px, z: pz };
+      if (hasFn(G.Physics, 'nearestFree')) { try { const g = G.Physics.nearestFree(px, pz, 0.45); if (g && g.x === g.x && g.z === g.z) f = g; } catch (e) { f = { x: px, z: pz }; } }
+      if (dist2(f.x, f.z, x, z) <= rad + 0.6 && !isWaterAt(f.x, f.z)) best = f;
     }
-    if (!best) { if (hasFn(G.Physics, 'nearestFree')) { try { best = G.Physics.nearestFree(x, z, 0.45); } catch (e) { best = null; } } if (!best) best = { x: x, z: z }; }
-    try { G.Player.teleport(best.x, best.z, yawTo(best.x, best.z, x, z)); } catch (e) { report(e, 'AutoQuest.teleport'); return false; }
+    if (!best) { const r = Math.min(rad, 1.2); best = { x: x + Math.cos(a0) * r, z: z + Math.sin(a0) * r }; }   // e.g. a foe standing in the sea: stand as close as we can
+    const hops = T.hops, hi = T.hopI;
+    try { if (G.Player.teleport(best.x, best.z, yawTo(best.x, best.z, x, z)) === false) return false; } catch (e) { report(e, 'AutoQuest.teleport'); return false; }
     AQ.stats.teleports++;
     if (now() - S.tpNotifyT > 4) { S.tpNotifyT = now(); notify('Auto-quest: travelling…', 'info'); }
     logLine('teleport → (' + Math.round(x) + ', ' + Math.round(z) + ')' + (why ? ' [' + why + ']' : ''));
-    T.x = T.z = NaN; T.hops = null; T.sailing = false; T.nudgeUntil = 0;
+    T.x = T.z = NaN; T.hops = null; T.sailing = false; T.nudgeUntil = 0; T.tpT = now();
+    if (keepRoute) { T.hops = hops; T.hopI = hi; }
+    chain();
     return true;
   }
   function beginTravel(x, z, arrive, opts) {
-    T.x = x; T.z = z; T.arrive = arrive; T.start = now(); T.bestDist = Infinity; T.lastProg = now(); T.nudgeUntil = 0; T.nudgeT = -1e9; T.hops = null; T.hopI = 0; T.sailing = false; T.key = opts && opts.key ? opts.key : '';
+    const key = opts && opts.key ? opts.key : '';
+    if (key !== T.key) T.tpFail = 0;
+    T.x = x; T.z = z; T.arrive = arrive; T.start = now(); T.bestDist = Infinity; T.lastProg = now(); T.nudgeUntil = 0; T.nudgeT = -1e9; T.hops = null; T.hopI = 0; T.sailing = false; T.key = key;
     const p = player();
-    // boat route needed?
+    // boat route needed? (islands: G.Boats knows which docks connect the zones)
     if (p && G.Boats && hasFn(G.Boats, 'pathToZone') && !(opts && opts.noBoat)) {
       const zTarget = zoneAt(x, z), zHere = zoneAt(p.pos.x, p.pos.z);
       if (zTarget && zHere && zTarget !== zHere) {
         let hops = null;
         try { hops = G.Boats.pathToZone(p.pos, zTarget); } catch (e) { hops = null; }
-        if (Array.isArray(hops) && hops.length) { T.hops = hops.map(function (h) { return typeof h === 'string' ? (hasFn(G.Boats, 'dockById') ? G.Boats.dockById(h) : dockData(h)) : h; }).filter(Boolean); T.hopI = 0; if (T.hops.length) logLine('sea route: ' + T.hops.map(function (h) { return h.name || h.id; }).join(' → ')); else T.hops = null; }
+        if (Array.isArray(hops) && hops.length > 1) { T.hops = hops.map(function (h) { return typeof h === 'string' ? (hasFn(G.Boats, 'dockById') ? G.Boats.dockById(h) : dockData(h)) : h; }).filter(function (h) { return h && h.pos && h.id; }); T.hopI = 0; if (T.hops.length > 1) logLine('sea route: ' + T.hops.map(function (h) { return h.name || h.id; }).join(' → ')); else T.hops = null; }
       }
     }
-    issueMove(x, z, arrive);
+    if (!T.hops) issueMove(x, z, arrive);
   }
   function dockData(id) { const W = world(); return (W && W.dockById && W.dockById[id]) || null; }
   function issueMove(x, z, arrive) {
@@ -1105,51 +1138,74 @@
     const d = pdist(x, z);
     try { return !!G.Player.autoMove({ x: x, z: z }, { arrive: arrive, mount: d > 40 }); } catch (e) { report(e, 'AutoQuest.autoMove'); return false; }
   }
-  /** goTo(x, z, arrive, opts) → 'arrived' | 'moving' | 'sailing'. opts: {key, noBoat, noTeleport, moving (target moves)} */
+  /** One boat itinerary step: reach the departure dock, then sail (instantly at speed ≥ 3). Returns a goTo result, or
+   *  null when the sea legs are finished and the land leg should take over. */
+  function seaLeg(x, z, arrive, sp) {
+    const B = G.Boats; if (!B) { T.hops = null; return null; }
+    if (B.travelling || B.sailing) { T.sailing = true; T.lastProg = now(); return 'sailing'; }
+    if (T.sailing) { T.sailing = false; T.hopI++; T.lastProg = now(); T.start = now(); }
+    if (!T.hops || T.hopI >= T.hops.length - 1) { T.hops = null; issueMove(x, z, arrive); return null; }
+    const dock = T.hops[T.hopI], next = T.hops[T.hopI + 1];
+    if (!dock || !dock.pos || !next || !next.id) { T.hops = null; return null; }
+    const dd = pdist(dock.pos.x, dock.pos.z);
+    if (dd > 6) {
+      const far = sp >= 10 || (sp >= 3 && dd > 200) || dd > 1200 || now() - T.lastProg > 8 / sp || now() - T.start > 90 / sp;
+      if (far) { teleportNear(dock.pos.x, dock.pos.z, 'to dock', 4, true); T.start = now(); T.lastProg = now(); }
+      else if (!G.Player.autoMoving) issueMove(dock.pos.x, dock.pos.z, 4);
+      if (pdist(dock.pos.x, dock.pos.z) > 6) return 'moving';
+    }
+    autoStop();
+    let ok = false;
+    try {
+      if (sp >= 3 && hasFn(B, 'instantTravel')) ok = B.instantTravel(next.id, { free: true, silent: true, from: dock.id }) !== false;
+      else if (hasFn(B, 'sailTo')) ok = B.sailTo(next.id, dock.id, { free: true }) !== false;
+      else if (hasFn(B, 'instantTravel')) ok = B.instantTravel(next.id, { free: true }) !== false;
+    } catch (e) { report(e, 'AutoQuest.sail'); ok = false; }
+    AQ.stats.boats++;
+    T.sailLabel = 'Sailing to ' + (next.name || (next.town ? titleCase(next.town) : next.id));
+    logLine((sp >= 3 ? 'boat → ' : 'sailing → ') + (next.name || next.id) + (ok ? '' : ' (unavailable — teleporting across)'));
+    if (!ok) teleportNear(next.pos ? next.pos.x : x, next.pos ? next.pos.z : z, 'boat unavailable', 4, true);
+    if (B.travelling || B.sailing) { T.sailing = true; return 'sailing'; }
+    T.hopI++; T.start = now(); T.lastProg = now();
+    if (T.hopI >= T.hops.length - 1) T.hops = null;
+    chain();
+    return 'moving';
+  }
+  /** goTo(x, z, arrive, opts) → 'arrived' | 'moving' | 'sailing'.
+   *  opts: {key, noBoat, noTeleport, moving (target moves), tpRadius (how close a teleport should land)} */
   function goTo(x, z, arrive, opts) {
     const p = player(); if (!p) return 'moving';
     arrive = Math.max(0.6, num(arrive, 1.5));
     const sp = speed();
-    const d = pdist(x, z);
-    if (d <= arrive) { if (G.Player.autoMoving && T.x === T.x) autoStop(); T.x = T.z = NaN; return 'arrived'; }
+    let d = pdist(x, z);
+    if (d <= arrive) { if (G.Player.autoMoving && T.x === T.x) autoStop(); T.x = T.z = NaN; T.hops = null; T.tpFail = 0; return 'arrived'; }
     const key = opts && opts.key ? opts.key : '';
     const newTarget = !(T.x === T.x) || Math.abs(T.x - x) > 1.5 || Math.abs(T.z - z) > 1.5 || T.key !== key;
     if (newTarget) {
-      if (T.x === T.x && (Math.abs(T.x - x) > 1.5 || Math.abs(T.z - z) > 1.5) && T.key === key && opts && opts.moving) { T.x = x; T.z = z; issueMove(x, z, arrive); }   // chasing something that moved: keep the timers
+      if (T.x === T.x && T.key === key && opts && opts.moving) { T.x = x; T.z = z; if (!T.hops) issueMove(x, z, arrive); }   // chasing something that moved: keep the timers
       else beginTravel(x, z, arrive, opts);
     }
     // ---- sea legs
-    if (T.hops && T.hops.length) {
-      const B = G.Boats;
-      if (B && (B.travelling || B.sailing)) { T.sailing = true; T.lastProg = now(); return 'sailing'; }
-      if (T.sailing) { T.sailing = false; T.hopI++; T.lastProg = now(); T.start = now(); if (T.hopI >= T.hops.length - 1) { T.hops = null; issueMove(x, z, arrive); return 'moving'; } }
-      const dock = T.hops[T.hopI], next = T.hops[T.hopI + 1];
-      if (!dock || !dock.pos || !next) { T.hops = null; issueMove(x, z, arrive); return 'moving'; }
-      const dd = pdist(dock.pos.x, dock.pos.z);
-      if (dd > 6) {
-        if (sp >= 10 && dd > 60) { teleportNear(dock.pos.x, dock.pos.z, 'to dock'); T.hops = T.hops; return 'moving'; }
-        if (!G.Player.autoMoving) issueMove(dock.pos.x, dock.pos.z, 4);
-        if (now() - T.lastProg > 8 / sp || now() - T.start > 90 / sp) { const hops = T.hops, hi = T.hopI; teleportNear(dock.pos.x, dock.pos.z, 'dock watchdog'); T.hops = hops; T.hopI = hi; T.start = now(); T.lastProg = now(); }
-        return 'moving';
-      }
-      autoStop();
-      let ok = false;
-      try {
-        if (sp >= 3 && hasFn(B, 'instantTravel')) ok = B.instantTravel(next.id, { free: true, silent: true }) !== false;
-        else if (hasFn(B, 'sailTo')) ok = B.sailTo(next.id, dock, { free: true }) !== false;
-        else if (hasFn(B, 'instantTravel')) ok = B.instantTravel(next.id, { free: true }) !== false;
-      } catch (e) { report(e, 'AutoQuest.sail'); ok = false; }
-      T.sailLabel = 'Sailing to ' + (next.name || (next.town ? titleCase(next.town) : next.id));
-      logLine((sp >= 3 ? 'boat → ' : 'sailing → ') + (next.name || next.id) + (ok ? '' : ' (failed — teleporting)'));
-      if (!ok) { const hops = T.hops, hi = T.hopI; teleportNear(next.pos ? next.pos.x : x, next.pos ? next.pos.z : z, 'boat unavailable'); T.hops = hops; T.hopI = hi + 1; if (T.hopI >= T.hops.length - 1) T.hops = null; T.start = now(); T.lastProg = now(); return 'moving'; }
-      T.sailing = true;
-      if (!(B.travelling || B.sailing)) { T.sailing = false; T.hopI++; if (T.hopI >= T.hops.length - 1) T.hops = null; T.start = now(); T.lastProg = now(); issueMove(x, z, arrive); }
-      return 'sailing';
-    }
+    if (T.hops && T.hops.length) { const r = seaLeg(x, z, arrive, sp); if (r) return r; }
     // ---- land leg
-    if (!(opts && opts.noTeleport)) {
-      if (sp >= 10 && d > 60) { teleportNear(x, z, 'blazing'); return 'moving'; }
-      if (sp >= 3 && d > 1200) { teleportNear(x, z, 'far'); return 'moving'; }
+    // A teleport is one frame and lands inside the arrive radius, so blazing speed uses it for every leg (walking a
+    // single metre costs a whole frame, and a loaded machine renders very few of them). `tpFail` gives up on a target
+    // no teleport can reach (inside a rock, over water) after three tries and walks the rest instead.
+    const noTp = !!(opts && opts.noTeleport);
+    if (!noTp && T.tpFail < 3 && !(T.tpT === now() && T.tpKey === key)) {       // at most one teleport per frame per leg
+      const far = sp >= 10 ? d > arrive + 1.5 : sp >= 3 ? d > 200 : d > 1200;
+      if (far) {
+        const rad = (opts && opts.tpRadius > 0) ? opts.tpRadius : Math.max(0.8, arrive - 0.4);
+        const d0 = d;
+        if (teleportNear(x, z, sp >= 10 ? 'blazing' : 'far', rad)) {
+          T.tpKey = key;
+          d = pdist(x, z);
+          if (d <= arrive) { T.tpFail = 0; T.x = T.z = NaN; return 'arrived'; }
+          if (d > d0 - 1) { T.tpFail++; if (T.tpFail >= 3) logLine('teleport cannot reach (' + Math.round(x) + ', ' + Math.round(z) + ') — walking in'); }
+          else T.tpFail = 0;
+          beginTravel(x, z, arrive, opts); return 'moving';
+        }
+      }
     }
     if (p.casting && p.casting.kind !== 'channel' && G.Player.autoMoving) { autoStop(); return 'moving'; }   // never interrupt our own casts
     if (now() < T.nudgeUntil) { if (!G.Player.autoMoving) issueMove(T.nudgeX, T.nudgeZ, 0.8); return 'moving'; }
@@ -1157,7 +1213,7 @@
     if (d < T.bestDist - 0.3) { T.bestDist = d; T.lastProg = now(); }
     const stuckFor = now() - T.lastProg;
     const stuck = (G.Player.autoStuck && stuckFor > 2 / sp) || stuckFor > 4 / sp;
-    if (!(opts && opts.noTeleport) && (stuckFor > 8 / sp || now() - T.start > 90 / sp)) { teleportNear(x, z, stuckFor > 8 / sp ? 'stuck' : 'too long'); return 'moving'; }
+    if (!noTp && (stuckFor > 8 / sp || now() - T.start > 90 / sp)) { teleportNear(x, z, stuckFor > 8 / sp ? 'stuck' : 'too long', (opts && opts.tpRadius > 0) ? opts.tpRadius : Math.max(0.8, arrive - 0.4)); T.tpKey = key; return 'moving'; }
     if (stuck && now() - T.nudgeT > 1.5 / sp) {
       T.nudgeT = now(); AQ.stats.nudges++;
       const dx = x - p.pos.x, dz = z - p.pos.z, l = Math.max(1e-3, Math.sqrt(dx * dx + dz * dz));
@@ -1203,6 +1259,7 @@
       const it = p.inventory[i]; if (!it || prot[it.tid]) continue;
       const v = hasFn(G.Items, 'get') ? G.Items.get(it) : itemTemplate(it.tid); if (!v) continue;
       if (v.type === 'quest' || v.type === 'mount' || v.type === 'bait' || v.type === 'consumable') continue;
+      if (/^lk_/.test(it.tid)) continue;                                       // never discard the Lost Kingdom set
       if (v.slot && hasFn(G.Items, 'score') && hasFn(G.Items, 'canEquip')) {
         let ce = null; try { ce = G.Items.canEquip(p, it); } catch (e) { ce = null; }
         if (ce && ce.ok) { const cur = p.equipment && p.equipment[v.slot]; if (!cur || G.Items.score(it, p.cls) > G.Items.score(cur, p.cls)) continue; }   // keep upgrades (auto-equip will take them)
@@ -1281,16 +1338,43 @@
     }
     return best;
   }
-  function fight(t, dt, isObjective) {
+  function matchesHunt(m, hunt) {
+    if (!m || !hunt) return false;
+    if (hunt.typeId && m.typeId === hunt.typeId) return true;
+    if (hunt.bossId) return (m.bossRec && m.bossRec.id === hunt.bossId) || m.bossId === hunt.bossId || (!!m.boss && m.typeId === hunt.bossId);
+    return false;
+  }
+  /** The engine ends a fight the pacing rules say has gone on long enough (or that already cost us a death). Blazing
+   *  speed also fells the rest of the pack that joined in — only foes the current objective still needs. */
+  function finishFoe(t, p, hunt, why) {
+    const nm = t.name || t.typeId;
+    warn('[AutoQuest] fight against ' + nm + ' ' + why + ' — finishing it');
+    logLine('fight → finishing ' + nm + ' (' + why + ')');
+    let n = 0;
+    try { if (G.Combat.kill(t, p)) n++; } catch (e) { report(e, 'AutoQuest.kill'); }
+    if (hunt && speed() >= 10 && num(hunt.needed, 1) > 1 && hasFn(G.Monsters, 'hostilesNear')) {
+      const l = G.Monsters.hostilesNear(p.pos, 24); const pack = [];   // (reused buffer — copy before killing)
+      for (let i = 0; i < l.length; i++) { const m = l[i]; if (m === t || !alive(m) || m.leashing || m.invulnerable) continue; if (matchesHunt(m, hunt)) pack.push(m); }
+      pack.sort(function (a, b) { return dist2(p.pos.x, p.pos.z, a.pos.x, a.pos.z) - dist2(p.pos.x, p.pos.z, b.pos.x, b.pos.z); });
+      let k = 0;
+      for (let i = 0; i < pack.length && n < hunt.needed; i++) { try { if (G.Combat.kill(pack[i], p)) { n++; k++; } } catch (e) { report(e, 'AutoQuest.kill'); } }
+      if (k) { AQ.stats.packKills += k; logLine('the pack falls with it — ' + k + ' more ' + pluralName(k, monsterName(hunt.typeId))); }
+    }
+    S.fightKey = ''; S.target = null; S.engageT = -1e9;
+    chain();
+    return n;
+  }
+  /** Fight `t`. `hunt` = {typeId, bossId, needed} when a quest objective wants it dead. Returns 'fighting' | 'done' | 'lost'. */
+  function fight(t, dt, hunt) {
     const p = player(); if (!p || !alive(t)) { if (S.target === t) S.target = null; return 'done'; }
     if (t.leashing || t.invulnerable) { if (S.target === t) S.target = null; return 'lost'; }
-    const sp = speed();
+    const sp = speed(), blaze = sp >= 10;
     const key = t.id;
-    if (S.fightKey !== key) { S.fightKey = key; S.fightStart = now(); AQ.stats.fights++; logLine('fighting ' + (t.name || t.typeId) + ' (L' + num(t.level, 1) + ')'); }
+    if (S.fightKey !== key) { S.fightKey = key; S.fightStart = now(); S.fightFrame0 = frameNo(); S.engageT = -1e9; AQ.stats.fights++; logLine('fighting ' + (t.name || t.typeId) + ' (L' + num(t.level, 1) + ')'); }
     if (p.target !== t && hasFn(G.Player, 'setTarget')) { try { G.Player.setTarget(t); } catch (e) { /* ignore */ } }
     p.autoAttack = true;
     if (p.mounted) dismount();
-    const d = dist2(p.pos.x, p.pos.z, t.pos.x, t.pos.z) - num(t.radius, 0.4);
+    let d = dist2(p.pos.x, p.pos.z, t.pos.x, t.pos.z) - num(t.radius, 0.4);
     const ranged = classIsRanged(p);
     const m = morale01(p);
     const tm = t.stats && t.stats.maxMorale > 0 ? num(t.morale, 0) / t.stats.maxMorale : 1;
@@ -1298,22 +1382,25 @@
     const casting = !!((t.ai && t.ai.telegraphId) || (hasFn(G.Combat, 'isCasting') && G.Combat.isCasting(t)));
     if ((casting && (t.boss || t.elite)) || (m < 0.2 && tm > 0.4)) { if (hasFn(G.Player, 'dodgeRoll') && !p.casting) { try { if (G.Player.dodgeRoll()) logLine('dodge roll'); } catch (e) { /* ignore */ } } }
     if (m < 0.35 && now() - S.potionT > 3) { S.potionT = now(); usePotion('heal'); }
-    // fight pacing safety: blazing speed / hopeless fights are finished by the engine
-    // (the fight clock and the per-foe defeat count survive our own deaths, so a foe far above our level can never
-    //  trap the bot in a die → retreat → die loop)
-    const limit = sp >= 10 ? 8 : 60 / sp;
-    const deathLimit = sp >= 10 ? 1 : sp >= 3 ? 2 : 3;
-    if ((now() - S.fightStart > limit || num(S.deathsOn[t.id], 0) >= deathLimit) && hasFn(G.Combat, 'kill')) {
-      warn('[AutoQuest] fight against ' + (t.name || t.typeId) + ' exceeded ' + limit.toFixed(0) + ' s — finishing it');
-      logLine('fight timeout → finishing ' + (t.name || t.typeId));
-      try { G.Combat.kill(t, p); } catch (e) { report(e, 'AutoQuest.kill'); }
-      S.fightKey = ''; S.target = null;
-      return 'done';
-    }
+    // pacing safety: blazing speed / hopeless fights are finished by the engine (the fight clock and the per-foe defeat
+    // count survive our own deaths, so a foe far above our level can never trap the bot in a die → retreat → die loop)
+    // At blazing speed the budget is RENDERED FRAMES, not game seconds: a software-GL machine may draw one frame
+    // per several wall seconds, so 150 quests are only reachable if each foe costs a bounded handful of frames
+    // (FIGHT_FRAMES of real swinging — long enough for a couple of abilities — then the engine finishes it).
+    const limit = blaze ? 1.5 : 60 / sp;
+    const frames = frameNo() - S.fightFrame0;
+    const deathLimit = blaze ? 1 : sp >= 3 ? 2 : 3;
+    const diedTo = num(S.deathsOn[t.id], 0) >= deathLimit || (blaze && num(S.deathTypes[t.typeId], 0) >= 1);
+    const spent = blaze ? (frames >= FIGHT_FRAMES || now() - S.fightStart > limit) : now() - S.fightStart > limit;
+    if ((spent || diedTo) && hasFn(G.Combat, 'kill')) { finishFoe(t, p, hunt, diedTo ? 'already defeated us' : blaze ? 'ran ' + frames + ' frames' : 'exceeded ' + limit.toFixed(1) + ' s'); return 'done'; }
     if (p.casting && p.casting.kind !== 'channel') { autoStop(); facePoint(t.pos.x, t.pos.z); return 'fighting'; }
     const want = ranged ? 18 : 2.2;
-    const closeEnough = ranged ? d <= 25 : d <= want + 0.4;
-    if (!closeEnough) { goTo(t.pos.x, t.pos.z, want, { key: 'fight', moving: true, noTeleport: d < 60 }); if (d > 3.4 && ranged) { /* fire while closing */ } else return 'fighting'; }
+    let closeEnough = ranged ? d <= 25 : d <= want + 0.4;
+    if (!closeEnough && blaze && now() - S.engageT > 0.5) {          // blazing: step straight up to the foe
+      S.engageT = now();
+      if (teleportNear(t.pos.x, t.pos.z, 'engage', ranged ? 10 : 1.6)) { d = dist2(p.pos.x, p.pos.z, t.pos.x, t.pos.z) - num(t.radius, 0.4); closeEnough = ranged ? d <= 25 : d <= want + 0.4; }
+    }
+    if (!closeEnough) { goTo(t.pos.x, t.pos.z, want, { key: 'fight', moving: true, noTeleport: d < 60, tpRadius: ranged ? 10 : 1.6 }); if (!(ranged && d <= 30)) return 'fighting'; }
     else if (G.Player.autoMoving) autoStop();
     if (!G.Player.autoMoving) facePoint(t.pos.x, t.pos.z);
     if (now() >= S.nextAbilityT) {
@@ -1357,7 +1444,7 @@
   }
 
   // ------------------------------------------------------------------------------------------------ objective steps
-  function sub() { if (!S.sub) S.sub = { waitT: 0, missT: 0, inside: false, tries: 0, shore: null, shoreBad: 0, lastTry: -1e9, spawned: 0, gatherT: -1e9, fishT: -1e9, recoverT: -1e9 }; return S.sub; }
+  function sub() { if (!S.sub) S.sub = { arrivedT: -1, lastSpawnT: -1e9, missSince: -1, inside: false, tries: 0, shore: null, shoreBad: 0, lastTry: -1e9, spawned: 0, castT: -1, hunt: null, warned: false }; return S.sub; }
   function flashDialogue(ent, text) {
     const D = G.UI && G.UI.Dialogue; if (!D || !hasFn(D, 'open') || !ent || now() - S.flashT < 0.7) return;
     S.flashT = now();
@@ -1370,96 +1457,118 @@
     if (o.type === 'collect') return 'Collecting ' + itemName(o.item) + ' ' + prog + '/' + cnt + ' from ' + pluralName(2, monsterName(typeId));
     return 'Slaying ' + pluralName(cnt, monsterName(typeId)) + ' ' + prog + '/' + cnt;
   }
-  function stepHunt(o, q, typeId, bossId, needed, label) {
-    const p = player(); const u = sub(); const sp = speed();
+  function huntInfoFor(o, q) {
+    if (!o) return null;
+    if (o.type === 'kill') return { typeId: o.target, bossId: null, needed: objCount(o) - progressOf(q.id, S.objIndex) };
+    if (o.type === 'collect' && o.from) return { typeId: o.from, bossId: null, needed: objCount(o) - countItem(o.item) };
+    if (o.type === 'killboss') { const b = bossData(o.boss); return { typeId: (b && b.type) || o.boss, bossId: o.boss, needed: 1 }; }
+    return null;
+  }
+  function stepHunt(o, q, typeId, bossId, needed) {
+    const p = player(); const u = sub(); const sp = speed(), blaze = sp >= 10;
+    const hunt = u.hunt || (u.hunt = { typeId: typeId, bossId: bossId, needed: needed }); hunt.needed = Math.max(1, needed);
     let t = S.target;
-    if (t && (!alive(t) || (t.typeId !== typeId && !(bossId && ((t.bossRec && t.bossRec.id === bossId) || t.bossId === bossId))) || t.leashing)) t = S.target = null;
+    if (t && (!alive(t) || !matchesHunt(t, hunt) || t.leashing || t.invulnerable)) t = S.target = null;
     if (!t) t = S.target = findTarget(p, typeId, bossId, 60);
     if (t) {
       const cnt = objCount(o), prog = o.type === 'collect' ? Math.min(cnt, countItem(o.item)) : progressOf(q.id, S.objIndex);
       setText('hunt:' + q.id + ':' + o.type + ':' + prog, huntText(o, t, typeId, bossId, prog, cnt), describeObjective(q, S.objIndex));
-      fight(t, 0, true); return;
+      u.arrivedT = -1;
+      fight(t, 0, hunt); return;
     }
-    // nobody around: go to where they live
+    // nobody around: go to where they live (their nearest spawn group / the boss lair), then let the group fill — or,
+    // when it stays empty (all dead, respawning, or the type has no group at all), call the foes up ourselves
     let pos = null;
     if (bossId) { const b = bossPosOf(bossId); if (b) pos = b; }
     if (!pos) pos = spawnPosOf(typeId, p.pos);
-    if (!pos) { pos = { x: p.pos.x, z: p.pos.z }; u.waitT = 1e9; }
+    const here = !pos;
+    if (here) pos = { x: p.pos.x, z: p.pos.z };
     setText('hunt:' + q.id + ':' + typeId + ':travel:' + progressOf(q.id, S.objIndex), 'Travelling to the ' + (bossId ? bossName(bossId) : monsterName(typeId)) + ' grounds in ' + zoneName(zoneAt(pos.x, pos.z)), describeObjective(q, S.objIndex));
-    const r = goTo(pos.x, pos.z, 8, { key: 'hunt' });
-    const near = pdist(pos.x, pos.z) < 30;
-    if (r === 'arrived' || near) {
-      u.waitT += G.time ? num(G.time.dt, 0.016) : 0.016;
-      if (u.waitT > Math.max(1.5, 6 / sp) && hasFn(G.Monsters, 'spawnForQuest')) {
-        u.waitT = 0;
-        const n = Math.max(1, Math.min(6, needed));
-        let sp2 = null; try { sp2 = G.Monsters.spawnForQuest(bossId ? (bossData(bossId) && bossData(bossId).type) || typeId : typeId, pos, bossId ? 1 : n); } catch (e) { report(e, 'AutoQuest.spawnForQuest'); }
-        if (sp2 && sp2.length) { AQ.stats.spawns += sp2.length; u.spawned += sp2.length; logLine('no ' + monsterName(typeId) + ' about — spawned ' + sp2.length); if (bossId) for (let i = 0; i < sp2.length; i++) { sp2[i].boss = true; sp2[i].bossId = bossId; } }
-        else logLine('spawnForQuest returned nothing for ' + typeId);
-      }
-    } else u.waitT = 0;
+    const r = here ? 'arrived' : goTo(pos.x, pos.z, 8, { key: 'hunt', tpRadius: 6 });
+    if (!(r === 'arrived' || pdist(pos.x, pos.z) < 30)) { u.arrivedT = -1; return; }
+    if (u.arrivedT < 0) u.arrivedT = now();
+    const patience = blaze ? 0 : Math.max(1.5, 6 / sp);
+    const cap = hunt.needed * 2 + 2;
+    if (now() - u.arrivedT >= patience && now() - u.lastSpawnT >= Math.max(0.5, patience) && u.spawned < cap && hasFn(G.Monsters, 'spawnForQuest')) {
+      u.lastSpawnT = now();
+      const n = Math.max(1, Math.min(6, hunt.needed));
+      let sp2 = null; try { sp2 = G.Monsters.spawnForQuest(bossId ? (bossData(bossId) && bossData(bossId).type) || typeId : typeId, pos, bossId ? 1 : n); } catch (e) { report(e, 'AutoQuest.spawnForQuest'); }
+      if (sp2 && sp2.length) { AQ.stats.spawns += sp2.length; u.spawned += sp2.length; logLine('no ' + monsterName(typeId) + ' about — ' + sp2.length + ' came out'); if (bossId) for (let i = 0; i < sp2.length; i++) { sp2[i].boss = true; sp2[i].bossId = bossId; } chain(); }
+      else logLine('spawnForQuest returned nothing for ' + typeId);
+    }
   }
   function stepGather(o, q, key, needed) {
-    const p = player(); const u = sub(); const sp = speed();
+    const p = player(); const u = sub(); const sp = speed(), blaze = sp >= 10;
     let node = null;
     if (hasFn(G.NPCs, 'nearestNode')) { try { node = G.NPCs.nearestNode(key, p.pos); } catch (e) { node = null; } }
     const what = o.type === 'collect' ? itemName(o.item) : nodeName(o.node || key);
     if (!node) {
       const pos = nodePosOf(key, p.pos);
-      setText('gather:' + q.id + ':none:' + Math.floor(u.missT), 'Searching for ' + what, describeObjective(q, S.objIndex));
-      if (pos) { const r = goTo(pos.x, pos.z, 6, { key: 'gather' }); if (r === 'arrived' || pdist(pos.x, pos.z) < 80) u.missT += num(G.time && G.time.dt, 0.016); }
-      else u.missT += num(G.time && G.time.dt, 0.016) * 5;
-      if (u.missT > Math.max(2, 6 / sp) && !u.warned) { u.warned = true; notify('Auto-quest: nothing to gather here yet — waiting for it to grow back', 'warning'); }
-      if (u.missT > Math.max(6, 30 / sp)) { u.missT = 0; forceObjective(q.id, S.objIndex, 'no ' + what + ' node could be found', 1); }
+      setText('gather:' + q.id + ':none:' + (u.missSince >= 0 ? Math.floor(now() - u.missSince) : 0), 'Searching for ' + what, describeObjective(q, S.objIndex));
+      if (pos) { const r = goTo(pos.x, pos.z, 6, { key: 'gather' }); if (r === 'arrived' || pdist(pos.x, pos.z) < 80) { if (u.missSince < 0) u.missSince = now(); } else u.missSince = -1; }
+      else if (u.missSince < 0) u.missSince = now() - 4;                       // nowhere to even look
+      const missed = u.missSince >= 0 ? now() - u.missSince : 0;
+      if (missed > Math.max(2, 6 / sp) && !u.warned) { u.warned = true; notify('Auto-quest: nothing to gather here yet — waiting for it to grow back', 'warning'); }
+      if (missed > (blaze ? 3 : Math.max(6, 30 / sp))) { u.missSince = -1; forceObjective(q.id, S.objIndex, 'no ' + what + ' node could be found', 1); }
       return;
     }
-    u.missT = 0;
+    u.missSince = -1;
     const ch = G.NPCs && G.NPCs.channel;
     const have = o.type === 'collect' ? Math.min(objCount(o), countItem(o.item)) : progressOf(q.id, S.objIndex);
-    if (ch && ch.node === node) { setText('gather:' + q.id + ':chan:' + have, 'Gathering ' + what + ' ' + have + '/' + objCount(o), describeObjective(q, S.objIndex)); if (G.Player.autoMoving) autoStop(); return; }
+    if (ch && ch.node === node) {
+      setText('gather:' + q.id + ':chan:' + have, 'Gathering ' + what + ' ' + have + '/' + objCount(o), describeObjective(q, S.objIndex));
+      if (G.Player.autoMoving) autoStop();
+      if (blaze && typeof ch.end === 'number' && ch.end > now() + 0.05) ch.end = now() + 0.05;   // blazing: the channel completes next frame
+      if (now() - num(ch.start, now()) > 6 && hasFn(G.NPCs, 'cancelChannel')) { try { G.NPCs.cancelChannel(false); } catch (e) { /* ignore */ } }   // a channel that never ends
+      return;
+    }
     setText('gather:' + q.id + ':go:' + have, 'Travelling to ' + what + ' (' + have + '/' + objCount(o) + ')', describeObjective(q, S.objIndex));
-    const r = goTo(node.pos.x, node.pos.z, 2.4, { key: 'node:' + node.id });
+    const r = goTo(node.pos.x, node.pos.z, 2.4, { key: 'node:' + node.id, tpRadius: 1.8 });
     if (r !== 'arrived') return;
-    if (p.mounted) { dismount(); return; }
+    if (p.mounted) { dismount(); chain(); return; }
     if (p.casting && p.casting.kind !== 'channel') return;
-    if (now() - u.lastTry < 1.0) return;
+    if (now() - u.lastTry < (blaze ? 0.3 : 1.0)) return;
     u.lastTry = now(); u.tries++;
     facePoint(node.pos.x, node.pos.z);
     let ok = false;
-    try { ok = node.interact && typeof node.interact.fn === 'function' ? node.interact.fn(node, p) !== false : (hasFn(G.NPCs, 'gather') ? G.NPCs.gather(node) : false); } catch (e) { report(e, 'AutoQuest.gather'); ok = false; }
+    try { ok = hasFn(G.NPCs, 'gather') ? !!G.NPCs.gather(node) : (node.interact && typeof node.interact.fn === 'function' ? node.interact.fn(node, p) !== false : false); } catch (e) { report(e, 'AutoQuest.gather'); ok = false; }
     if (!(G.NPCs && G.NPCs.channel)) ok = false;
-    if (ok) u.tries = 0;
-    else if (u.tries >= 4) { u.tries = 0; teleportNear(node.pos.x, node.pos.z, 'gather retry'); }
+    if (ok) { u.tries = 0; if (blaze) { const c2 = G.NPCs.channel; if (c2 && typeof c2.end === 'number') c2.end = now() + 0.05; } }
+    else if (u.tries >= 4) { u.tries = 0; teleportNear(node.pos.x, node.pos.z, 'gather retry', 1.6); }
   }
-  function stepTalk(o, q, npcId, verb) {
-    const p = player(); const u = sub();
-    const n = posOfNpc(npcId);
-    if (!n) { forceObjective(q.id, S.objIndex, 'NPC ' + npcId + ' does not exist', 1); return; }
-    setText('talk:' + q.id + ':' + npcId + ':' + (u.inside ? 'in' : 'out'), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), describeObjective(q, S.objIndex));
-    let r;
-    if (n.interior && n.door && !u.inside) {
-      r = goTo(n.door.pos.x, n.door.pos.z, 2.2, { key: 'door:' + npcId });
-      if (r !== 'arrived') return;
-      if (!n.door.open && n.door.interact && typeof n.door.interact.fn === 'function') { try { n.door.interact.fn(n.door, p); } catch (e) { /* ignore */ } logLine('opened ' + (n.door.name || 'a door')); }
-      u.inside = true; return;
-    }
+  /** Stand at an NPC (blazing: teleport straight to it; otherwise walk, opening its building's door first). */
+  function reachNpc(n, key) {
+    const p = player(); const u = sub(); const sp = speed();
     const tx = n.inner ? n.inner.x : n.x, tz = n.inner ? n.inner.z : n.z;
-    r = goTo(tx, tz, 3.6, { key: 'npc:' + npcId });
-    if (r !== 'arrived' && pdist(tx, tz) > 5) return;
+    if (sp < 10 && n.interior && n.door && n.door.pos && !u.inside) {
+      const r = goTo(n.door.pos.x, n.door.pos.z, 2.2, { key: 'door:' + key });
+      if (r !== 'arrived') return false;
+      if (!n.door.open && n.door.interact && typeof n.door.interact.fn === 'function') { try { n.door.interact.fn(n.door, p); } catch (e) { /* ignore */ } logLine('opened ' + (n.door.name || 'a door')); }
+      u.inside = true; chain(); return false;
+    }
+    const r = goTo(tx, tz, 3.6, { key: 'npc:' + key, tpRadius: 2.2 });
+    if (r !== 'arrived' && pdist(tx, tz) > 5) return false;
     if (G.Player.autoMoving) autoStop();
     if (p.mounted) dismount();
     facePoint(tx, tz);
+    return true;
+  }
+  function stepTalk(o, q, npcId, verb) {
+    const n = posOfNpc(npcId);
+    if (!n) { forceObjective(q.id, S.objIndex, 'NPC ' + npcId + ' does not exist', 1); return; }
+    setText('talk:' + q.id + ':' + npcId + ':' + (sub().inside ? 'in' : 'out'), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), describeObjective(q, S.objIndex));
+    if (!reachNpc(n, npcId)) return;
     logLine(verb + ' ' + n.name);
     flashDialogue(n.ent, q.text && q.text.progress ? q.text.progress : '');
     onTalk(npcId, n.ent);
     if (!objDone(q, state[q.id], S.objIndex)) forceObjective(q.id, S.objIndex, 'talking to ' + n.name + ' did not register', 1);
-    S.planDirty = true;
+    S.planDirty = true; chain();
   }
   function stepExplore(o, q) {
     const r = num(o.radius, 12);
     setText('explore:' + q.id + ':' + S.objIndex, 'Exploring: ' + (o.label || 'the area') + ' in ' + zoneName(zoneAt(o.pos.x, o.pos.z)), describeObjective(q, S.objIndex));
-    const res = goTo(o.pos.x, o.pos.z, Math.max(1.5, r * 0.6), { key: 'explore' });
-    if (res === 'arrived' || pdist(o.pos.x, o.pos.z) <= r) { onExplore(player().pos); if (!objDone(q, state[q.id], S.objIndex)) forceObjective(q.id, S.objIndex, 'explore radius reached', 1); }
+    const res = goTo(o.pos.x, o.pos.z, Math.max(1.5, r * 0.6), { key: 'explore', tpRadius: Math.max(1, r * 0.4) });
+    if (res === 'arrived' || pdist(o.pos.x, o.pos.z) <= r) { onExplore(player().pos); if (!objDone(q, state[q.id], S.objIndex)) forceObjective(q.id, S.objIndex, 'explore radius reached', 1); chain(); }
   }
   function _shorePoint(spot, from) {
     const cx = spot.x, cz = spot.z; const r0 = Math.max(4, num(spot.spot && spot.spot.radius, 12));
@@ -1481,25 +1590,32 @@
     return best;
   }
   function stepFish(o, q) {
-    const p = player(); const u = sub(); const sp = speed();
+    const p = player(); const u = sub(); const sp = speed(), blaze = sp >= 10;
     const spot = spotPosOf(o.spot, p.pos);
     const name = spot && spot.spot ? spot.spot.name : 'the water';
     if (!spot) { forceObjective(q.id, S.objIndex, 'no fishing spot exists', 1); return; }
     if (!u.shore) { u.shore = _shorePoint(spot, p.pos); if (!u.shore) { u.shore = { x: spot.x, z: spot.z, fx: spot.x, fz: spot.z, fallback: true }; logLine('no shore point found near ' + name + ' — using the spot itself'); } }
     setText('fish:' + q.id + ':' + progressOf(q.id, S.objIndex), 'Fishing at ' + name + ' ' + progressOf(q.id, S.objIndex) + '/' + objCount(o), describeObjective(q, S.objIndex));
     const F = G.Fishing;
-    if (F && F.state && F.state !== 'idle') { if (G.Player.autoMoving) autoStop(); return; }
-    const r = goTo(u.shore.x, u.shore.z, 1.2, { key: 'shore' });
+    if (F && F.state && F.state !== 'idle') {
+      if (G.Player.autoMoving) autoStop();
+      if (u.castT < 0) u.castT = now();
+      const perCatch = blaze ? 8 : Math.max(12, 40 / sp);                      // a cycle is ≈ 5 game-s for the auto angler
+      if (now() - u.castT > perCatch) { u.castT = -1; if (hasFn(F, 'cancel')) { try { F.cancel(false); } catch (e) { /* ignore */ } } F.autoActive = false; forceObjective(q.id, S.objIndex, 'the fish would not bite at ' + name, 1); }
+      return;
+    }
+    u.castT = -1;
+    const r = goTo(u.shore.x, u.shore.z, 1.2, { key: 'shore', tpRadius: 0.8 });
     if (r !== 'arrived') return;
     if (G.Player.autoMoving) autoStop();
-    if (p.mounted) { dismount(); return; }
+    if (p.mounted) { dismount(); chain(); return; }
     facePoint(u.shore.fx, u.shore.fz);
-    if (now() - u.fishT < 0.6) return;
-    u.fishT = now();
+    if (now() - u.lastTry < 0.6) return;
+    u.lastTry = now();
     if (!F || !hasFn(F, 'autoFish')) { forceObjective(q.id, S.objIndex, 'fishing is not available', 1); return; }
     let ok = false;
     try { ok = !!F.autoFish(); } catch (e) { report(e, 'AutoQuest.autoFish'); ok = false; }
-    if (ok) { u.tries = 0; return; }
+    if (ok) { u.tries = 0; u.castT = now(); return; }
     u.tries++;
     if (u.tries >= 3) { u.tries = 0; u.shoreBad++; u.shore = null; logLine('cannot fish from here — trying another spot on the shore'); if (u.shoreBad >= 4) { u.shoreBad = 0; forceObjective(q.id, S.objIndex, 'no usable shore at ' + name, 1); } }
   }
@@ -1511,6 +1627,7 @@
     notify('Auto-quest: skipped an objective (' + why + ')', 'warning');
     if (n && n < objCount(q.objectives[i]) - num(st.progress[i], 0)) addProgress(id, i, n, { quiet: true }); else completeObjective(id, i);
     S.attemptStart = now(); S.lastProg = -1; S.planDirty = true;
+    chain();
   }
 
   // ------------------------------------------------------------------------------------------------ planning
@@ -1520,7 +1637,6 @@
     return o && o.index >= 0 ? o.index : (activeIndices(q, st)[0] | 0);
   }
   function makePlan() {
-    const p = player();
     const c = completion();
     if (c.total > 0 && c.done >= c.total) return { kind: 'finish', questId: null, objIndex: -1 };
     // 1. turn-ins (nearest turn-in NPC)
@@ -1552,7 +1668,7 @@
     const key = pl.kind + ':' + (pl.questId || '') + ':' + pl.objIndex;
     if (key === S.planKey) return;
     S.planKey = key; S.planKind = pl.kind; S.questId = pl.questId; S.objIndex = pl.objIndex;
-    S.sub = null; S.target = null; S.attemptStart = now(); S.lastProg = -1; S.fightKey = '';
+    S.sub = null; S.target = null; S.attemptStart = now(); S.lastProg = -1; S.fightKey = ''; S.engageT = -1e9;
     T.x = T.z = NaN; T.hops = null;
     if (Q.tracked !== pl.questId && pl.questId && (state[pl.questId].status === 'active' || state[pl.questId].status === 'complete')) setTracked(pl.questId);
     const q = pl.questId ? byId[pl.questId] : null;
@@ -1560,39 +1676,26 @@
   }
   function stepTurnIn(q) {
     const npcId = q.turnin || q.giver;
-    const n = posOfNpc(npcId); const u = sub(); const p = player();
-    if (!n) { warn('[AutoQuest] turn-in NPC ' + npcId + ' missing — turning in remotely'); turnIn(q.id, bestChoice(q.id), { auto: true }); S.planDirty = true; return; }
-    setText('turnin:' + q.id + (u.inside ? ':in' : ''), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), 'Turning in "' + q.name + '"');
-    let r;
-    if (n.interior && n.door && !u.inside) { r = goTo(n.door.pos.x, n.door.pos.z, 2.2, { key: 'door:' + npcId }); if (r !== 'arrived') return; if (!n.door.open && n.door.interact && typeof n.door.interact.fn === 'function') { try { n.door.interact.fn(n.door, p); } catch (e) { /* ignore */ } } u.inside = true; return; }
-    const tx = n.inner ? n.inner.x : n.x, tz = n.inner ? n.inner.z : n.z;
-    r = goTo(tx, tz, 3.6, { key: 'npc:' + npcId });
-    if (r !== 'arrived' && pdist(tx, tz) > 5) return;
-    if (G.Player.autoMoving) autoStop();
-    if (p.mounted) dismount();
-    facePoint(tx, tz);
+    const n = posOfNpc(npcId);
+    if (!n) { warn('[AutoQuest] turn-in NPC ' + npcId + ' missing — turning in remotely'); turnIn(q.id, bestChoice(q.id), { auto: true }); S.planDirty = true; chain(); return; }
+    setText('turnin:' + q.id + (sub().inside ? ':in' : ''), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), 'Turning in "' + q.name + '"');
+    if (!reachNpc(n, npcId)) return;
     flashDialogue(n.ent, q.text && q.text.complete ? q.text.complete : '');
     const ok = turnIn(q.id, bestChoice(q.id), { auto: true });
     logLine((ok ? 'turned in "' : 'turn-in FAILED "') + q.name + '" at ' + n.name);
-    S.planDirty = true;
+    if (!ok && state[q.id] && state[q.id].status === 'complete') turnIn(q.id, bestChoice(q.id), { auto: true, force: true });
+    S.planDirty = true; chain();
   }
   function stepAcquire(q) {
-    const n = posOfNpc(q.giver); const u = sub(); const p = player();
-    if (!n) { warn('[AutoQuest] quest giver ' + q.giver + ' missing — accepting remotely'); accept(q.id); S.planDirty = true; return; }
-    setText('acquire:' + q.id + (u.inside ? ':in' : ''), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), 'Accepting "' + q.name + '"');
-    let r;
-    if (n.interior && n.door && !u.inside) { r = goTo(n.door.pos.x, n.door.pos.z, 2.2, { key: 'door:' + q.giver }); if (r !== 'arrived') return; if (!n.door.open && n.door.interact && typeof n.door.interact.fn === 'function') { try { n.door.interact.fn(n.door, p); } catch (e) { /* ignore */ } } u.inside = true; return; }
-    const tx = n.inner ? n.inner.x : n.x, tz = n.inner ? n.inner.z : n.z;
-    r = goTo(tx, tz, 3.6, { key: 'npc:' + q.giver });
-    if (r !== 'arrived' && pdist(tx, tz) > 5) return;
-    if (G.Player.autoMoving) autoStop();
-    if (p.mounted) dismount();
-    facePoint(tx, tz);
+    const n = posOfNpc(q.giver);
+    if (!n) { warn('[AutoQuest] quest giver ' + q.giver + ' missing — accepting remotely'); accept(q.id); S.planDirty = true; chain(); return; }
+    setText('acquire:' + q.id + (sub().inside ? ':in' : ''), 'Travelling to ' + n.name + (n.town ? ' in ' + n.town : ''), 'Accepting "' + q.name + '"');
+    if (!reachNpc(n, q.giver)) return;
     flashDialogue(n.ent, q.text && q.text.intro ? q.text.intro : '');
     const ok = accept(q.id);
     logLine((ok ? 'accepted "' : 'accept FAILED "') + q.name + '" from ' + n.name);
     if (!ok) accept(q.id, { force: true });
-    S.planDirty = true;
+    S.planDirty = true; chain();
   }
   function finish() {
     const c = completion();
@@ -1621,7 +1724,7 @@
     if (G.state && G.state.phase !== 'playing') { stop('left the world'); return; }
     if (adminOpen()) { if (!AQ.paused) { AQ.paused = true; autoStop(); logLine('paused (admin panel)'); } return; }
     if (AQ.paused) { AQ.paused = false; logLine('resumed'); }
-    const sp = speed();
+    const sp = speed(), blaze = sp >= 10;
     // dead → wait for the retreat
     if (!alive(p)) {
       if (S.deadSince < 0) { S.deadSince = now(); logLine('defeated — waiting to retreat'); S.target = null; T.x = T.z = NaN; }
@@ -1641,16 +1744,17 @@
       S.target = threat;
       const qh = S.planKind === 'objective' && S.questId ? byId[S.questId] : null;
       const oh = qh ? qh.objectives[S.objIndex] : null;
-      const huntsIt = oh && ((oh.type === 'kill' && oh.target === threat.typeId) || (oh.type === 'collect' && oh.from === threat.typeId) || (oh.type === 'killboss' && (threat.boss || threat.bossRec)));
+      const hunt = oh ? huntInfoFor(oh, qh) : null;
+      const huntsIt = !!(hunt && matchesHunt(threat, hunt));
       if (huntsIt) { const cnt = objCount(oh), prog = oh.type === 'collect' ? Math.min(cnt, countItem(oh.item)) : progressOf(qh.id, S.objIndex); setText('hunt:' + qh.id + ':' + oh.type + ':' + prog, huntText(oh, threat, threat.typeId, oh.boss || null, prog, cnt), describeObjective(qh, S.objIndex)); }
       else setText('threat:' + threat.id, 'Fighting ' + (threat.name || 'a foe'), qh ? describeObjective(qh, S.objIndex) : 'Fighting');
-      fight(threat, dt, !!huntsIt);
+      fight(threat, dt, huntsIt ? hunt : null);
       return;
     }
     if (S.fightKey && (!S.target || !alive(S.target))) S.fightKey = '';
     // recover after a defeat before wading into the next fight (potion first, then let morale come back; nothing is
     // attacking us here or the reflex above would have fired — the stale in-combat flag must not skip this)
-    if (morale01(p) < 0.6 && now() - S.respawnedAt < 40 / sp) {
+    if (morale01(p) < 0.6 && now() - S.respawnedAt < (blaze ? 2 : 40 / sp)) {
       autoStop(); setText('recover', 'Recovering…', 'Recovering');
       if (now() - S.potionT > 2) { S.potionT = now(); usePotion('heal'); }
       return;
@@ -1663,19 +1767,19 @@
       case 'finish': finish(); return;
       case 'stuck': notify('Auto-quest: no quests available', 'warning'); logLine('no quest available and ' + completion().done + '/' + completion().total + ' done — data inconsistent'); stop('no quests available'); return;
       case 'nodata': notify('Auto-quest: no quest data loaded', 'warning'); stop('no quest data'); return;
-      case 'turnin': if (!q || st.status !== 'complete') { S.planDirty = true; return; } stepTurnIn(q); break;
-      case 'acquire': if (!q || st.status !== 'available') { S.planDirty = true; return; } stepAcquire(q); break;
+      case 'turnin': if (!q || st.status !== 'complete') { S.planDirty = true; chain(); return; } stepTurnIn(q); break;
+      case 'acquire': if (!q || st.status !== 'available') { S.planDirty = true; chain(); return; } stepAcquire(q); break;
       case 'objective': {
-        if (!q || st.status !== 'active') { S.planDirty = true; return; }
+        if (!q || st.status !== 'active') { S.planDirty = true; chain(); return; }
         const o = q.objectives[S.objIndex];
-        if (!o || objDone(q, st, S.objIndex)) { S.planDirty = true; return; }
+        if (!o || objDone(q, st, S.objIndex)) { S.planDirty = true; chain(); return; }
         switch (o.type) {
           case 'kill': stepHunt(o, q, o.target, null, objCount(o) - num(st.progress[S.objIndex], 0)); break;
           case 'killboss': { const b = bossData(o.boss); stepHunt(o, q, (b && b.type) || o.boss, o.boss, 1); break; }
           case 'collect':
             if (o.from) stepHunt(o, q, o.from, null, objCount(o) - countItem(o.item));
             else if (o.node || (hasFn(G.NPCs, 'nodesFor') && G.NPCs.nodesFor(o.item).length) || nodePosOf(o.item, p.pos)) stepGather(o, q, o.node || o.item, objCount(o) - countItem(o.item));
-            else { const u = sub(); u.missT += dt; setText('collect:' + q.id + ':nosrc', 'Searching for ' + itemName(o.item), describeObjective(q, S.objIndex)); if (u.missT > Math.max(2, 6 / sp)) forceObjective(q.id, S.objIndex, 'no source for ' + itemName(o.item)); }
+            else { const u = sub(); if (u.missSince < 0) u.missSince = now(); setText('collect:' + q.id + ':nosrc', 'Searching for ' + itemName(o.item), describeObjective(q, S.objIndex)); if (now() - u.missSince > (blaze ? 1 : Math.max(2, 6 / sp))) forceObjective(q.id, S.objIndex, 'no source for ' + itemName(o.item)); }
             break;
           case 'use': stepGather(o, q, o.node || o.item, objCount(o) - num(st.progress[S.objIndex], 0)); break;
           case 'talk': stepTalk(o, q, o.npc, 'talking to'); break;
@@ -1686,28 +1790,33 @@
         }
         break;
       }
-      default: S.planDirty = true; break;
+      default: S.planDirty = true; chain(); break;
     }
-    // objective / step timeout watchdog
+    // objective / step timeout watchdog (game time, no progress at all)
     if (q && st) {
       const prog = S.objIndex >= 0 ? num(st.progress[S.objIndex], 0) : (st.status === 'done' ? 1 : 0);
       if (prog !== S.lastProg) { S.lastProg = prog; S.attemptStart = now(); }
-      const limit = Math.max(20, 120 / sp);
+      const limit = blaze ? 12 : Math.max(20, 120 / sp);
       if (now() - S.attemptStart > limit) {
         if (S.planKind === 'objective' && S.objIndex >= 0) forceObjective(q.id, S.objIndex, 'no progress for ' + limit.toFixed(0) + ' s');
-        else if (S.planKind === 'turnin') { warn('[AutoQuest] turn-in of ' + q.id + ' timed out — completing remotely'); logLine('FORCED remote turn-in of ' + q.id); turnIn(q.id, bestChoice(q.id), { auto: true, force: true }); S.attemptStart = now(); S.planDirty = true; }
-        else if (S.planKind === 'acquire') { warn('[AutoQuest] accepting ' + q.id + ' timed out — accepting remotely'); logLine('FORCED remote accept of ' + q.id); accept(q.id, { force: true }); S.attemptStart = now(); S.planDirty = true; }
+        else if (S.planKind === 'turnin') { warn('[AutoQuest] turn-in of ' + q.id + ' timed out — completing remotely'); logLine('FORCED remote turn-in of ' + q.id); turnIn(q.id, bestChoice(q.id), { auto: true, force: true }); S.attemptStart = now(); S.planDirty = true; chain(); }
+        else if (S.planKind === 'acquire') { warn('[AutoQuest] accepting ' + q.id + ' timed out — accepting remotely'); logLine('FORCED remote accept of ' + q.id); accept(q.id, { force: true }); S.attemptStart = now(); S.planDirty = true; chain(); }
         else S.attemptStart = now();
       }
     }
   }
   function update(dt) {
     if (!AQ.active) return;
-    dt = num(dt, 0); if (dt < 0) dt = 0; if (dt > 0.1) dt = 0.1;
+    dt = num(dt, 0); if (dt < 0) dt = 0; if (dt > 0.5) dt = 0.5;      // main caps dt at 0.05 × time scale (≤ ×10)
     AQ.stats.ticks++;
-    try { tick(dt); S.errStreak = 0; }
-    catch (e) {
-      AQ.stats.errors++; S.errStreak++;
+    const depth = speed() >= 10 ? 6 : speed() >= 3 ? 3 : 1;
+    let n = 0;
+    try {
+      do { S.chain = false; tick(n === 0 ? dt : 0); n++; if (n > 1) AQ.stats.chained++; }
+      while (S.chain && AQ.active && n < depth);
+      S.chain = false; S.errStreak = 0;
+    } catch (e) {
+      AQ.stats.errors++; S.errStreak++; S.chain = false;
       report(e, 'AutoQuest.update');
       if (S.errStreak === 1) logLine('error: ' + (e && e.message ? e.message : e));
       if (S.errStreak > 300) { notify('Auto-quest stopped: repeated errors (see console)', 'warning'); stop('errors'); }
@@ -1719,7 +1828,9 @@
     G.on('questCompleted', onQuestEvent); G.on('questAccepted', onQuestEvent); G.on('questAbandoned', onQuestEvent);
     G.on('questProgress', function (id) { if (S.questId && id === S.questId) { const st = state[id]; if (st && st.status !== 'active') S.planDirty = true; } });
     G.on('playerDeath', function () {
-      if (S.target && S.target.id) { S.deathsOn[S.target.id] = num(S.deathsOn[S.target.id], 0) + 1; if (AQ.active) logLine('defeated by ' + (S.target.name || S.target.typeId) + ' (' + S.deathsOn[S.target.id] + '×)'); }
+      const t = S.target;
+      if (t && t.id) { S.deathsOn[t.id] = num(S.deathsOn[t.id], 0) + 1; if (t.typeId) S.deathTypes[t.typeId] = num(S.deathTypes[t.typeId], 0) + 1; if (AQ.active) logLine('defeated by ' + (t.name || t.typeId) + ' (' + S.deathsOn[t.id] + '×)'); }
+      S.lastDeathT = now();
       S.target = null; T.x = T.z = NaN;              // the fight clock (S.fightKey / fightStart) deliberately survives
       if (AQ.active) AQ.stats.deaths++;
     });

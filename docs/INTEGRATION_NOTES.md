@@ -60,6 +60,8 @@
 - `G.Buildings.init(scene)` then `build()` places everything from `G.Data.world` (towns, POIs, docks). `update(playerPos, dt)`. Events: `enterBuilding`, `leaveBuilding`, `doorToggled`.
 - Buildings carry `interiorSpots` `[{x,y,z,yaw,role}]` (roles keeper/vendor/boatmaster/lord/forge/fire/table/bed/sit/pray/watch/idle); `G.Buildings.spotFor(npcId)` returns a spot for an interior NPC. Docks: `dock.building`, `dock.deckY`, building `dockEnd`.
 - Town walls for `town.walls` truthy or id 'bree'. POIs without `buildings` get generated ruins by kind. `nearest(pos, filter)`, `isInside(pos)`, `playerInside`, `openDoor/closeDoor/toggleDoor(ent)`, `stats()`.
+- Interiors: every enterable has a CEILING in the `int`/`upper` group that is never hidden (flat boards+joists, or the roof underside with rafters/purlins for halls and the inn's upper storey) plus a non-floor ceiling collider (`Physics.cameraClamp` keeps the chase camera under it, jumps bump it). Only the exterior `roof` group hides, and only once the player AND the camera are inside (`bld.inside` / `bld.camInside`) — so a camera above still sees the shell.
+- Doors auto-open within 3.4 m of the player and re-close 8 s after everyone leaves; a door shut by hand (E) sets `holdClosed` and stays shut until the player steps away. A closed door is a wall collider, which `Player.autoMove` steers around — that is why the radius is larger than the interaction range.
 
 ## 10_terrain.js
 - `init()` ≈ 300 ms, `build(scene)`; `update(playerPos, dt)`. Main should call `G.Terrain.warmup(x,z,radius)` around the spawn during loading and pre-warm `mapCanvas(1024)` (≈ 520 ms) to avoid a first M-press hitch.

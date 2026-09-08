@@ -560,10 +560,20 @@
       const doors = list.filter(h => h.door).sort((p, q) => p.u - q.u);
       // door openings in wall-local s (mirrored like the holes): the plinth and the timber sill rail stop at them
       const cuts = doors.map(d => { const hw = (d.r ? d.r : d.w / 2) + 0.18; return { a: c.mir * d.u - hw, b: c.mir * d.u + hw }; }).sort((p, q) => p.a - q.a);
-      const segCol = (ua, ub) => { if (ub - ua < 0.05) return; const p = sideMap(side, W, D, ua), q = sideMap(side, W, D, ub); b.wallCol(p.x, p.z, q.x, q.z, gable || H, Math.max(0.3, t)); };
-      let u0 = -L / 2;
-      for (const d of doors) { segCol(u0, d.u - (d.r ? d.r : d.w / 2)); u0 = d.u + (d.r ? d.r : d.w / 2); }
-      segCol(u0, L / 2);
+      // Wall colliders, one run between doorways. Physics.addWall extends a wall by half its THICKNESS at each end
+      // (so adjoining walls close at corners), which used to eat t/2 off both sides of every doorway: a 1.1 m door in
+      // a 0.35 m wall left a 0.75 m gap — narrower than the player's own diameter, the invisible barrier in the
+      // doorway. Ends that meet a door are therefore pulled back by t/2 so the gap matches the opening you can see.
+      const wt = Math.max(0.3, t), back = wt / 2;
+      const segCol = (ua, ub, trimA, trimB) => {
+        const a = ua + (trimA ? back : 0), c2 = ub - (trimB ? back : 0);
+        if (c2 - a < 0.05) return;
+        const p = sideMap(side, W, D, a), q = sideMap(side, W, D, c2);
+        b.wallCol(p.x, p.z, q.x, q.z, gable || H, wt);
+      };
+      let u0 = -L / 2, trimA = false;
+      for (const d of doors) { const hw = (d.r ? d.r : d.w / 2); segCol(u0, d.u - hw, trimA, true); u0 = d.u + hw; trimA = true; }
+      segCol(u0, L / 2, trimA, false);
       b.at(c.x, c.z, c.ry);
       for (const h of list) {
         const s = c.mir * h.u;
@@ -577,7 +587,16 @@
             if (h.arch) b.torus('ext', 'wood', h.w / 2 + 0.05, 0.08, s, h.y + h.h - h.w / 2, 0, woodHex, { sz: (t + 0.16) / 0.16 });
             else b.box('ext', 'wood', h.w + fw * 2, fw + 0.04, t + 0.16, s, h.h + 0.06, 0, woodHex);
           }
-          b.box('ext', 'stone', (h.r ? h.r * 2 : h.w) + 0.5, 0.12, 0.9, s, -0.02, -t / 2 - 0.4, 0x8d8579, { jit: 0.06 });
+          // Doorstep. The slab is only decoration, so the walk-in also gets floor colliders in 0.25 m tiers marching
+          // down and out from the threshold: on flat ground the lower tiers are buried and ignored, and on a slope
+          // (where the interior floor can sit ~1 m above the grade outside, far beyond the 0.6 m step-up) they turn
+          // an unclimbable lip into a short flight. Without them a plinthed house is simply not enterable downhill.
+          const dw = (h.r ? h.r * 2 : h.w) + 0.4;
+          b.box('ext', 'stone', dw + 0.1, 0.12, 0.9, s, -0.02, -t / 2 - 0.4, 0x8d8579, { jit: 0.06 });
+          for (let k = 0; k < 5; k++) {
+            const yTop = 0.05 - k * 0.25, z1 = -t / 2 - 0.1 - k * 0.42, z0 = z1 - (k === 0 ? 0.5 : 0.44);
+            b.boxCol(s - dw / 2, yTop - 0.45, z0, s + dw / 2, yTop, k === 0 ? t / 2 : z1, true, 1.2);
+          }
           const dp = sideMap(side, W, D, h.u);
           b.end();
           b.door({ x: dp.x, z: dp.z, ry: c.ry, w: h.r ? h.r * 2 : h.w, h: h.r ? h.r * 2 : h.h, kind: h.kind || (h.r ? 'round' : h.arch ? 'arch' : 'plain'), hinge: h.hinge || -1, leaves: h.leaves || 1, hex: h.doorHex, y: h.r ? h.y - h.r : 0, t });
@@ -1047,7 +1066,7 @@
       for (let i = 0; i < idx.length; i += 3) { const a = idx[i], b2 = idx[i + 1], c = idx[i + 2]; if (flat[a] && flat[b2] && flat[c] && (flat[a] === 2 || flat[b2] === 2 || flat[c] === 2)) continue; keep.push(a, b2, c); }
       mg.setIndex(keep);
       b.piece('roof', 'grass', mg, 0, MY, MZ, 0x6f9a48, { jit: 0.06, faceJit: false });
-      b.cyl('roof', 'grass', RX * 1.03, RX * 1.06, 1.2, 32, 0, -0.55, MZ, 0x6b9446, { sz: RZ / RX, jit: 0.05 });  // skirt hides slope gaps
+      b.cyl('roof', 'grass', RX * 1.03, RX * 1.06, 1.2, 32, 0, -0.68, MZ, 0x6b9446, { sz: RZ / RX, jit: 0.05 });  // skirt hides slope gaps; its top stays BELOW the interior floor (0.05) or it z-fights through it whenever the mound is still drawn
       // facade: half-ellipse brick wall with round door & windows
       const a = 5.0, by = 3.9;
       const sh = new T.Shape(); sh.moveTo(-a, -1); sh.lineTo(a, -1); sh.lineTo(a, MY + 0.01); sh.absellipse(0, MY, a, by, 0, PI, false); sh.lineTo(-a, -1);
@@ -1141,7 +1160,7 @@
         roofMat: 'thatch', roofHex: THATCHES[v], capHex: 0x8a6a36, overhang: 0.6, roofTh: 0.45, shutters: v === 1,
         chimney: { side: 'r', u: 0.4 },
         holes: [
-          { side: 'f', u: -1.7, y: 0, w: 1.1, h: 2.1, door: true, hinge: -1 },
+          { side: 'f', u: -1.7, y: 0, w: 1.35, h: 2.2, door: true, hinge: -1 },   // ≥ 1.3 m: Player.autoMove probes a 0.55 m radius, so a 1.1 m door was too narrow to thread
           { side: 'f', u: 1.5, y: 1.1, w: 1.0, h: 1.0 },
           { side: 'b', u: -1.4, y: 1.1, w: 0.9, h: 0.9 }, { side: 'b', u: 1.6, y: 1.1, w: 0.9, h: 0.9 },
           { side: 'l', u: 0.8, y: 1.1, w: 0.9, h: 0.9 },
@@ -1179,7 +1198,7 @@
         roofMat: 'tile', roofHex: TILES[v], capHex: 0x4a3a34, overhang: 0.5, roofTh: 0.3, shutters: v !== 1,
         chimney: { side: 'l', u: 1.2 },
         holes: [
-          { side: 'f', u: 1.1, y: 0, w: 1.1, h: 2.2, door: true, hinge: 1, arch: true },
+          { side: 'f', u: 1.1, y: 0, w: 1.35, h: 2.3, door: true, hinge: 1, arch: true },
           { side: 'f', u: -1.5, y: 1.1, w: 1.1, h: 1.1 },
           { side: 'f', u: 0, y: 4.0, w: 0.8, h: 0.9 },
           { side: 'r', u: -2.0, y: 1.1, w: 0.9, h: 1.0 }, { side: 'r', u: 1.8, y: 1.1, w: 0.9, h: 1.0 },
@@ -1319,7 +1338,7 @@
         W, D, h: H, peak, ridge: 'z', t, wallMat: 'plaster', wallHex: [0xe3d6b8, 0xf0ebe0, 0xd8cfc0][v], timber: true, baseH: 0.9,
         roofMat: v === 2 ? 'tile' : 'thatch', roofHex: v === 2 ? TILES[0] : THATCHES[(v + 1) % 3], capHex: v === 2 ? 0x4a3a34 : 0x8a6a36, overhang: 0.5, roofTh: v === 2 ? 0.3 : 0.42,
         holes: [
-          { side: 'f', u: 1.6, y: 0, w: 1.1, h: 2.1, door: true, hinge: 1 },
+          { side: 'f', u: 1.7, y: 0, w: 1.35, h: 2.2, door: true, hinge: 1 },
           { side: 'f', u: -1.3, y: 0.95, w: 1.9, h: 1.3 },
           { side: 'f', u: 0.1, y: 4.0, w: 0.7, h: 0.8 },
           { side: 'l', u: 1.0, y: 1.1, w: 0.9, h: 1.0 }, { side: 'r', u: -1.0, y: 1.1, w: 0.9, h: 1.0 }, { side: 'b', u: 0, y: 1.1, w: 0.9, h: 1.0 },
@@ -1369,7 +1388,7 @@
         roofMat: 'tile', roofHex: [0x8fa3bf, 0x7f9bb8, 0xa4b0c4][v], capHex: 0xd8c070, curvedRoof: true, overhang: 0.8, roofTh: 0.25, woodHex: 0xb8b4a8, sillHex: 0xd0d4dc,
         ceiling: 'vault', vaultMat: 'plaster', vaultHex: 0xf2f0ea, rafterHex: 0xd8c070, ties: false,
         holes: [
-          { side: 'f', u: 0, y: 0, w: 1.2, h: 2.7, door: true, hinge: -1, arch: true, kind: 'elf' },
+          { side: 'f', u: 0, y: 0, w: 1.4, h: 2.8, door: true, hinge: -1, arch: true, kind: 'elf' },
           { side: 'f', u: -2.1, y: 1.3, w: 0.8, h: 2.0, arch: true }, { side: 'f', u: 2.1, y: 1.3, w: 0.8, h: 2.0, arch: true },
           { side: 'l', u: -2.2, y: 1.3, w: 0.8, h: 2.0, arch: true }, { side: 'l', u: 2.2, y: 1.3, w: 0.8, h: 2.0, arch: true },
           { side: 'r', u: 0, y: 1.3, w: 0.8, h: 2.0, arch: true }, { side: 'b', u: 0, y: 1.6, w: 1.0, h: 2.2, arch: true },
@@ -1453,7 +1472,7 @@
         floorMat: 'stone', floorHex: 0x6a6660,
         ceilMat: 'stone', ceilHex: 0x6e6a70, beamHex: 0x3e2e22,
         holes: [
-          { side: 'f', u: -1.9, y: 0, w: 1.3, h: 2.3, door: true, hinge: -1, kind: 'dwarf' },
+          { side: 'f', u: -1.9, y: 0, w: 1.45, h: 2.4, door: true, hinge: -1, kind: 'dwarf' },
           { side: 'f', u: 1.8, y: 1.3, w: 0.9, h: 0.8 }, { side: 'l', u: -1.0, y: 1.3, w: 0.8, h: 0.8 }, { side: 'b', u: 0, y: 1.3, w: 0.8, h: 0.8 },
         ],
         chimney: { side: 'r', u: 0.6 }, chimneyHex: 0x5c5658,
@@ -2620,7 +2639,10 @@
     return false;
   }
   function entFilter(e) { return e && (e.kind === 'npc' || e.kind === 'aiplayer' || e.kind === 'player' || e.kind === 'monster') && e.alive !== false; }
-  const AUTO_OPEN = 2.0, AUTO_CLOSE = 8;   // doors swing open when the player comes within AUTO_OPEN m; shut AUTO_CLOSE s after everyone has left
+  // Doors swing open when the player comes within AUTO_OPEN m and shut AUTO_CLOSE s after everyone has left. The radius
+  // is generous on purpose: a closed door is a wall collider, and Player.autoMove's probe steers AROUND walls, so the
+  // leaf has to be moving well before the player reaches the threshold or click-to-move walks around the house instead.
+  const AUTO_OPEN = 3.4, AUTO_CLOSE = 8;
   function updateDoors(dt, px, py, pz) {
     const tweening = typeof G.tween === 'function' && typeof G.tweenUpdate === 'function';
     _doorTimer -= dt;
@@ -2719,7 +2741,7 @@
       const dx = px - bld.x, dz = pz - bld.z, d2 = dx * dx + dz * dz;
       bld.d2 = d2;
       const band = d2 < NEAR_DIST * NEAR_DIST ? 0 : d2 < INT_DIST * INT_DIST ? 1 : d2 < FAR_DIST * FAR_DIST ? 2 : 3;
-      if (band !== bld.band) { bld.band = band; refreshVis(bld, py); }
+      if (band !== bld.band) { bld.band = band; refreshVis(bld); }
       if (d2 < 150 * 150) { if (nearN < near.length) near[nearN] = bld; else near.push(bld); nearN++; }
     }
     const ins = isInside(playerPos);

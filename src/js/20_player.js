@@ -108,6 +108,7 @@
     blockedT: 0,
     lastInterior: null,
     turnKeys: false,
+    lmbWas: false,             // left button level last frame (own press-edge detection, see update)
     rmbHeld: false,            // right button held since a press that began on the canvas → block
     blockT: 0,                 // guard-pose blend 0..1
     resumeAuto: false,         // auto-attack was on when the guard went up → restore on release
@@ -1328,16 +1329,18 @@
     // camera input first (mouse steer must affect this frame's movement)
     cameraInput(dt, canLook);
 
-    // right button (a press that began on the canvas) = hold to block; the RMB camera drag keeps working meanwhile
-    if (I) {
-      if (I.mousePressed(2) && I.mouse.overCanvas && !open && !typ) S.rmbHeld = true;
-      if (!I.mouseDown(2)) S.rmbHeld = false;
-    }
+    // right button held = block; the RMB camera drag keeps working meanwhile. This reads the button LEVEL
+    // (I.mouseDown(2)), never the press edge: an edge that lands mid-frame is cleared by Input.endFrame() before any
+    // update sees it, which at a low frame rate loses the guard entirely.
+    if (I) S.rmbHeld = I.mouseDown(2) && !open && !typ;
     setBlocking(S.rmbHeld && controls && !S.rolling && !pl.mounted && !pl.swimming && !pl.casting && G.state.phase === 'playing');
     S.blockT = clamp(S.blockT + (pl.blocking ? dt / 0.12 : -dt / 0.15), 0, 1);
 
-    // left button = select + attack, and the pointer-lock request
-    if (I && I.mousePressed(0) && I.mouse.overCanvas && !open && !typ && G.state.phase === 'playing') {
+    // left button = select + attack, and the pointer-lock request. The press edge is taken from Input OR from a
+    // level change we track ourselves, so a button still held across a slow frame boundary cannot be missed.
+    let lmbEdge = false;
+    if (I) { const dn = I.mouseDown(0); lmbEdge = I.mousePressed(0) || (dn && !S.lmbWas); S.lmbWas = dn; }
+    if (I && lmbEdge && I.mouse.overCanvas && !open && !typ && G.state.phase === 'playing') {
       const picked = clickSelect(I.mouse.x, I.mouse.y);
       if (controls) clickAttack(picked);
       if (!I.mouse.locked && typeof I.requestLock === 'function') I.requestLock();
